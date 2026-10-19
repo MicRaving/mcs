@@ -293,6 +293,20 @@ NONINDEPENDENT_EXCLUSIONS = {
         duplicate_of="Banks & Brannon (2026) Exp1",
         kept="Banks & Brannon (2026) Exp1",
     ),
+    ("Biddlestone et al. (2025 a)", "Biddlestone2025a_Exp1"): dict(
+        reason=("Duplicate of Biddlestone et al. (2025): the two study keys carry a "
+                "byte-identical PDF and extracted text and the same analysed samples "
+                "(Exp1 N=1583, Exp2 N=1603). Only one copy may enter the analysis; "
+                "Biddlestone et al. (2025) is retained."),
+        duplicate_of="Biddlestone et al. (2025) Exp1",
+        kept="Biddlestone et al. (2025) Exp1",
+    ),
+    ("Biddlestone et al. (2025 a)", "Biddlestone2025a_Exp2"): dict(
+        reason=("Duplicate of Biddlestone et al. (2025): identical PDF/text and the same "
+                "analysed sample (Exp2 N=1603). Biddlestone et al. (2025) is retained."),
+        duplicate_of="Biddlestone et al. (2025) Exp2",
+        kept="Biddlestone et al. (2025) Exp2",
+    ),
 }
 
 # Unique experiments retained from the multi-study sources above.

@@ -64,6 +64,7 @@
     coderEl: null,
     coderDone: new Set(),
     coderDv: null,        // DV index whose source span is being marked / located
+    coderTarget: null,    // {kind:"dv",index} | {kind:"field",name} for source marking
     markWarnTimer: null,
     fulltext: { criteria: [], mine: null, agreed: null, agreeMin: 2 },
   };
@@ -1467,6 +1468,7 @@
       state._srcRec = state.current;
       state._srcKey = state.key;
       state.coderDv = null;
+      state.coderTarget = null;
       state.lastMark = null;
       clearPdfMarks();
     }
@@ -1917,8 +1919,9 @@
     mark.addEventListener("click", (e) => {
       e.stopPropagation();
       setActiveDv(i);
+      state.coderTarget = { kind: "dv", index: i };
       const sel = captureSelectionSpan();
-      if (sel) { markSelectionFor(i); return; }
+      if (sel) { markSelectionFor({ kind: "dv", index: i }); return; }
       if (dv.source_span) { pdfGotoSpan(dv.source_span); return; }
       toast("Select the supporting text in the PDF, then click Mark source", "ok");
     });
@@ -1949,6 +1952,7 @@
         state.openDv.add(i);
       }
       setActiveDv(i);
+      state.coderTarget = { kind: "dv", index: i };
       // selecting a DV jumps the paper to its marked source, else its effect-size number
       if (dv.source_span) pdfGotoSpan(dv.source_span);
       else coderLocateDvCard(dv);
@@ -2423,17 +2427,22 @@
   function updateMarkButton() {
     const b = $("#mark-btn");
     if (!b) return;
-    const ready = state.view === "pdf" && !!captureSelectionSpan()
-      && state.coderDv !== null && !!dvAt(state.coderDv);
+    const t = state.coderTarget;
+    const hasTarget = !!t && ((t.kind === "dv" && !!dvAt(t.index))
+                               || (t.kind === "field" && !!t.name));
+    const ready = state.view === "pdf" && !!captureSelectionSpan() && hasTarget;
     b.setAttribute("aria-pressed", ready ? "true" : "false");
     b.classList.toggle("primary", ready);
   }
 
-  async function markSelectionFor(i) {
-    const dv = dvAt(i);
-    if (!dv) {
+  /* ``target`` is {kind:"dv", index} or {kind:"field", name}. */
+  async function markSelectionFor(target) {
+    const rec = state.records[state.current];
+    if (!rec) return;
+    const t = target || state.coderTarget;
+    if (!t) {
       toast("Focus a variable first", "err",
-        "Click a contrast (DV) or one of its fields, then select text in the PDF.");
+        "Click a field or a contrast (DV), then select text in the PDF.");
       return;
     }
     const span = captureSelectionSpan();
@@ -2442,18 +2451,31 @@
         "Drag over the sentence that supports this variable, then click Mark source.");
       return;
     }
-    dv.source_span = { page: span.page, rects: span.rects, text: span.text };
-    if (!String(dv.source_quote || "").trim()) dv.source_quote = span.text;
-    if (!String(dv.source_location || "").trim()) dv.source_location = `PDF p. ${span.page}`;
+    let label = "";
+    if (t.kind === "dv") {
+      const dv = dvAt(t.index);
+      if (!dv) { toast("Focus a variable first", "err"); return; }
+      dv.source_span = { page: span.page, rects: span.rects, text: span.text };
+      if (!String(dv.source_quote || "").trim()) dv.source_quote = span.text;
+      if (!String(dv.source_location || "").trim()) dv.source_location = `PDF p. ${span.page}`;
+      label = dv.dv_name || "Variable";
+      const card = $(`.dv-card[data-dv="${t.index}"]`);
+      const mb = card && card.querySelector(".dv-mark-btn");
+      if (mb) mb.classList.add("marked");
+    } else if (t.kind === "field" && t.name) {
+      rec.source_spans = rec.source_spans || {};
+      rec.source_spans[t.name] = { page: span.page, rects: span.rects, text: span.text };
+      label = t.name;
+    } else {
+      toast("Focus a variable first", "err");
+      return;
+    }
     touch();
     paintPdfMark(span);
-    const card = $(`.dv-card[data-dv="${i}"]`);
-    const mb = card && card.querySelector(".dv-mark-btn");
-    if (mb) mb.classList.add("marked");
     let saved = false;
     try { saved = await save({ quiet: true }); } catch { saved = false; }
     toast("Source marked", "ok",
-      `${dv.dv_name || "Variable"} · p. ${span.page}` +
+      `${label} · p. ${span.page}` +
       (saved ? "" : " (not saved — enter your coder name and Save)"));
     updateMarkButton();
   }
@@ -3644,6 +3666,7 @@
     if (card) {
       const i = Number(card.dataset.dv);
       setActiveDv(i);
+      state.coderTarget = { kind: "dv", index: i };
       const rec = state.records[state.current];
       const dv = rec && (rec.DV_Metrics || [])[i];
       if (dv && dv.source_span) {
@@ -3660,6 +3683,16 @@
       }
       return;
     }
+    // A record-level field (N, age, gender, control group, intervention, …).
+    const fname = row.dataset.field;
+    const rec = state.records[state.current];
+    state.coderTarget = fname ? { kind: "field", name: fname } : null;
+    const fspan = rec && rec.source_spans && fname ? rec.source_spans[fname] : null;
+    if (fspan) {
+      pdfGotoSpan(fspan);
+      return;
+    }
+    showMarkWarn("No marked source location for this field — used a text search.");
     coderLocate(fieldIndex.get(state.coderField));
   }
 
@@ -4574,7 +4607,7 @@
         toast("Switch to the PDF view to mark a source", "err");
         return;
       }
-      markSelectionFor(state.coderDv);
+      markSelectionFor(state.coderTarget);
     });
     document.addEventListener("selectionchange", () => {
       if (state.view === "pdf") updateMarkButton();
@@ -4584,7 +4617,13 @@
     });
     $("#form").addEventListener("focusin", (e) => {
       const card = e.target && e.target.closest ? e.target.closest(".dv-card") : null;
-      if (card) setActiveDv(Number(card.dataset.dv));
+      if (card) {
+        const i = Number(card.dataset.dv);
+        setActiveDv(i);
+        state.coderTarget = { kind: "dv", index: i };
+      } else if (e.target && e.target.dataset && e.target.dataset.field) {
+        state.coderTarget = { kind: "field", name: e.target.dataset.field };
+      }
     });
 
     $("#facet-btn").addEventListener("click", openFacetDialog);

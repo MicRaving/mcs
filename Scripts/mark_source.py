@@ -199,12 +199,17 @@ def pdf_for(key, explicit=None):
     return None
 
 
-def verify(path):
+def verify(path, require_fields=False):
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     recs = data if isinstance(data, list) else [data]
-    n_dv = n_quote = n_span = problems = 0
+    n_dv = n_quote = n_span = problems = n_fields = n_field_span = 0
     issues = []
+    # Record-level bookkeeping that is not extracted from the paper (identifiers,
+    # the coder's own note, the screening decision, and the nested containers).
+    FIELD_SKIP = {"Study_ID", "Parent_Study_ID", "Rationale_Notes",
+                  "Fulltext_Exclusion_Criterion", "DV_Metrics", "Interventions",
+                  "Covariates", "source_spans", "Intervention_ID", "Intervention_Type_Detail"}
     for rec in recs:
         sid = rec.get("Study_ID") or "?"
         for dv in (rec.get("DV_Metrics") or []):
@@ -237,8 +242,22 @@ def verify(path):
             elif quote:
                 problems += 1
                 issues.append(f"{sid}: source_quote without source_span ({dv.get('dv_name')})")
+        if require_fields:
+            spans = rec.get("source_spans") if isinstance(rec.get("source_spans"), dict) else {}
+            for fname, fval in rec.items():
+                if fname in FIELD_SKIP or fval in (None, "", [], {}):
+                    continue
+                n_fields += 1
+                fs = spans.get(fname)
+                if not (isinstance(fs, dict) and fs.get("page") and fs.get("rects")):
+                    problems += 1
+                    issues.append(f"{sid}: field '{fname}' has no source_span")
+                else:
+                    n_field_span += 1
     print(json.dumps({"file": os.path.relpath(path, B), "dv": n_dv, "with_quote": n_quote,
-                      "with_span": n_span, "problems": problems, "issues": issues[:20]},
+                      "with_span": n_span, "fields": n_fields,
+                      "fields_with_span": n_field_span,
+                      "problems": problems, "issues": issues[:30]},
                      ensure_ascii=False, indent=1))
     return 0 if problems == 0 else 2
 
@@ -250,9 +269,11 @@ def main():
     ap.add_argument("--page", type=int)
     ap.add_argument("--pdf")
     ap.add_argument("--verify")
+    ap.add_argument("--fields", action="store_true",
+                    help="with --verify: also require source_spans for every non-empty record field")
     args = ap.parse_args()
     if args.verify:
-        return verify(args.verify)
+        return verify(args.verify, require_fields=args.fields)
     if not args.key or not args.quote:
         ap.error("key and quote are required (or use --verify)")
     pdf = pdf_for(args.key, args.pdf)

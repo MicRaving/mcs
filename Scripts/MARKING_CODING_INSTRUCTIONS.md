@@ -115,6 +115,43 @@ Rules:
 - **Every DV must have a `source_span`.** If a DV is genuinely unmarkable (e.g. no extractable text), say why in `missing_metrics_reason` and `Rationale_Notes`.
 - Check the mark's page/rects are sensible before moving on.
 
+## Marking every record-level variable (required — not only DVs)
+
+Every non-empty field on the experiment record needs a location too: sample size,
+age, gender, setting, control group, intervention type/duration, design, and so
+on. Store them in a `source_spans` object on the record:
+
+```json
+"source_spans": {
+  "N_Analyzed":         {"page": 2, "rects": [[...]], "text": "..."},
+  "Age_Group":          {"page": 2, "rects": [[...]], "text": "..."},
+  "Gender_Reported_As": {"page": 2, "rects": [[...]], "text": "..."},
+  "Control_Group_Type": {"page": 3, "rects": [[...]], "text": "..."},
+  "Intervention_Type":  {"page": 3, "rects": [[...]], "text": "..."}
+}
+```
+
+Skip only these bookkeeping/nested keys: `Study_ID`, `Parent_Study_ID`,
+`Rationale_Notes`, `Fulltext_Exclusion_Criterion`, `DV_Metrics`, `Interventions`,
+`Covariates`, `source_spans`, `Intervention_ID`, `Intervention_Type_Detail`.
+**Every other field that has a value** (number, string, list, boolean) must have a
+span.
+
+- Metadata (`Title`, `Authors`, `Year`, `Publication`, `DOI`) → mark page 1.
+- A boolean/derived coding (`WEIRD_*`, `International_Sample`, `consent_reported`,
+  `data_available`, …) → mark the sentence stating the underlying fact.
+- A list-valued field → mark a passage that supports the listed values.
+- A table-based numeric field (`N_Analyzed`, `Age_Mean`) → mark the table cell/row.
+
+Validate with:
+
+```
+python Scripts/B_validate.py "<file>"
+python Scripts/mark_source.py --verify "<file>" --fields
+```
+
+Both must report zero problems.
+
 ## Estimation uncertainty
 
 - Prefer an **exact** derivation from reported statistics.
