@@ -1467,6 +1467,7 @@
       state._srcRec = state.current;
       state._srcKey = state.key;
       state.coderDv = null;
+      state.lastMark = null;
       clearPdfMarks();
     }
     form.innerHTML = "";
@@ -2338,6 +2339,7 @@
   function paintPdfMark(span) {
     const w = $(".pdf-scroll");
     if (!w || !span || !span.page) return;
+    state.lastMark = span;
     clearPdfMarks();
     const img = w.querySelector(`.pdf-page[data-page="${span.page}"]`);
     if (!img) return;
@@ -2362,16 +2364,16 @@
     }
     const img = await ensurePdfPage(span.page);
     if (!img) return false;
+    state.lastMark = span;
     const w = $(".pdf-scroll");
     const first = (span.rects && span.rects[0]) || [0, 0, 0, 0];
     w.scrollTop = Math.max(0, img.offsetTop + first[1] * img.offsetHeight - 90);
     state.page = span.page;
     const pi = $("#page-input");
     if (pi) pi.value = span.page;
-    requestAnimationFrame(() => {
-      paintPdfMark(span);
-      if (pdfFind) pdfFind.refresh();
-    });
+    paintPdfMark(span);
+    setTimeout(() => paintPdfMark(span), 80);
+    if (pdfFind) pdfFind.refresh();
     return true;
   }
 
@@ -2573,6 +2575,7 @@
       scrollPdfToPage(state.page);
       if (pdfFind) pdfFind.refresh();
       positionPdfTextLayers();
+      if (state.lastMark) paintPdfMark(state.lastMark);
     });
   }
 
