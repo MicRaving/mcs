@@ -397,6 +397,44 @@ def check_text_quality(exc):
 
 
 # ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- check 4: duplicates
+def check_duplicate_sources():
+    """Flag byte-identical PDFs / near-identical text heads under different keys.
+
+    A swapped paper is invisible to the title-overlap test when the wrong source is
+    topically close (e.g. two conspiracy-belief papers); an identical file under two
+    study keys is direct evidence of a copy/mapping defect.
+    """
+    import hashlib
+
+    pdf_groups, text_groups = {}, {}
+    for p in sorted(glob.glob(os.path.join(PAPERS, "*.pdf"))):
+        key = os.path.splitext(os.path.basename(p))[0]
+        try:
+            with open(p, "rb") as fh:
+                h = hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            continue
+        pdf_groups.setdefault(h, []).append(key)
+    for p in sorted(glob.glob(os.path.join(TEXT, "*.txt"))):
+        key = os.path.splitext(os.path.basename(p))[0]
+        head = read_text_head(p, 6000)
+        if not head:
+            continue
+        h = hashlib.sha1(norm(head).encode("utf-8")).hexdigest()
+        text_groups.setdefault(h, []).append(key)
+    rows = []
+    for kind, groups in (("pdf", pdf_groups), ("text", text_groups)):
+        for h, keys in groups.items():
+            if len(keys) < 2:
+                continue
+            for k in keys:
+                rows.append({"kind": kind, "key": k,
+                             "duplicate_of": "; ".join(x for x in keys if x != k),
+                             "hash": h[:12], "flagged": True})
+    return rows
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -411,6 +449,7 @@ def main(argv=None):
     ta = check_title_author(meta, exc)
     pt = check_participants(meta)
     tq = check_text_quality(exc)
+    dup = check_duplicate_sources()
 
     # ---- write the workbook ----
     os.makedirs(RESULTS, exist_ok=True)
@@ -420,6 +459,7 @@ def main(argv=None):
         pd.DataFrame(ta).to_excel(xw, sheet_name="TitleAuthor", index=False)
         pd.DataFrame(pt).to_excel(xw, sheet_name="Participants", index=False)
         pd.DataFrame(tq).to_excel(xw, sheet_name="TextQuality", index=False)
+        pd.DataFrame(dup).to_excel(xw, sheet_name="Duplicates", index=False)
     tq_csv = os.path.join(RESULTS, "text_quality.csv")
     pd.DataFrame(tq).to_csv(tq_csv, index=False, encoding="utf-8-sig")
 
@@ -460,12 +500,17 @@ def main(argv=None):
             print(f"    garbled [{tag}] {r['key']}: alpha={r['alpha_ratio']} "
                   f"glyph={r['glyph_index_ratio']} stop={r['stopword_ratio']} "
                   f"ctrl={r['ctrl_ratio']} ({r['notes']})")
+        dup_keys = sorted({r["key"] for r in dup})
+        print(f"[Duplicates] identical PDF/text sources {len(dup_keys)} key(s)")
+        for r in dup:
+            print(f"    duplicate {r['kind']} {r['key']} == {r['duplicate_of']} ({r['hash']})")
         print(f"wrote {xlsx}")
         print(f"wrote {tq_csv}")
 
-    if args.fail_on_hard and (wrong_hard or garbled_hard):
+    if args.fail_on_hard and (wrong_hard or garbled_hard or dup):
         print(f"SANITY VALIDATION FAIL: {len(wrong_hard)} WRONG_PAPER, "
-              f"{len(garbled_hard)} garbled (un-excepted)")
+              f"{len(garbled_hard)} garbled (un-excepted), "
+              f"{len({r['key'] for r in dup})} duplicate source(s)")
         return 1
     print("SANITY VALIDATION PASS (report written)")
     return 0

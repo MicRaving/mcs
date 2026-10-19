@@ -217,6 +217,20 @@ def verify(path):
                 n_quote += 1
             if isinstance(span, dict) and span.get("page") and span.get("rects"):
                 n_span += 1
+                pg = span.get("page")
+                if not isinstance(pg, int) or pg < 1:
+                    problems += 1
+                    issues.append(f"{sid}: invalid page {pg!r} ({dv.get('dv_name')})")
+                bad_rect = False
+                for r in (span.get("rects") or []):
+                    if (not isinstance(r, list) or len(r) < 4
+                            or not all(isinstance(v, (int, float)) for v in r[:4])
+                            or not (0 <= r[0] < r[2] <= 1 and 0 <= r[1] < r[3] <= 1)):
+                        bad_rect = True
+                        break
+                if bad_rect:
+                    problems += 1
+                    issues.append(f"{sid}: rect outside [0,1] ({dv.get('dv_name')})")
                 if quote and _norm(quote) and _norm(quote) not in _norm(str(span.get("text") or "")):
                     problems += 1
                     issues.append(f"{sid}: span text does not contain source_quote ({dv.get('dv_name')})")

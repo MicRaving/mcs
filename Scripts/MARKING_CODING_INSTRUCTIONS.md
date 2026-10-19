@@ -19,6 +19,24 @@ Sources you may read: `Text/<Key>.txt`, `Papers/<Key>.pdf`,
 contain the canonical or another coder's answers and would destroy the
 independent comparison.
 
+## Granularity & eligibility (lessons from the pilot wave)
+
+- Code **every reported outcome** of the primary comparison, not only the headline.
+  A coding with 6 DVs where the paper reports 13 loses information the agreement
+  and analysis need. Non-eligible rows (interactions, descriptives,
+  active-comparator contrasts) are still coded with `eligible_primary = 0` — they
+  document the design.
+- One row per distinct contrast × outcome × timepoint.
+- For a multi-arm intervention, code one eligible primary contrast per
+  intervention arm against the shared no-intervention control; code the arm-vs-arm
+  and decomposition contrasts as `eligible_primary = 0` (the cluster id groups
+  them, so they cannot double-count).
+- Both-arms-taught designs (active comparator) have **no** eligible primary. Code
+  the within-person pre→post change as `contrast_type = 4` with
+  `eligible_primary = 1` only when the paper reports that change, and record the
+  fully-within design in `Rationale_Notes`; otherwise `eligible_primary = 0`.
+- Never code an omnibus term or a decomposition more than once as eligible.
+
 ## Record shape
 
 ```json
