@@ -2717,7 +2717,16 @@
     state.papers.forEach((p) => (p.codings || []).forEach((c) => c && c.coder && set.add(c.coder)));
     let stored = [];
     try { stored = JSON.parse(readStore("cs.coders", "[]")); } catch { stored = []; }
-    (Array.isArray(stored) ? stored : []).forEach((c) => c && set.add(c));
+    const present = new Set([...set].map((c) => String(c).toLowerCase()));
+    // Prune remembered names that no longer exist in any coding file, so a
+    // renamed coder (e.g. ten Minimax-XX files unified to "MM") stops appearing
+    // in the dropdown after a reload.
+    const storedArr = Array.isArray(stored) ? stored : [];
+    const fresh = storedArr.filter((c) => c && present.has(String(c).toLowerCase()));
+    fresh.forEach((c) => set.add(c));
+    if (fresh.length !== storedArr.length) {
+      try { safeStore("cs.coders", JSON.stringify(fresh)); } catch { /* ignore */ }
+    }
     if (state.coder && !isOriginalSource()) set.add(state.coder);
     return [...set].sort((a, b) => String(a).localeCompare(String(b)));
   }
