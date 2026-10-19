@@ -1,0 +1,20 @@
+key,check,reason
+Abascal (2023),TitleAuthor,Thesis cover/copyright page is PDF p1; title page appears later (audit B4)
+Ager (2026),TitleAuthor,Thesis copyright page is PDF p1; title page appears later (audit B4)
+Cunningham-Erdoğdu (2025),TitleAuthor,Thesis cover page is PDF p1; title page appears later (audit B4)
+Duncan (2019),TitleAuthor,Thesis cover page is PDF p1; title page appears later (audit B4)
+Murray (2024),TitleAuthor,Thesis cover page is PDF p1; title page appears later (audit B4)
+Fendt et al. (2026 x),TitleAuthor,Manuscript dump (no PDF); coded title tokens appear later in the dump, first heading differs (audit B1/B4)
+Johnson et al. (2022),TitleAuthor,Elsevier COVID-19 cover sheet is PDF p1; article title page appears later (audit B4)
+Lu et al. (2021),TitleAuthor,Elsevier COVID-19 cover sheet is PDF p1; article title page appears later (audit B4)
+Wang & Zhang (2023),TitleAuthor,Elsevier COVID-19 cover sheet is PDF p1; article title page appears later (audit B4)
+Bråten et al. (2019),AuthorSurname,Text is journal front-matter/supplement; byline absent from the checked head
+Clayton et al. (2021),AuthorSurname,Text is the online appendix; byline absent from the checked head
+Cárdenas et al. (2010),AuthorSurname,Surname appears later than the 6000-char head (name-format artifact)
+Fendt & Hausmann (2026),AuthorSurname,German manuscript; author placeholder/encoding artifact in Text
+Fendt & Müller (2026),AuthorSurname,German manuscript; umlaut encoding artifact in Text (no PDF)
+Fendt et al. (2026 c),AuthorSurname,Surname appears later than the 6000-char head (curriculum manuscript)
+Marten & Stadtler (2025 b),AuthorSurname,Text is a preprint without the author block in the checked head
+Thomas et al. (2022),AuthorSurname,Surname appears later than the 6000-char head (name-format artifact)
+Tisinger et al. (2004),AuthorSurname,Text excerpt lacks the author byline in the checked head
+Vraga et al. (2010),AuthorSurname,Manuscript has a running head only; byline absent from the checked head

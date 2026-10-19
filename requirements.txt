@@ -1,0 +1,13 @@
+flask
+numpy
+scipy
+pandas
+openpyxl
+python-pptx
+python-docx
+lxml
+Pillow
+pywebview
+pythonnet
+pyinstaller
+pymupdf

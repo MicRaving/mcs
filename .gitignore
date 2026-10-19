@@ -1,0 +1,44 @@
+# --- research data: never part of the software repository -------------------
+/Papers/
+/Text/
+/Extraction/
+/Codings/
+/Screening/
+/Datasets/
+/Results/
+/Supplements/
+/Reproduction/
+/metacognition/
+/archive/
+/temp/
+/Sandbox/
+master_dataset.xlsx
+MR_Preregistration.*
+/CodingStudio/
+CodingStudio.lnk
+Scripts/NONREDUNDANCY_SUPPRESSED.csv
+
+# raw/derived research file types (software has no data fixtures)
+*.pdf
+*.docx
+*.xlsx
+*.xls
+*.sav
+*.dta
+*.rds
+*.csv.gz
+*.log
+
+# --- build artefacts / caches ----------------------------------------------
+/Scripts/coding_web/dist/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# --- editor / OS / agent state ---------------------------------------------
+.DS_Store
+Thumbs.db
+.openchamber/
+.opencode/

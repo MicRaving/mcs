@@ -1,0 +1,121 @@
+/* ============================================================
+   Coding Studio — Abstract screening tab
+   Three-pane shell mirroring the Coding tab: abstract list |
+   inclusion criteria form | abstract / AI-reference viewer.
+
+   Inclusion is driven by the Tab key (see screening.js): criteria whose
+   keywords appear nowhere in the title/abstract are pre-selected "Unsure"
+   when the abstract loads, and Tab accepts the focused criterion and
+   advances; past the last criterion it saves the record and loads the next
+   abstract in place.
+   ============================================================ */
+
+/* author display rules beat [hidden]; state it explicitly for the view */
+#view-screening[hidden] { display: none !important; }
+
+.workspace.screening {
+  grid-template-columns: minmax(220px, var(--w-left, 300px)) minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-areas: "left mid right";
+}
+
+/* the shared top bar is coding-specific; screening has its own controls */
+body.view-screening #clear-btn,
+body.view-screening #next-btn { display: none !important; }
+body.view-screening #merge-btn { display: inline-flex !important; }
+
+/* ------------------------------------------------------------ left list */
+.screen-progress { margin-top: 8px; font-size: 11px; color: var(--muted); }
+.screen-bar { height: 6px; margin-top: 5px; background: var(--panel-3); border-radius: 99px; overflow: hidden; }
+.screen-bar > i { display: block; height: 100%; background: var(--ok); }
+.screen-item .s-badges { display: flex; gap: 5px; margin-top: 3px; }
+.s-badge {
+  font: 700 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .04em;
+  border-radius: 99px; padding: 2px 6px; border: 1px solid var(--line);
+  color: var(--muted); background: var(--panel-2);
+  display: inline-flex; align-items: center; gap: 3px;
+}
+.s-badge svg { width: 10px; height: 10px; flex: none; }
+.s-badge.coded { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); }
+.s-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
+.s-badge.inc { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); }
+.s-badge.exc { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+.s-badge.human { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-soft); }
+.s-badge.ai { color: var(--muted); }
+
+/* ------------------------------------------------------------ criteria form */
+#screen-form { }
+.screen-head { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px; }
+.screen-title { font-family: var(--serif); font-size: 17px; font-weight: 600; line-height: 1.3; }
+.screen-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+.screen-crit {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  padding: 10px 12px; margin-bottom: 10px;
+  transition: border-color .12s, box-shadow .12s, background .12s;
+}
+/* verdict tinting: the box stays dark until a verdict is coded, then follows
+   no = red, yes = green, unsure = yellow (independent of the criterion) */
+.screen-crit.v-yes { background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 38%, transparent); }
+.screen-crit.v-no { background: color-mix(in srgb, var(--danger) 12%, var(--panel)); border-color: color-mix(in srgb, var(--danger) 38%, transparent); }
+.screen-crit.v-unsure { background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 38%, transparent); }
+.screen-crit.focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.crit-head { display: flex; align-items: baseline; gap: 8px; }
+.crit-tag {
+  font: 700 10.5px/1 var(--mono); color: var(--ink-2); background: var(--panel-3);
+  border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; flex: none;
+}
+.crit-title { font-size: 13px; font-weight: 600; }
+.crit-step { margin-left: auto; font-size: 10.5px; color: var(--faint); }
+.crit-inst { font-size: 11.5px; color: var(--muted); margin: 6px 0 8px; }
+.crit-opts { display: flex; gap: 6px; flex-wrap: wrap; }
+.crit-opt {
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  border-radius: 99px; padding: 3px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.crit-opt:hover { border-color: var(--line-2); color: var(--ink); }
+.crit-opt.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.crit-opt.active.v-no { background: var(--danger-soft); color: var(--danger); }
+.crit-opt.active.v-unsure { background: var(--warn-soft); color: var(--warn); }
+.crit-opt.active.v-yes { background: var(--ok-soft); color: var(--ok); }
+.crit-fields { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+.crit-fields .select { min-width: 108px; }
+.crit-ratio { flex: 1 1 220px; min-width: 180px; }
+.crit-ai { margin-top: 7px; font-size: 11px; color: var(--faint); }
+.crit-ai b { color: var(--ink-2); font-weight: 600; }
+#screen-form.blind .crit-ai { display: none; }
+.crit-auto { margin-top: 7px; font-size: 11px; color: var(--accent-ink); }
+.crit-auto b { font-weight: 700; }
+.screen-crit.auto .crit-tag { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+.screen-keys { margin-top: 14px; font-size: 11px; color: var(--muted); }
+.screen-keys .kbd { margin: 0 1px; }
+
+/* ------------------------------------------------------------ right viewer */
+#screen-viewer { padding: 14px 16px 28px; overflow: auto; }
+.screen-abstract { font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
+.screen-abstract .screen-abs-label {
+  display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--faint); font-weight: 700; margin-bottom: 6px;
+}
+.screen-metagrid { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 6px 12px; font-size: 12.5px; }
+.screen-metagrid dt { color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+.screen-metagrid dd { margin: 0; word-break: break-word; }
+.screen-ai-note { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; }
+.screen-blind-note {
+  padding: 22px 16px; text-align: center; color: var(--muted);
+  border: 1px dashed var(--line-2); border-radius: var(--r);
+}
+
+/* decision pills in the toolstrip */
+.pill.inc { color: var(--ok); background: var(--ok-soft); }
+.pill.exc { color: var(--danger); background: var(--danger-soft); }
+.pill.unsure { color: var(--warn); background: var(--warn-soft); }
+
+/* criterion keyword highlighting in the abstract/title */
+.screen-abstract mark.kw, .screen-title mark.kw {
+  background: rgba(255, 214, 0, 0.35); color: inherit; border-radius: 3px; padding: 0 2px;
+}
+:root[data-theme="dark"] .screen-abstract mark.kw,
+:root[data-theme="dark"] .screen-title mark.kw {
+  background: rgba(90, 190, 255, 0.35); color: inherit;
+}

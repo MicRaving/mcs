@@ -1,0 +1,129 @@
+/* ============================================================
+   Coding Studio — Summary tab (paper coding)
+   ============================================================ */
+
+#view-summary[hidden] { display: none !important; }
+/* The Summary tab reuses the app top bar: keep Coder, Save and Refresh; hide the
+   coding-only controls. */
+body.view-summary #blind-btn,
+body.view-summary #clear-btn,
+body.view-summary #next-btn { display: none !important; }
+
+/* Top-bar layout: tabs top-left, actions right. */
+.actions { margin-left: auto; }
+
+.workspace.summary { display: block; overflow: auto; padding: 0; }
+.sm-page { max-width: 1660px; margin: 0 auto; padding: 16px 18px 44px; }
+
+.sm-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.sm-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.sm-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: 16px 0;
+}
+
+/* -------------------------------------------------- dimension + level pickers */
+.sm-levels {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px; margin-bottom: 12px;
+}
+.sm-dimgroup {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  box-shadow: var(--shadow-1); padding: 0; overflow: hidden;
+}
+.sm-dimgroup > summary {
+  display: flex; align-items: center; gap: 8px; padding: 9px 12px;
+  cursor: pointer; list-style: none;
+}
+.sm-dimgroup > summary::-webkit-details-marker { display: none; }
+.sm-dimgroup > summary .caret { width: 13px; height: 13px; color: var(--muted); transition: transform .12s; }
+.sm-dimgroup[open] > summary .caret { transform: rotate(90deg); }
+.sm-dimgroup > summary h3 {
+  margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 700;
+}
+.sm-dimgroup > summary .cnt {
+  font-size: 10.5px; color: var(--faint); background: var(--panel-3);
+  border-radius: 99px; padding: 1px 7px; font-weight: 700;
+}
+.sm-dimgroup .sm-chips { padding: 0 12px 10px; }
+.sm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sm-dimchip, .sm-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2);
+  border-radius: 99px; padding: 4px 10px; font-size: 11.5px; cursor: pointer;
+}
+.sm-dimchip:hover, .sm-chip:hover { border-color: var(--line-2); color: var(--ink); }
+.sm-dimchip.active, .sm-chip.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.sm-dimchip b, .sm-chip b { font-variant-numeric: tabular-nums; color: var(--faint); font-weight: 600; }
+.sm-chip .lv.blank { color: var(--faint); font-style: italic; font-weight: 500; }
+.sm-chip i { color: var(--faint); font-style: normal; font-size: 10.5px; }
+
+.sm-levelchips {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  box-shadow: var(--shadow-1); padding: 10px 12px; margin-bottom: 14px;
+}
+.sm-levelhead {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  font-size: 12px; font-weight: 700;
+}
+.sm-levelhead .grow { flex: 1; }
+.sm-levelhead .sm-fieldname { font-weight: 700; }
+.sm-hint { margin: 0; color: var(--muted); font-size: 12px; }
+
+/* -------------------------------------------------- list */
+.sm-list {
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+  box-shadow: var(--shadow-1); overflow: hidden;
+}
+.sm-listhead {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  font-size: 12px; font-weight: 700;
+}
+.sm-listhead .grow { flex: 1; }
+.sm-tablewrap { max-height: 64vh; overflow: auto; }
+.sm-empty { padding: 26px 16px; text-align: center; color: var(--muted); }
+
+/* -------------------------------------------------- study groups */
+.sm-study { border-bottom: 1px solid var(--line); }
+.sm-study:last-child { border-bottom: 0; }
+.sm-study-head {
+  display: flex; align-items: center; gap: 9px; padding: 8px 12px;
+  cursor: pointer; background: color-mix(in srgb, var(--panel-2) 45%, transparent);
+  list-style: none;
+}
+.sm-study-head::-webkit-details-marker { display: none; }
+.sm-study-head .caret { width: 13px; height: 13px; color: var(--muted); transition: transform .12s; }
+.sm-study[open] .sm-study-head .caret { transform: rotate(90deg); }
+.sm-study-head .key { font-weight: 700; }
+.sm-study-head .n { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.sm-study-head .grow { flex: 1; }
+.sm-open {
+  font-size: 11px; font-weight: 700; color: var(--accent); cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--accent-soft); border-radius: 99px; padding: 3px 10px;
+}
+.sm-open:hover { filter: brightness(1.05); }
+.sm-edited { font-size: 10.5px; color: var(--warn); font-weight: 700; }
+
+/* -------------------------------------------------- rows */
+.sm-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 12px; border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.sm-row > * { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sm-row .rec { flex: 0 0 140px; font: 500 10.8px var(--mono); color: var(--ink-2); }
+.sm-row.head {
+  position: sticky; top: 0; z-index: 1; background: var(--panel-2);
+  font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); font-weight: 700;
+}
+.sm-row.head .rec { color: var(--muted); }
+.sm-row .ctx { font-size: 11.5px; color: var(--ink-2); }
+.sm-row select { width: 100%; font-size: 11px; padding: 3px 6px; }
+.sm-row select.overridden { border-color: var(--warn); background: var(--warn-soft); }
+.sm-row.pending { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.sm-val { font-size: 11.5px; }

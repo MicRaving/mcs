@@ -1,0 +1,328 @@
+/* ============================================================
+   Coding Studio — Analysis tab (publication bias + graphics)
+   Reuses the theme variables from styles.css (light/dark).
+   ============================================================ */
+
+/* the tab panels must actually hide (author display rules beat [hidden]) */
+#view-coding[hidden], #view-analysis[hidden] { display: none !important; }
+
+/* the coding-only topbar actions are irrelevant on the Analysis tab */
+body.view-analysis .actions > .field-inline,
+body.view-analysis #blind-btn,
+body.view-analysis #clear-btn,
+body.view-analysis #save-btn,
+body.view-analysis #next-btn { display: none !important; }
+#an-gen { display: none; }
+body.view-analysis #an-gen { display: inline-flex; }
+
+/* ------------------------------------------------------------ page shell */
+.workspace.analysis {
+  display: block;
+  overflow: auto;
+  padding: 0;
+}
+.an-page { max-width: 1560px; margin: 0 auto; padding: 16px 18px 40px; }
+
+.an-head {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.an-title h1 {
+  margin: 0; font-family: var(--serif); font-size: 19px; font-weight: 600; letter-spacing: -.01em;
+}
+.an-title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.an-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.an-controls .field-inline { display: flex; align-items: center; gap: 7px; }
+.an-controls .field-inline > span {
+  font-size: 11px; color: var(--muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.an-controls .select { min-width: 120px; }
+.an-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+.an-hint { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+.an-hint.warn { color: var(--warn); font-weight: 700; }
+/* indeterminate progress bar shown while the analysis tables are recomputed */
+.an-bar { width: 90px; height: 5px; border-radius: 99px; background: var(--panel-3); overflow: hidden; }
+.an-bar[hidden] { display: none !important; }
+.an-bar i { display: block; width: 40%; height: 100%; border-radius: 99px; background: var(--accent);
+  animation: an-slide 1.1s ease-in-out infinite; }
+@keyframes an-slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+
+/* Bayesian prior presets + sensitivity panel */
+.an-priors { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.an-priors[hidden] { display: none !important; }
+#an-pre, #an-fu { min-width: 0; width: 74px; }
+#an-mu-prior { min-width: 0; width: 96px; }
+#an-tau-prior { min-width: 0; width: 132px; }
+#an-filter { min-width: 0; max-width: 220px; }
+.an-sens-panel { margin: 4px 0 14px; }
+.an-sens-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.an-sens-grid h4 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+@media (max-width: 900px) { .an-sens-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* APA7 report builder */
+.apa-grid { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 18px; align-items: start; }
+.apa-grid h4 { margin: 10px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.apa-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 12px; }
+.apa-checks label { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+.apa-checks input { margin: 0; }
+.apa-actions { display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+#apa-prisma-img { max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; margin-top: 10px; }
+@media (max-width: 900px) { .apa-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ------------------------------------------------------------ run log */
+.an-runlog {
+  margin-top: 14px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--panel); box-shadow: var(--shadow-1); overflow: hidden;
+}
+.an-runlog-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 700;
+}
+.an-runlog-head .grow, .an-tabbar .grow { flex: 1; }
+.an-runlog pre {
+  margin: 0; max-height: 240px; overflow: auto; padding: 10px 12px;
+  font: 500 11.5px var(--mono); color: var(--ink-2); background: var(--panel-2);
+  white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------------ KPI cards */
+.an-kpis {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px; margin: 16px 0;
+}
+.kpi {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  padding: 11px 13px; box-shadow: var(--shadow-1);
+}
+.kpi .k {
+  font-size: 10.5px; color: var(--muted); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.kpi .v { font-family: var(--serif); font-size: 20px; font-weight: 600; margin-top: 3px; }
+.kpi .s { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.kpi.good .v { color: var(--ok); }
+.kpi.warn .v { color: var(--warn); }
+.kpi.bad .v { color: var(--danger); }
+
+/* ------------------------------------------------------------ card + tabs */
+.an-card {
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel);
+  box-shadow: var(--shadow-1); overflow: hidden;
+}
+.an-tabbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+.an-panel { padding: 14px; }
+.an-panel[hidden] { display: none !important; }
+
+.an-summary { display: flex; flex-direction: column; gap: 18px; }
+.an-summary h3 {
+  margin: 0 0 8px; font-size: 12px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted);
+}
+.an-empty {
+  padding: 26px 16px; text-align: center; color: var(--muted);
+  border: 1px dashed var(--line-2); border-radius: var(--r);
+}
+.an-empty code { font: 500 11.5px var(--mono); background: var(--panel-3); padding: 1px 5px; border-radius: 4px; }
+
+/* ------------------------------------------------------------ tables */
+.an-tablewrap { overflow: auto; max-height: 62vh; border: 1px solid var(--line); border-radius: var(--r-sm); }
+table.an-table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+table.an-table th, table.an-table td {
+  border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; white-space: nowrap;
+}
+table.an-table thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--panel-2);
+  font-weight: 700; color: var(--ink-2); border-bottom: 1px solid var(--line-2);
+}
+table.an-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--panel-2) 45%, transparent); }
+table.an-table tbody tr:hover { background: var(--accent-soft); }
+table.an-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.an-table td.bool-true { color: var(--danger); font-weight: 700; }
+table.an-table td.bool-false { color: var(--faint); }
+.an-note { margin: 9px 2px 0; font-size: 11px; color: var(--muted); }
+.an-warn {
+  margin: 9px 2px 0; font-size: 11.5px; color: var(--warn); background: var(--warn-soft);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--r-sm); padding: 6px 9px;
+}
+.an-modwarn { color: var(--warn); font-weight: 700; margin-right: 4px; cursor: help; }
+.an-subhead { margin: 14px 2px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .01em; }
+
+/* ------------------------------------------------------------ figures */
+.an-panel#an-panel-figures {
+  display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  grid-template-areas: "filters filters" "list view"; gap: 8px 14px;
+}
+.an-figfilters { grid-area: filters; }
+.an-figlist { grid-area: list; }
+.an-figview { grid-area: view; }
+.an-figlist { display: flex; flex-direction: column; gap: 4px; max-height: 66vh; overflow: auto; padding-right: 4px; }
+.an-figgroup { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; margin: 8px 2px 2px; }
+.an-figcount { color: var(--faint); font-weight: 600; }
+.an-figbtn {
+  text-align: left; border: 1px solid transparent; background: transparent;
+  color: var(--ink-2); border-radius: var(--r-sm); padding: 5px 8px; cursor: pointer; font-size: 11.5px;
+}
+.an-figbtn:hover { background: var(--panel-2); border-color: var(--line); color: var(--ink); }
+.an-figbtn.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+.an-figview { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+.an-figview img {
+  max-width: 100%; max-height: 64vh; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: #fff;
+}
+.an-figcap { font-size: 11.5px; color: var(--muted); text-align: center; }
+.an-figlinks { display: flex; gap: 10px; font-size: 11.5px; }
+
+.an-methods .md { font-size: 12.5px; }
+
+/* methods note sections + freshness */
+.an-method-banner { margin: 2px 2px 10px; font-size: 11.5px; color: var(--muted); }
+.an-method-banner .an-stale { color: var(--warn); }
+.an-method-banner .an-fresh { color: var(--ok); }
+.an-methodbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 2px 10px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2);
+}
+.an-jump { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); }
+.an-jump > span { font-weight: 700; text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px; }
+.an-jump select { font-size: 11.5px; max-width: 340px; }
+.an-methodsec { margin-bottom: 10px; }
+.an-methodsec > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.an-methodtitle { flex: 1; }
+.an-badge {
+  font: 700 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em;
+  border-radius: 99px; padding: 3px 7px; border: 1px solid var(--line);
+  color: var(--muted); background: var(--panel-2); flex: none;
+}
+.an-badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); }
+.an-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
+
+/* figure filters + legacy badge */
+.an-figfilters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 2px 8px; align-items: center; }
+.an-figfilters select { font-size: 11.5px; }
+.an-figbtn .an-legacy {
+  margin-left: 6px; font: 700 9px var(--mono); text-transform: uppercase;
+  color: var(--faint); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px;
+}
+
+/* ------------------------------------------------------------ analysis control bar */
+.an-layers button { font-size: 12px; }
+
+/* "Full analysis" lives in the top bar, shown only on this tab */
+#an-full-top { display: none !important; }
+body.view-analysis #an-full-top { display: inline-flex !important; }
+.an-model button { font-size: 12px; }
+.an-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap;
+}
+.an-check input { margin: 0; }
+
+/* ------------------------------------------------------------ on-the-fly moderation */
+.an-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 16px; align-items: start; }
+.an-main { min-width: 0; }
+.an-side {
+  position: sticky; top: 12px; border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1); overflow: hidden;
+}
+.an-sidehead {
+  display: flex; align-items: baseline; gap: 8px; padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+.an-sidehead h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.an-sidecap { font-size: 11px; color: var(--faint); }
+.an-sideimg { padding: 10px; background: #fff; }
+.an-sideimg img { width: 100%; height: auto; display: block; }
+/* one figure per selected moderator (stacked under the main effects figure) */
+.an-sidefigwrap { border-top: 1px solid var(--line); }
+.an-sidefighead {
+  padding: 8px 12px 2px; font-size: 10.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+}
+.an-sidefigs { display: flex; flex-direction: column; gap: 10px; padding: 4px 10px 12px; }
+.an-sidefig {
+  margin: 0; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel-2); padding: 7px;
+}
+.an-sidefig figcaption { font-size: 11px; color: var(--ink-2); font-weight: 600; margin-bottom: 5px; }
+.an-sidefig img { width: 100%; height: auto; display: block; border-radius: 4px; background: #fff; }
+.an-sidefoot { display: flex; gap: 12px; align-items: center; padding: 8px 12px; font-size: 11.5px; }
+/* Run window/panel: sits in the right column, flush under the effects figure. */
+.an-side .an-runlog {
+  margin: 0; border: 0; border-top: 1px solid var(--line);
+  border-radius: 0; box-shadow: none;
+}
+.an-side .an-runlog pre { max-height: 220px; }
+@media (max-width: 1180px) {
+  .an-body { grid-template-columns: minmax(0, 1fr); }
+  .an-side { position: static; }
+}
+
+.an-modbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.an-modbar .grow { flex: 1; }
+/* The fit indicator sits to the LEFT of the moderator-model indicator numbers
+   (never in its own bar), inside a row that reserves its height so appearing /
+   disappearing can never reflow the panel. */
+.an-modindrow { display: flex; align-items: flex-start; gap: 12px; min-height: 58px; }
+.an-modindrow .an-modkpis { flex: 1 1 auto; margin: 0; }
+.an-modindrow > .an-wait { flex: 0 0 auto; padding-top: 14px; white-space: nowrap; }
+.an-wait { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--muted); }
+/* Author display rules beat the [hidden] attribute, so state it explicitly:
+   the fit/run indicator must actually disappear when it is idle. */
+.an-wait[hidden] { display: none !important; }
+.spinner {
+  width: 14px; height: 14px; border: 2px solid var(--line-2); border-top-color: var(--accent);
+  border-radius: 50%; animation: an-spin .8s linear infinite; display: inline-block;
+}
+@keyframes an-spin { to { transform: rotate(360deg); } }
+.an-modgrid { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr); gap: 16px; }
+.an-modcol h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.an-modgroups { max-height: 46vh; overflow: auto; padding-right: 4px; }
+.an-modcat { border: 1px solid var(--line); border-radius: var(--r-sm); margin-bottom: 6px; overflow: hidden; }
+.an-modcat > summary {
+  cursor: pointer; list-style: none; padding: 6px 10px; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+  background: color-mix(in srgb, var(--panel-2) 60%, transparent);
+}
+.an-modcat > summary::-webkit-details-marker { display: none; }
+.an-modcat > summary .cnt { color: var(--faint); font-size: 10.5px; font-weight: 600; }
+.an-modcat .an-modlist { padding: 8px 10px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.an-modcat-modules > summary { background: color-mix(in srgb, var(--warn) 12%, var(--panel-2)); }
+.an-modmodules { padding: 8px 10px; }
+.an-modsubhead {
+  margin: 8px 0 6px; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); display: flex; align-items: center; gap: 8px;
+}
+.an-modsubhead:first-child { margin-top: 0; }
+.an-modsubhead .cnt { color: var(--faint); font-size: 10.5px; font-weight: 600; }
+.an-modmodules .an-modlist { padding: 0 0 6px; }
+.an-modint { margin-top: 16px; }
+.an-modlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px; align-content: start; }
+.an-moditem {
+  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 6px 9px; font-size: 12px; cursor: pointer;
+}
+.an-moditem input { margin: 0; }
+.an-moditem .kind { color: var(--faint); font-size: 10.5px; }
+.an-modint h4 { margin: 0 0 2px; font-size: 12px; }
+.an-intadd { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.an-intadd select { min-width: 0; }
+.an-intlist { display: flex; flex-direction: column; gap: 5px; }
+.an-intchip {
+  display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line);
+  border-radius: 99px; padding: 3px 10px; font-size: 11.5px; width: max-content;
+}
+.an-intchip button { border: 0; background: transparent; cursor: pointer; color: var(--muted); }
+.an-reshead { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0 8px; font-size: 12px; }
+.an-reshead b { font-variant-numeric: tabular-nums; }
+.an-modindicators { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.an-modindicators h4 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.an-modindicators .an-kpis { margin: 8px 0 4px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+table.an-table td.p-sig { color: var(--danger); font-weight: 700; }

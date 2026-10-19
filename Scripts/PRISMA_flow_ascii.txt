@@ -1,0 +1,39 @@
+PRISMA 2020 flow (report level, ASCII)
+==============================================================================
+[Identification]
+  Records identified: 30,345
+  Duplicates removed: 7,919
+[Screening]
+  Reports screened (title/abstract): 22,426
+  Records excluded at title/abstract: 21,292
+      - No misinformation intervention (C1): 20,968
+      - No control/comparison group (C2): 255
+      - Not a primary experimental study (C4): 45
+      - Not English (C3): 24
+[Eligibility]
+  Reports sought for retrieval: 1,134
+  Reports not retrieved: 0
+  Reports assessed for eligibility: 1,134
+  Reports excluded: 609
+      - No misinformation intervention (C1): 239
+      - No control/comparison group (C2): 112
+      - Not a primary experimental study (C4): 38
+      - Intervention targets alcohol/tobacco/substance use (or their advertising) rather than misinformation susceptibility: 37
+      - Intervention/outcome concerns a non-information behaviour or a non-misinformation experiment: 29
+      - Intervention targets body image/eating/appearance rather than misinformation susceptibility: 28
+      - No eligible contrast reported: 20
+      - Intervention targets commercial advertising/persuasion literacy (general persuasion) rather than misinformation susceptibility: 20
+      - Duplicate/non-independent report of an included study: 17
+      - Intervention targets sexual-health behaviour/communication rather than misinformation susceptibility: 16
+      - Fulltext irretrievable: 13
+      - Intervention targets prejudice/stereotypes/intergroup contact rather than misinformation susceptibility: 11
+      - Outcome is eyewitness/memory performance, not misinformation susceptibility: 10
+      - Not English (C3): 7
+      - No experimental intervention (observational): 5
+      - Intervention targets media violence/aggression rather than misinformation susceptibility: 5
+      - No manipulated intervention; qualitative/observational: 1
+      - No eligible contrast reported (C2): 1
+[Included]
+  Studies included in synthesis: 525
+  Included records: 780; duplicate/non-independent included records: 255
+  Coded papers: 531; coded papers in included reports: 525; included reports without a coding: 0

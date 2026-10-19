@@ -1,0 +1,6112 @@
+{
+ "schema_version": "3.1",
+ "generated_from": "MisinformationMetaArchived/coding_schemes",
+ "groups": [
+  "Metadata & Identification",
+  "Sample",
+  "Sample detail",
+  "Open Science & Design",
+  "Intervention",
+  "Instruction & Learning",
+  "Stimuli",
+  "Other"
+ ],
+ "common_fields": [
+  {
+   "name": "Study_ID",
+   "label": "Study ID",
+   "group": "Metadata & Identification",
+   "type": "string",
+   "base_type": "string",
+   "description": "Unique ID string, [Author][Year]_Exp[1-9].",
+   "required": true,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Parent_Study_ID",
+   "label": "Parent Study ID",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Study_ID of the record one level up in the hierarchy (experiment -> paper/study). Null for a top-level record.  The per-record aggregation level was removed on 2026-09-17; every extraction record now describes one experiment and carries its own DV contrasts.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Year",
+   "label": "Publication Year",
+   "group": "Metadata & Identification",
+   "type": "integer",
+   "base_type": "integer",
+   "description": "Publication year.",
+   "required": true,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "Publication",
+   "label": "Publication",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Merged publication form (one moderator). Controlled vocabulary: paper_peer_reviewed, paper_unreviewed, thesis, dissertation, preprint, working_paper, conference_paper, unpublished_manuscript, report. Splits `paper` into peer-reviewed vs unreviewed.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": "paper_peer_reviewed",
+     "label": "Paper (peer-reviewed)"
+    },
+    {
+     "value": "paper_unreviewed",
+     "label": "Paper (unreviewed)"
+    },
+    {
+     "value": "thesis",
+     "label": "Thesis"
+    },
+    {
+     "value": "dissertation",
+     "label": "Dissertation"
+    },
+    {
+     "value": "preprint",
+     "label": "Preprint"
+    },
+    {
+     "value": "working_paper",
+     "label": "Working paper"
+    },
+    {
+     "value": "conference_paper",
+     "label": "Conference paper"
+    },
+    {
+     "value": "unpublished_manuscript",
+     "label": "Unpublished manuscript"
+    },
+    {
+     "value": "report",
+     "label": "Report"
+    }
+   ]
+  },
+  {
+   "name": "DOI",
+   "label": "DOI",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Digital Object Identifier, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Authors",
+   "label": "Authors",
+   "group": "Metadata & Identification",
+   "type": "string",
+   "base_type": "string",
+   "description": "Author names (Last, First), semicolon-separated.",
+   "required": true,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Title",
+   "label": "Title",
+   "group": "Metadata & Identification",
+   "type": "string",
+   "base_type": "string",
+   "description": "Title of the paper.",
+   "required": true,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Study_Description",
+   "label": "Study Description",
+   "group": "Metadata & Identification",
+   "type": "string",
+   "base_type": "string",
+   "description": "2-sentence description of the study design and primary aim.",
+   "required": true,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "N_Recruited",
+   "label": "N Recruited",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Number of participants recruited before exclusions, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "N_Analyzed",
+   "label": "N Analyzed",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Final analyzed sample size, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "N_Reported_Per_Condition",
+   "label": "N Reported Per Condition",
+   "group": "Sample detail",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=cell sizes explicitly reported, 0=not reported (must be inferred), null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not reported (must be inferred)"
+    },
+    {
+     "value": 1,
+     "label": "cell sizes explicitly reported"
+    }
+   ]
+  },
+  {
+   "name": "N_Inference_Method",
+   "label": "N Inference Method",
+   "group": "Sample detail",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Reported, 2=Equal split of total N, 3=Other (specify in Rationale_Notes).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Reported"
+    },
+    {
+     "value": 2,
+     "label": "Equal split of total N"
+    },
+    {
+     "value": 3,
+     "label": "Other (specify in Rationale_Notes)"
+    }
+   ]
+  },
+  {
+   "name": "Age_Mean",
+   "label": "Mean Age",
+   "group": "Sample",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Numeric mean age, or null (leave null when only a median/range/category is reported).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "Age_SD",
+   "label": "Age SD",
+   "group": "Sample detail",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standard deviation of age, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "Age_Reported_As",
+   "label": "Age Reported As",
+   "group": "Sample detail",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Mean/SD, 2=Median/Range, 3=Categorical band, 4=Not reported.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Mean/SD"
+    },
+    {
+     "value": 2,
+     "label": "Median/Range"
+    },
+    {
+     "value": 3,
+     "label": "Categorical band"
+    },
+    {
+     "value": 4,
+     "label": "Not reported"
+    }
+   ]
+  },
+  {
+   "name": "Age_Group",
+   "label": "Age Group",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Children, 2=Adolescents, 3=Adults, 4=Mixed. Null if cannot be determined.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Children"
+    },
+    {
+     "value": 2,
+     "label": "Adolescents"
+    },
+    {
+     "value": 3,
+     "label": "Adults"
+    },
+    {
+     "value": 4,
+     "label": "Mixed"
+    }
+   ]
+  },
+  {
+   "name": "Gender_Ratio",
+   "label": "Gender Ratio",
+   "group": "Sample",
+   "type": "object|null",
+   "base_type": "object",
+   "description": "Object mapping gender labels to percentages or counts, e.g. {\"female\": 59, \"male\": 40, \"non-binary\": 1}; null if not reported.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "kv"
+  },
+  {
+   "name": "Gender_Reported_As",
+   "label": "Gender Reported As",
+   "group": "Sample detail",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Percentages, 2=Counts, 3=Not reported.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Percentages"
+    },
+    {
+     "value": 2,
+     "label": "Counts"
+    },
+    {
+     "value": 3,
+     "label": "Not reported"
+    }
+   ]
+  },
+  {
+   "name": "Covariates",
+   "label": "Covariates",
+   "group": "Sample detail",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "objectlist",
+   "columns": [
+    {
+     "name": "covariate",
+     "type": "string"
+    },
+    {
+     "name": "dv_name",
+     "type": "string"
+    },
+    {
+     "name": "r_val",
+     "type": "number"
+    }
+   ]
+  },
+  {
+   "name": "Country",
+   "label": "Countries",
+   "group": "Sample",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of country strings, e.g. [\"USA\", \"UK\"]. Empty array if not reported.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "chips"
+  },
+  {
+   "name": "Sample_Region",
+   "label": "Sample Region",
+   "group": "Sample detail",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Region/description when Country is not applicable (e.g. \"international English-speaking\", \"Sub-Saharan Africa\").",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "International_Sample",
+   "label": "International Sample",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=sample spans multiple countries, 0=single country, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "single country"
+    },
+    {
+     "value": 1,
+     "label": "sample spans multiple countries"
+    }
+   ]
+  },
+  {
+   "name": "WEIRD_Western",
+   "label": "WEIRD - Western",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Western, 0=not, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "Western"
+    }
+   ]
+  },
+  {
+   "name": "WEIRD_Educated",
+   "label": "WEIRD - Educated",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Educated/high-education, 0=not, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "Educated/high-education"
+    }
+   ]
+  },
+  {
+   "name": "WEIRD_Industrialized",
+   "label": "WEIRD - Industrialized",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Industrialized, 0=not, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "Industrialized"
+    }
+   ]
+  },
+  {
+   "name": "WEIRD_Rich",
+   "label": "WEIRD - Rich",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Rich/high-income, 0=not, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "Rich/high-income"
+    }
+   ]
+  },
+  {
+   "name": "WEIRD_Democratic",
+   "label": "WEIRD - Democratic",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Democratic, 0=not, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "Democratic"
+    }
+   ]
+  },
+  {
+   "name": "Setting",
+   "label": "Setting",
+   "group": "Sample",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Lab, 2=Field, 3=Classroom, 4=Online panel survey, 5=Online experiment, 6=Simulated field, 7=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Lab"
+    },
+    {
+     "value": 2,
+     "label": "Field"
+    },
+    {
+     "value": 3,
+     "label": "Classroom"
+    },
+    {
+     "value": 4,
+     "label": "Online panel survey"
+    },
+    {
+     "value": 5,
+     "label": "Online experiment"
+    },
+    {
+     "value": 6,
+     "label": "Simulated field"
+    },
+    {
+     "value": 7,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "dataset_availability_status",
+   "label": "Dataset Availability Status",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Open URL, 2=Upon request, 3=Not available, 4=Not stated.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Open URL"
+    },
+    {
+     "value": 2,
+     "label": "Upon request"
+    },
+    {
+     "value": 3,
+     "label": "Not available"
+    },
+    {
+     "value": 4,
+     "label": "Not stated"
+    }
+   ]
+  },
+  {
+   "name": "data_url",
+   "label": "Data URL",
+   "group": "Open Science & Design",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Direct URL to the dataset, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "data_repository",
+   "label": "Data Repository",
+   "group": "Open Science & Design",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Repository name/ID (e.g. OSF ujwy3, Dryad, Zenodo), or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "data_available",
+   "label": "Data Available (derived)",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Derived, not paper-coded: 1 when a harmonized participant-level dataset exists in `Datasets/<Study Key>/`, else 0. Populated by the reanalysis / analysis-suite scripts (`Scripts/suite_common.py:_data_available_map`).",
+   "required": false,
+   "derived": true,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "code_available",
+   "label": "Code Available",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=analysis code available, 0=not, null=not stated.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "analysis code available"
+    }
+   ]
+  },
+  {
+   "name": "preregistration_status",
+   "label": "Preregistration Status",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=None, 2=Registered (no URL given), 3=Registered (URL given).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "None"
+    },
+    {
+     "value": 2,
+     "label": "Registered (no URL given)"
+    },
+    {
+     "value": 3,
+     "label": "Registered (URL given)"
+    }
+   ]
+  },
+  {
+   "name": "preregistration_url",
+   "label": "Preregistration URL",
+   "group": "Open Science & Design",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "URL of the preregistration, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "ethics",
+   "label": "Ethics Approval",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=No mention, 1=Mentioned, 2=Institution named, 3=Institution and protocol number.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "No mention"
+    },
+    {
+     "value": 1,
+     "label": "Mentioned"
+    },
+    {
+     "value": 2,
+     "label": "Institution named"
+    },
+    {
+     "value": 3,
+     "label": "Institution and protocol number"
+    }
+   ]
+  },
+  {
+   "name": "consent_reported",
+   "label": "Consent Reported",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=informed consent reported, 0=not, null=not stated.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not"
+    },
+    {
+     "value": 1,
+     "label": "informed consent reported"
+    }
+   ]
+  },
+  {
+   "name": "n_arms",
+   "label": "Number of Arms",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Number of independent experimental groups/conditions.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "design_factors",
+   "label": "Design Factors",
+   "group": "Open Science & Design",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of manipulated factors, e.g. [\"inoculation\", \"misinformation\"] or [\"credibility_badge\", \"social_norm\"].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "chips"
+  },
+  {
+   "name": "factor_levels",
+   "label": "Factor Levels",
+   "group": "Open Science & Design",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of objects, [{\"factor\": string, \"levels\": [string]}].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "objectlist",
+   "columns": [
+    {
+     "name": "factor",
+     "type": "string"
+    },
+    {
+     "name": "levels",
+     "type": "list"
+    }
+   ]
+  },
+  {
+   "name": "within_between",
+   "label": "Within/Between",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Between-subjects, 2=Within-subjects, 3=Mixed.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Between-subjects"
+    },
+    {
+     "value": 2,
+     "label": "Within-subjects"
+    },
+    {
+     "value": 3,
+     "label": "Mixed"
+    }
+   ]
+  },
+  {
+   "name": "unit_of_analysis",
+   "label": "Unit of Analysis",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Participant"
+    },
+    {
+     "value": 2,
+     "label": "Item/headline"
+    },
+    {
+     "value": 3,
+     "label": "Dyad/group"
+    },
+    {
+     "value": 4,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "clustering",
+   "label": "Clustering",
+   "group": "Open Science & Design",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Clustering/random effects structure, e.g. \"standard errors clustered by post\", or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "control_group_type",
+   "label": "Control Group Type",
+   "group": "Open Science & Design",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "No-treatment/Passive"
+    },
+    {
+     "value": 2,
+     "label": "Placebo (unrelated content)"
+    },
+    {
+     "value": 3,
+     "label": "Active (alternative intervention)"
+    },
+    {
+     "value": 4,
+     "label": "Waitlist"
+    },
+    {
+     "value": 5,
+     "label": "Misinformation-only"
+    },
+    {
+     "value": 6,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "Intervention_Type",
+   "label": "Intervention Type",
+   "group": "Intervention",
+   "type": "list",
+   "base_type": "list",
+   "description": "Multi-label list of intervention types from the merged vocabulary: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Multi-type experiments are allowed (e.g. [\"inoculation\", \"friction\"]). The former intervention_module field was removed on 2026-09-17; the module-specific coding fields are now implied by these types.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "inoculation",
+    "prebunking_warning",
+    "lateral_reading",
+    "credibility_labels",
+    "media_literacy_tips",
+    "fact_checking_training",
+    "openmindedness_intervention",
+    "debunking_and_rebuttals",
+    "community_correction",
+    "accuracy_prompts",
+    "friction",
+    "social_norms",
+    "platform_exposure_reduction",
+    "other"
+   ]
+  },
+  {
+   "name": "Intervention_Type_Detail",
+   "label": "Intervention Type Detail",
+   "group": "Intervention",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "REQUIRED when Intervention_Type includes \"other\"; specify the combined/specific approach. Otherwise null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "Intervention_Topic",
+   "label": "Intervention Topic",
+   "group": "Intervention",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Topic or domain of the intervention (e.g. vaccines, climate change), or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "Intervention_Duration",
+   "label": "Intervention Duration (minutes)",
+   "group": "Intervention",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Numeric duration of the intervention in minutes, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "Modality",
+   "label": "Modality",
+   "group": "Intervention",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Text, 2=Video, 3=Game/Gamified, 4=Mixed, 5=Other (specify in detail/notes), 6=Personal training.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Text"
+    },
+    {
+     "value": 2,
+     "label": "Video"
+    },
+    {
+     "value": 3,
+     "label": "Game/Gamified"
+    },
+    {
+     "value": 4,
+     "label": "Mixed"
+    },
+    {
+     "value": 5,
+     "label": "Other (specify in detail/notes)"
+    },
+    {
+     "value": 6,
+     "label": "Personal training"
+    }
+   ]
+  },
+  {
+   "name": "Exposure_Schedule",
+   "label": "Exposure Schedule",
+   "group": "Intervention",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Single massed session, 2=Spaced (multiple continuous sessions), 3=Boosted (delayed follow-up session).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Single massed session"
+    },
+    {
+     "value": 2,
+     "label": "Spaced (multiple continuous sessions)"
+    },
+    {
+     "value": 3,
+     "label": "Boosted (delayed follow-up session)"
+    }
+   ]
+  },
+  {
+   "name": "Pedagogy_Type",
+   "label": "Pedagogy Type",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Direct Instruction, 2=Guided Inquiry, 3=Co-created/Collaborative.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Direct Instruction"
+    },
+    {
+     "value": 2,
+     "label": "Guided Inquiry"
+    },
+    {
+     "value": 3,
+     "label": "Co-created/Collaborative"
+    }
+   ]
+  },
+  {
+   "name": "Instructor_Type",
+   "label": "Instructor Type",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer, 5=Anthropomorphic Agent, 6=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Researcher"
+    },
+    {
+     "value": 2,
+     "label": "Teacher"
+    },
+    {
+     "value": 3,
+     "label": "Peer"
+    },
+    {
+     "value": 4,
+     "label": "Computer"
+    },
+    {
+     "value": 5,
+     "label": "Anthropomorphic Agent"
+    },
+    {
+     "value": 6,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "Feedback_Mechanics",
+   "label": "Feedback Mechanics",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=None, 1=Knowledge of Results (correct/incorrect), 2=Elaborated (explanation), 3=Forced Mastery.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "None"
+    },
+    {
+     "value": 1,
+     "label": "Knowledge of Results (correct/incorrect)"
+    },
+    {
+     "value": 2,
+     "label": "Elaborated (explanation)"
+    },
+    {
+     "value": 3,
+     "label": "Forced Mastery"
+    }
+   ]
+  },
+  {
+   "name": "Attention_Cues",
+   "label": "Attention Cues",
+   "group": "Intervention",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of applicable strings: [\"Visual Signaling/Highlighting\", \"Explicit Ignore Instructions\", \"Physiological/Emotional Focus\"].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "Visual Signaling/Highlighting",
+    "Explicit Ignore Instructions",
+    "Physiological/Emotional Focus"
+   ]
+  },
+  {
+   "name": "Affective_Design",
+   "label": "Affective Design",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=Neutral, 1=Intentional Negative Trigger, 2=Humor/Positive Reinforcement.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "Neutral"
+    },
+    {
+     "value": 1,
+     "label": "Intentional Negative Trigger"
+    },
+    {
+     "value": 2,
+     "label": "Humor/Positive Reinforcement"
+    }
+   ]
+  },
+  {
+   "name": "Media_Support",
+   "label": "Media Support",
+   "group": "Instruction & Learning",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of applicable strings: [\"Model teaching\", \"Visual aids\"].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "Visual aids",
+    "Video",
+    "Audio",
+    "Text",
+    "Interactive/gamified",
+    "Model teaching",
+    "Physical materials",
+    "Other"
+   ]
+  },
+  {
+   "name": "Comm_Strategies",
+   "label": "Communication Strategies",
+   "group": "Instruction & Learning",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of applicable strings: [\"Interview techniques\", \"Sketching/narrative\", \"Verbal labelling\"].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "Sketching/narrative",
+    "Verbal labelling",
+    "Interview techniques",
+    "Group discussion",
+    "Debate",
+    "Other"
+   ]
+  },
+  {
+   "name": "ICAP_Role",
+   "label": "ICAP Role",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Passive, 2=Active, 3=Constructive, 4=Interactive.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Passive"
+    },
+    {
+     "value": 2,
+     "label": "Active"
+    },
+    {
+     "value": 3,
+     "label": "Constructive"
+    },
+    {
+     "value": 4,
+     "label": "Interactive"
+    }
+   ]
+  },
+  {
+   "name": "Social_Context",
+   "label": "Social Context",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Individual, 2=Prosocial, 3=Competitive.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Individual"
+    },
+    {
+     "value": 2,
+     "label": "Prosocial"
+    },
+    {
+     "value": 3,
+     "label": "Competitive"
+    }
+   ]
+  },
+  {
+   "name": "Retrieval_Practice",
+   "label": "Retrieval Practice",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=Absent, 1=Present.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "Absent"
+    },
+    {
+     "value": 1,
+     "label": "Present"
+    }
+   ]
+  },
+  {
+   "name": "Contrasting_Cases",
+   "label": "Contrasting Cases",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=No, 1=Yes (manipulative vs. neutral examples).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "No"
+    },
+    {
+     "value": 1,
+     "label": "Yes (manipulative vs. neutral examples)"
+    }
+   ]
+  },
+  {
+   "name": "Concept_Labeling",
+   "label": "Concept Labeling",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=Implicit, 1=Explicit.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "Implicit"
+    },
+    {
+     "value": 1,
+     "label": "Explicit"
+    }
+   ]
+  },
+  {
+   "name": "Interleaving",
+   "label": "Interleaving",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=Blocked, 1=Interleaved.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "Blocked"
+    },
+    {
+     "value": 1,
+     "label": "Interleaved"
+    }
+   ]
+  },
+  {
+   "name": "Practice_Strategy",
+   "label": "Practice Strategy",
+   "group": "Instruction & Learning",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of applicable strings: [\"Recall tests\", \"Easy-to-hard sequencing\"].",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "Recall tests",
+    "Easy-to-hard sequencing",
+    "Classification/sorting",
+    "Compare-and-contrast",
+    "Self-explanation/reflection",
+    "Guided practice",
+    "Feedback-based practice",
+    "Media production",
+    "Other"
+   ]
+  },
+  {
+   "name": "Self_Efficacy",
+   "label": "Self-Efficacy Support",
+   "group": "Instruction & Learning",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "0=No, 1=Yes (explicit support/indicators).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "No"
+    },
+    {
+     "value": 1,
+     "label": "Yes (explicit support/indicators)"
+    }
+   ]
+  },
+  {
+   "name": "Synthetic",
+   "label": "Synthetic Stimuli",
+   "group": "Stimuli",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Synthetic, 2=Real, 3=Mixed.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Synthetic"
+    },
+    {
+     "value": 2,
+     "label": "Real"
+    },
+    {
+     "value": 3,
+     "label": "Mixed"
+    }
+   ]
+  },
+  {
+   "name": "Stimuli",
+   "label": "Stimuli Type",
+   "group": "Stimuli",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Headlines, 2=Claims, 3=Source, 4=Headline+Claim, 5=Claim+Source, 6=Headline+Source, 7=Video, 8=Images, 9=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Headlines"
+    },
+    {
+     "value": 2,
+     "label": "Claims"
+    },
+    {
+     "value": 3,
+     "label": "Source"
+    },
+    {
+     "value": 4,
+     "label": "Headline+Claim"
+    },
+    {
+     "value": 5,
+     "label": "Claim+Source"
+    },
+    {
+     "value": 6,
+     "label": "Headline+Source"
+    },
+    {
+     "value": 7,
+     "label": "Video"
+    },
+    {
+     "value": 8,
+     "label": "Images"
+    },
+    {
+     "value": 9,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "Stimuli_Topic",
+   "label": "Stimuli Topic",
+   "group": "Stimuli",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Topic or domain of the stimuli, or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "Rationale_Notes",
+   "label": "Rationale Notes",
+   "group": "Metadata & Identification",
+   "type": "string",
+   "base_type": "string",
+   "description": "Brief note on inferred values, group-size inference, and effect-size conversions. Empty string if none.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "Fulltext_Exclusion_Criterion",
+   "label": "Full-text exclusion criterion (C1-C4)",
+   "group": "Metadata & Identification",
+   "type": "multiselect",
+   "base_type": "string",
+   "description": "Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "options": [
+    {
+     "value": "C1",
+     "label": "No misinformation intervention (C1)"
+    },
+    {
+     "value": "C2",
+     "label": "No control/comparison group (C2)"
+    },
+    {
+     "value": "C3",
+     "label": "Not English (C3)"
+    },
+    {
+     "value": "C4",
+     "label": "Not a primary experimental study (C4)"
+    },
+    {
+     "value": "insufficient reporting",
+     "label": "insufficient reporting (study ran, but no eligible contrast is reported)"
+    },
+    {
+     "value": "fulltext irretrievable",
+     "label": "fulltext irretrievable (no obtainable copy)"
+    },
+    {
+     "value": "duplicate of an included study",
+     "label": "duplicate of an included study (non-independent report)"
+    }
+   ]
+  }
+ ],
+ "dv_fields": [
+  {
+   "name": "dv_name",
+   "label": "DV Name",
+   "group": "Other",
+   "type": "string",
+   "base_type": "string",
+   "description": "Name/label of the dependent variable.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "dv_domain",
+   "label": "DV Domains",
+   "group": "Other",
+   "type": "list",
+   "base_type": "list",
+   "description": "Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "technique_recognition",
+    "credibility",
+    "sharing_intention",
+    "search_behavior",
+    "attitude_policy",
+    "trust",
+    "media_literacy_attitudes",
+    "critical_thinking",
+    "other"
+   ]
+  },
+  {
+   "name": "score_types",
+   "label": "Score Types",
+   "group": "Other",
+   "type": "list",
+   "base_type": "list",
+   "description": "Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "multiselect",
+   "vocab": [
+    "separate_true",
+    "separate_false",
+    "separate_manipulative",
+    "separate_nonmanipulative",
+    "discernment_difference",
+    "composite",
+    "signal_detection_auc",
+    "signal_detection_d_prime",
+    "signal_detection_c",
+    "dichotomous_accuracy",
+    "continuous_accuracy",
+    "proportion",
+    "proportion_difference",
+    "behavioral_choice",
+    "other",
+    "count",
+    "single_item",
+    "behavioral_intention",
+    "change_score",
+    "signal_detection_other"
+   ]
+  },
+  {
+   "name": "discernment_defined_as",
+   "label": "Discernment Defined As",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "How a difference/discernment score is computed, e.g. \"manipulative minus non-manipulative\", or null.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "dv_polarity",
+   "label": "DV Polarity",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=higher score is better/protective, 0=higher score is worse, null=not applicable.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "higher score is worse"
+    },
+    {
+     "value": 1,
+     "label": "higher score is better/protective"
+    }
+   ]
+  },
+  {
+   "name": "scale_type",
+   "label": "Scale Type",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Limited Likert, 2=Slider/continuous, 3=Proportion/percentage, 4=Count, 5=Signal-detection index, 6=Dichotomous, 7=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Limited Likert"
+    },
+    {
+     "value": 2,
+     "label": "Slider/continuous"
+    },
+    {
+     "value": 3,
+     "label": "Proportion/percentage"
+    },
+    {
+     "value": 4,
+     "label": "Count"
+    },
+    {
+     "value": 5,
+     "label": "Signal-detection index"
+    },
+    {
+     "value": 6,
+     "label": "Dichotomous"
+    },
+    {
+     "value": 7,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "scale_points",
+   "label": "Scale Points",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Number of response scale points, if applicable.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "scale_min",
+   "label": "Scale Min",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Minimum possible score/value.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "scale_max",
+   "label": "Scale Max",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Maximum possible score/value.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "comparison_label",
+   "label": "Comparison Label",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Label of the specific contrast and timepoint, e.g. \"Good Bad Vaxx vs Control (post)\".",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "group1_label",
+   "label": "Group 1 Label",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "First group name in the comparison.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "group2_label",
+   "label": "Group 2 Label",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Second group name in the comparison.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "contrast_type",
+   "label": "Contrast Type",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Primary treatment vs no-treatment control, 2=Treatment vs active/placebo control, 3=Dose-response, 4=Within-person, 5=Factorial main effect, 6=Simple effect, 7=Other, 8=Misinformation vs no misinformation, 9=Informative message vs control, 10=Factorial interaction, 11=Omnibus model term, 12=Moderator main effect, 13=Non-intervention factor.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Primary treatment vs no-treatment control"
+    },
+    {
+     "value": 2,
+     "label": "Treatment vs active/placebo control"
+    },
+    {
+     "value": 3,
+     "label": "Dose-response"
+    },
+    {
+     "value": 4,
+     "label": "Within-person"
+    },
+    {
+     "value": 5,
+     "label": "Factorial main effect"
+    },
+    {
+     "value": 6,
+     "label": "Simple effect"
+    },
+    {
+     "value": 7,
+     "label": "Other"
+    },
+    {
+     "value": 8,
+     "label": "Misinformation vs no misinformation"
+    },
+    {
+     "value": 9,
+     "label": "Informative message vs control"
+    },
+    {
+     "value": 10,
+     "label": "Factorial interaction"
+    },
+    {
+     "value": 11,
+     "label": "Omnibus model term"
+    },
+    {
+     "value": 12,
+     "label": "Moderator main effect"
+    },
+    {
+     "value": 13,
+     "label": "Non-intervention factor"
+    }
+   ]
+  },
+  {
+   "name": "eligible_primary",
+   "label": "Eligible Primary",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=eligible primary meta-analytic contrast (intervention vs no-inoculation control), 0=not primary, null=unclear.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "not primary"
+    },
+    {
+     "value": 1,
+     "label": "eligible primary meta-analytic contrast (intervention vs no-inoculation control)"
+    }
+   ]
+  },
+  {
+   "name": "timepoint_1",
+   "label": "Timepoint 1",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "First timepoint label, e.g. \"post\", \"followup_4w\", \"pre\".",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "timepoint_2",
+   "label": "Timepoint 2",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Second timepoint label, or null for cross-sectional single-time contrasts.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "posttest_type",
+   "label": "Posttest Type",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=Immediate, 2=Delayed, 3=Both, 4=Cross-sectional, 5=Other.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 1,
+     "label": "Immediate"
+    },
+    {
+     "value": 2,
+     "label": "Delayed"
+    },
+    {
+     "value": 3,
+     "label": "Both"
+    },
+    {
+     "value": 4,
+     "label": "Cross-sectional"
+    },
+    {
+     "value": 5,
+     "label": "Other"
+    }
+   ]
+  },
+  {
+   "name": "delay_weeks",
+   "label": "Delay (weeks)",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Numeric delay in weeks; null if only immediate effects are reported.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n1i_pre",
+   "label": "N Pre Group 1",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Pre-test sample size group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m1i_pre",
+   "label": "Mean Pre Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-test mean group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd1i_pre",
+   "label": "SD Pre Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-test SD group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n2i_pre",
+   "label": "N Pre Group 2",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Pre-test sample size group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m2i_pre",
+   "label": "Mean Pre Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-test mean group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd2i_pre",
+   "label": "SD Pre Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-test SD group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n1i_post",
+   "label": "N Post Group 1",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Post-test sample size group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m1i_post",
+   "label": "Mean Post Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Post-test mean group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd1i_post",
+   "label": "SD Post Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Post-test SD group 1.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n2i_post",
+   "label": "N Post Group 2",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Post-test sample size group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m2i_post",
+   "label": "Mean Post Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Post-test mean group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd2i_post",
+   "label": "SD Post Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Post-test SD group 2.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n1i",
+   "label": "N Group 1",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Sample size group 1 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m1i",
+   "label": "Mean Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Mean group 1 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd1i",
+   "label": "SD Group 1",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "SD group 1 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n2i",
+   "label": "N Group 2",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Sample size group 2 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "m2i",
+   "label": "Mean Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Mean group 2 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sd2i",
+   "label": "SD Group 2",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "SD group 2 for the tested timepoint (metafor alias).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "t_val",
+   "label": "t Statistic",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact t-test statistic.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "F_val",
+   "label": "F Statistic",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact F-statistic.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "df_num",
+   "label": "df Numerator",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Numerator df for F-tests.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "df_den",
+   "label": "df Denominator",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Denominator df for F-tests.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "z_val",
+   "label": "z Statistic",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact z statistic (e.g. logistic/ordinal regression).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "chi2_val",
+   "label": "Chi-square Statistic",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact chi-square statistic.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "r_val",
+   "label": "r Correlation",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact correlation coefficient.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "n_total",
+   "label": "Total N",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "Total N for correlation/statistical fallback conversions.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "beta_val",
+   "label": "Regression Beta",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Unstandardized or standardized regression coefficient (state which in conversion_method).",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "beta_se",
+   "label": "Regression Beta SE",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standard error of the regression coefficient.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "log_odds",
+   "label": "Log Odds",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Log-odds coefficient.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "odds_ratio",
+   "label": "Odds Ratio",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Odds ratio.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "or_ci_low",
+   "label": "Odds Ratio CI Low",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Lower bound of the odds-ratio confidence interval.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "or_ci_high",
+   "label": "Odds Ratio CI High",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Upper bound of the odds-ratio confidence interval.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "risk_ratio",
+   "label": "Risk Ratio",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Risk ratio.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "p_val",
+   "label": "p Value",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Exact p-value, or the reported bound when censored.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "p_censored",
+   "label": "p Censored",
+   "group": "Other",
+   "type": "integer|null",
+   "base_type": "integer",
+   "description": "1=reported as an inequality (e.g. p<.001), 0=exact value.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": 0,
+     "label": "exact value"
+    },
+    {
+     "value": 1,
+     "label": "reported as an inequality (e.g. p<.001)"
+    }
+   ]
+  },
+  {
+   "name": "eta2_p",
+   "label": "Partial Eta Squared",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Partial eta-squared for ANOVA effects.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "eta2_p_ci_low",
+   "label": "Partial Eta Squared CI Low",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Lower bound of the partial eta-squared CI.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "eta2_p_ci_high",
+   "label": "Partial Eta Squared CI High",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Upper bound of the partial eta-squared CI.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "d_val",
+   "label": "Cohen's d",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-calculated Cohen's d.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "g_val",
+   "label": "Hedges' g",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Pre-calculated Hedges' g.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "d_ci_low",
+   "label": "d CI Low",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Lower CI bound for d.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "d_ci_high",
+   "label": "d CI High",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Upper CI bound for d.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "g_ci_low",
+   "label": "g CI Low",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Lower CI bound for g.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "g_ci_high",
+   "label": "g CI High",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Upper CI bound for g.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "d_se",
+   "label": "d SE",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standard error for d.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "g_se",
+   "label": "g SE",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standard error for g.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "yi",
+   "label": "Effect Size (yi)",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standardized effect size estimate used for meta-analysis.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "vi",
+   "label": "Effect Size Variance (vi)",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Variance of the effect size.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "sei",
+   "label": "Effect Size SE (sei)",
+   "group": "Other",
+   "type": "number|null",
+   "base_type": "number",
+   "description": "Standard error of the effect size.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "number"
+  },
+  {
+   "name": "effect_size_type_reported",
+   "label": "Effect Size Type Reported",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "select",
+   "options": [
+    {
+     "value": "d",
+     "label": "d"
+    },
+    {
+     "value": "g",
+     "label": "g"
+    },
+    {
+     "value": "eta2p",
+     "label": "eta2p"
+    },
+    {
+     "value": "beta",
+     "label": "beta"
+    },
+    {
+     "value": "odds_ratio",
+     "label": "odds_ratio"
+    },
+    {
+     "value": "r",
+     "label": "r"
+    },
+    {
+     "value": "means",
+     "label": "means"
+    },
+    {
+     "value": "none",
+     "label": "none"
+    },
+    {
+     "value": "dprime",
+     "label": "dprime"
+    },
+    {
+     "value": "c",
+     "label": "c"
+    },
+    {
+     "value": "other",
+     "label": "other"
+    }
+   ]
+  },
+  {
+   "name": "effect_favors",
+   "label": "Effect Favors",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Which group/condition the sign favors (e.g. \"treatment\", \"control\", \"group1\").",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "effect_direction_meaning",
+   "label": "Effect Direction Meaning",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Interpretation of a positive sign (e.g. \"positive = treatment reduced misinformation beliefs\").",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "conversion_method",
+   "label": "Conversion Method",
+   "group": "Other",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "How yi/vi were obtained, e.g. \"reported d\", \"t+n to d\", \"d to vi formula\".",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "conversion_inputs",
+   "label": "Conversion Inputs",
+   "group": "Other",
+   "type": "object|null",
+   "base_type": "object",
+   "description": "Inputs used for conversion, e.g. {\"n1i\":181,\"n2i\":199,\"t_val\":9.2}.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "json"
+  },
+  {
+   "name": "cell_descriptives",
+   "label": "Cell Descriptives",
+   "group": "Other",
+   "type": "list",
+   "base_type": "list",
+   "description": "Array of objects, one per group-time cell, each {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "objectlist",
+   "columns": [
+    {
+     "name": "group",
+     "type": "string"
+    },
+    {
+     "name": "timepoint",
+     "type": "string"
+    },
+    {
+     "name": "n",
+     "type": "number"
+    },
+    {
+     "name": "mean",
+     "type": "number"
+    },
+    {
+     "name": "sd",
+     "type": "number"
+    }
+   ]
+  },
+  {
+   "name": "missing_metrics_reason",
+   "label": "Missing Metrics Reason",
+   "group": "Other",
+   "type": "string",
+   "base_type": "string",
+   "description": "Short explanation when no full descriptives or fallback statistics are available; empty string otherwise.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "textarea"
+  },
+  {
+   "name": "source_location",
+   "label": "Source Location",
+   "group": "Other",
+   "type": "string",
+   "base_type": "string",
+   "description": "Where the statistic is reported in the paper, e.g. \"Table 2, p. 7\", \"Fig. 1\", \"Sect. 3.2\"; empty string when truly absent.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "source_quote",
+   "label": "Source Quote",
+   "group": "Other",
+   "type": "string",
+   "base_type": "string",
+   "description": "Verbatim statistic from the paper, e.g. \"d = 0.31, 95% CI [0.12, 0.50]\"; must be findable in Text/<Key>.txt after whitespace normalisation.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  }
+ ],
+ "modules": {
+  "inoculation": {
+   "label": "Psychological Inoculation / Prebunking",
+   "family": "boost",
+   "intervention_types": [
+    "inoculation"
+   ],
+   "description": "Boost and refutation strategy that pre-emptively exposes individuals to a weakened form of misinformation or manipulation techniques to build psychological resilience and recognition competences (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Inoculation_Target",
+     "label": "Inoculation Target",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Fact-based, 2=Technique-based, 3=Logic-based.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Fact-based"
+      },
+      {
+       "value": 2,
+       "label": "Technique-based"
+      },
+      {
+       "value": 3,
+       "label": "Logic-based"
+      }
+     ]
+    },
+    {
+     "name": "Threat_Warning",
+     "label": "Threat Warning",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "0=Absent, 1=Implicit, 2=Explicit forewarning.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "Absent"
+      },
+      {
+       "value": 1,
+       "label": "Implicit"
+      },
+      {
+       "value": 2,
+       "label": "Explicit forewarning"
+      }
+     ]
+    },
+    {
+     "name": "Manipulation_Strategy",
+     "label": "Manipulation Strategies",
+     "group": "Intervention module (inoculation)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Verbatim list of techniques refuted, e.g. [\"Ad Hominem\", \"False Cause\", \"Bandwagon\", \"Emotional storytelling\", \"Fake experts\", \"Naturalistic fallacy\", \"Conspiracy theories\", \"False balance\"].",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "chips"
+    },
+    {
+     "name": "Active_vs_Passive",
+     "label": "Active vs Passive",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Passive inoculation (text reading, video viewing), 2=Active inoculation (gamified interactive roleplay), 3=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Passive inoculation (text reading, video viewing)"
+      },
+      {
+       "value": 2,
+       "label": "Active inoculation (gamified interactive roleplay)"
+      },
+      {
+       "value": 3,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Perspective_Taking",
+     "label": "Perspective Taking",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "0=None/neutral, 1=Defender perspective, 2=Misinformation creator/evil perspective (e.g. Bad News game), 3=Both.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "None/neutral"
+      },
+      {
+       "value": 1,
+       "label": "Defender perspective"
+      },
+      {
+       "value": 2,
+       "label": "Misinformation creator/evil perspective (e.g. Bad News game)"
+      },
+      {
+       "value": 3,
+       "label": "Both"
+      }
+     ]
+    },
+    {
+     "name": "Technique_Count",
+     "label": "Number of Techniques",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "Number of manipulation techniques explicitly taught/refuted, or null.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "number"
+    },
+    {
+     "name": "Technique_Taxonomy",
+     "label": "Standardized Technique Taxonomy",
+     "group": "Intervention module (inoculation)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Standardized controlled names: [\"emotional_manipulation\", \"fake_experts\", \"conspiracy\", \"polarization\", \"amplification\", \"trolling\", \"naturalistic_fallacy\", \"ad_hominem\", \"false_dichotomy\", \"coherence_break\", \"discrediting\", \"scapegoating\", \"false_balance\"].",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "multiselect",
+     "vocab": [
+      "emotional_manipulation",
+      "fake_experts",
+      "conspiracy",
+      "polarization",
+      "amplification",
+      "trolling",
+      "naturalistic_fallacy",
+      "ad_hominem",
+      "false_dichotomy",
+      "coherence_break",
+      "discrediting",
+      "scapegoating",
+      "false_balance",
+      "conjunction_fallacy",
+      "impersonation"
+     ]
+    },
+    {
+     "name": "Forewarning_Explicitness",
+     "label": "Forewarning Explicitness",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "0=Absent, 1=Implicit, 2=Explicit.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "Absent"
+      },
+      {
+       "value": 1,
+       "label": "Implicit"
+      },
+      {
+       "value": 2,
+       "label": "Explicit"
+      }
+     ]
+    },
+    {
+     "name": "Refutation_Present",
+     "label": "Refutation Present",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Explicit refutation included, 0=Threat forewarning only, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "Threat forewarning only"
+      },
+      {
+       "value": 1,
+       "label": "Explicit refutation included"
+      }
+     ]
+    },
+    {
+     "name": "Immunizing_Message_Length_Words",
+     "label": "Immunizing Message Length (words)",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "Word count of the inoculation/immunizing text, or null.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "number"
+    },
+    {
+     "name": "Booster_Session_Administered",
+     "label": "Booster Session Administered",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "0=No booster, 1=Booster administered at follow-up.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No booster"
+      },
+      {
+       "value": 1,
+       "label": "Booster administered at follow-up"
+      }
+     ]
+    },
+    {
+     "name": "Booster_Content",
+     "label": "Booster Content",
+     "group": "Intervention module (inoculation)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Description of any delayed booster session content, or null.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "textarea"
+    },
+    {
+     "name": "Longevity_Test_Delay_Days",
+     "label": "Follow-up Delay (Days)",
+     "group": "Intervention module (inoculation)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "Days between inoculation and delayed post-test, or 0 if immediate only.",
+     "required": false,
+     "derived": false,
+     "module": "inoculation",
+     "editor": "number"
+    }
+   ]
+  },
+  "lateral_reading_and_verification": {
+   "label": "Lateral Reading and Verification Strategies",
+   "family": "boost",
+   "intervention_types": [
+    "lateral_reading"
+   ],
+   "description": "Boosts and educational interventions that teach explicit digital verification strategies used by professional fact-checkers, specifically leaving a website to evaluate its credibility via independent queries (Kozyreva et al., 2024). Supersedes the earlier `sourcing.yaml` module (kept as an alias). Use with the common core.",
+   "fields": [
+    {
+     "name": "Verification_Strategy_Type",
+     "label": "Strategy Taught",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "list",
+     "base_type": "list",
+     "description": "List of verification heuristics taught: [\"lateral_reading\", \"reverse_image_search\", \"click_restraint\", \"wikipedia_source_tracking\", \"original_context_tracing\", \"source_credibility_check\", \"fact_checking_site_use\", \"CRAAP_checklist\"].",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "chips"
+    },
+    {
+     "name": "Educational_Format",
+     "label": "Format of Instruction",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Classroom curriculum/course modules (teacher modeling and guided practice), 2=Short standalone instructional video, 3=Gamified interactive learning module, 4=Prompt/pop-up nudge during browsing, 5=Written guidelines/cheatsheet, 6=Self-guided web platform, 7=Other.",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Classroom curriculum/course modules (teacher modeling and guided practice)"
+      },
+      {
+       "value": 2,
+       "label": "Short standalone instructional video"
+      },
+      {
+       "value": 3,
+       "label": "Gamified interactive learning module"
+      },
+      {
+       "value": 4,
+       "label": "Prompt/pop-up nudge during browsing"
+      },
+      {
+       "value": 5,
+       "label": "Written guidelines/cheatsheet"
+      },
+      {
+       "value": 6,
+       "label": "Self-guided web platform"
+      },
+      {
+       "value": 7,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Instructional_Duration_Minutes",
+     "label": "Instruction Duration (Minutes)",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "number|null",
+     "base_type": "number",
+     "description": "Total exposure in minutes (or estimate for a curriculum).",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "number"
+    },
+    {
+     "name": "Assessment_Paradigm",
+     "label": "Assessment Paradigm",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace), 2=Controlled website credibility judgment task, 3=Self-reported verification-strategy usage, 4=Knowledge/skill assessment quiz.",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace)"
+      },
+      {
+       "value": 2,
+       "label": "Controlled website credibility judgment task"
+      },
+      {
+       "value": 3,
+       "label": "Self-reported verification-strategy usage"
+      },
+      {
+       "value": 4,
+       "label": "Knowledge/skill assessment quiz"
+      }
+     ]
+    },
+    {
+     "name": "Tracked_Behavioral_Indicators",
+     "label": "Tracked Web Navigation Behaviors",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "list",
+     "base_type": "list",
+     "description": "List of tracked metrics: [\"opened_new_tabs\", \"search_engine_queries\", \"time_on_source_domain\", \"external_credibility_references\"].",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "chips"
+    },
+    {
+     "name": "Target_Audience_Level",
+     "label": "Target Population",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Middle/high-school students, 2=College/university students, 3=General adult public, 4=Older adults, 5=Professionals (e.g. teachers, journalists).",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Middle/high-school students"
+      },
+      {
+       "value": 2,
+       "label": "College/university students"
+      },
+      {
+       "value": 3,
+       "label": "General adult public"
+      },
+      {
+       "value": 4,
+       "label": "Older adults"
+      },
+      {
+       "value": 5,
+       "label": "Professionals (e.g. teachers, journalists)"
+      }
+     ]
+    },
+    {
+     "name": "Intervention_Source_Concept",
+     "label": "Source Concept",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Sourcing, 2=Lateral Reading, 3=Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources.",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Sourcing"
+      },
+      {
+       "value": 2,
+       "label": "Lateral Reading"
+      },
+      {
+       "value": 3,
+       "label": "Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources"
+      }
+     ]
+    },
+    {
+     "name": "Search_Task",
+     "label": "Search Task",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Description of the search/evaluation task participants completed, or null.",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "text"
+    },
+    {
+     "name": "Training_Strategies",
+     "label": "Training Strategies",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array: [\"Explicit strategy instruction\", \"Modeling/demonstration\", \"Scaffolded practice\", \"Feedback\", \"Group discussion\"].",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "chips"
+    },
+    {
+     "name": "Human_Trainer",
+     "label": "Human Trainer",
+     "group": "Intervention module (lateral_reading_and_verification)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer/AI, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "lateral_reading_and_verification",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Researcher"
+      },
+      {
+       "value": 2,
+       "label": "Teacher"
+      },
+      {
+       "value": 3,
+       "label": "Peer"
+      },
+      {
+       "value": 4,
+       "label": "Computer/AI"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    }
+   ]
+  },
+  "media_literacy_tips": {
+   "label": "Media-Literacy Tips",
+   "family": "boost",
+   "intervention_types": [
+    "media_literacy_tips"
+   ],
+   "description": "Educational boost interventions providing concise, actionable heuristic rules for spotting false, deceptive, or misleading content directly in social media feeds (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Tips_Content_Checklist",
+     "label": "Specific Tips Included",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Subset of tips: [\"be_skeptical_of_headlines\", \"inspect_the_url\", \"investigate_the_source\", \"watch_for_unusual_formatting\", \"check_the_photos_images\", \"inspect_dates\", \"check_evidence_and_references\", \"cross_check_other_reports\", \"check_if_satire\", \"consider_the_source\", \"look_for_expert_consensus\"].",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "chips"
+    },
+    {
+     "name": "Delivery_Channel",
+     "label": "Delivery Channel",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Static graphic/infographic embedded in feed/survey, 2=Platform advertisement/sponsored post (e.g. Meta tips campaign), 3=Text message/ WhatsApp micro-course, 4=Print pamphlet/flyer, 5=Short video clip, 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Static graphic/infographic embedded in feed/survey"
+      },
+      {
+       "value": 2,
+       "label": "Platform advertisement/sponsored post (e.g. Meta tips campaign)"
+      },
+      {
+       "value": 3,
+       "label": "Text message/ WhatsApp micro-course"
+      },
+      {
+       "value": 4,
+       "label": "Print pamphlet/flyer"
+      },
+      {
+       "value": 5,
+       "label": "Short video clip"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Exposure_Frequency",
+     "label": "Delivery Schedule",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Single one-off exposure, 2=Multi-day repeated micro-lessons (e.g. 5-day SMS), 3=Always-accessible sidebar/guide.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Single one-off exposure"
+      },
+      {
+       "value": 2,
+       "label": "Multi-day repeated micro-lessons (e.g. 5-day SMS)"
+      },
+      {
+       "value": 3,
+       "label": "Always-accessible sidebar/guide"
+      }
+     ]
+    },
+    {
+     "name": "Geographic_Setting",
+     "label": "Geographic / Economic Context",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Global North, 2=Global South, 3=Cross-national, 4=Other/unclear.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Global North"
+      },
+      {
+       "value": 2,
+       "label": "Global South"
+      },
+      {
+       "value": 3,
+       "label": "Cross-national"
+      },
+      {
+       "value": 4,
+       "label": "Other/unclear"
+      }
+     ]
+    },
+    {
+     "name": "Target_Sample_Literacy",
+     "label": "Target Sample Demographics",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=General urban/internet users, 2=Rural / lower education and digital literacy population, 3=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "General urban/internet users"
+      },
+      {
+       "value": 2,
+       "label": "Rural / lower education and digital literacy population"
+      },
+      {
+       "value": 3,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Discernment_vs_General_Skepticism",
+     "label": "Evaluated Discernment Effect",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Selective discernment increased (lower belief/sharing of false, preserved belief of true), 2=General skepticism induced (decreased belief in both true and false), 3=No significant effect.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Selective discernment increased (lower belief/sharing of false, preserved belief of true)"
+      },
+      {
+       "value": 2,
+       "label": "General skepticism induced (decreased belief in both true and false)"
+      },
+      {
+       "value": 3,
+       "label": "No significant effect"
+      }
+     ]
+    },
+    {
+     "name": "Tip_Topic_Specific",
+     "label": "Topic-Specific vs General",
+     "group": "Intervention module (media_literacy_tips)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Generic/topic-agnostic tips, 0=Topic-specific tips, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "media_literacy_tips",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "Topic-specific tips"
+      },
+      {
+       "value": 1,
+       "label": "Generic/topic-agnostic tips"
+      }
+     ]
+    }
+   ]
+  },
+  "fact_checking_training": {
+   "label": "Fact-Checking Training",
+   "family": "boost",
+   "intervention_types": [
+    "fact_checking_training"
+   ],
+   "description": "Skills-training interventions that teach participants to actively verify claims and content (claim decomposition, search operators, fact-checking websites, reverse image search, SIFT). Distinguished from source-focused lateral reading and from tip-only nudges. Use with the common core.",
+   "fields": [
+    {
+     "name": "Fact_Check_Strategy",
+     "label": "Strategy Taught",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Subset: [\"claim_decomposition\", \"search_operator_use\", \"fact_checking_website_use\", \"reverse_image_search\", \"original_context_tracing\", \"SIFT\", \"evidence_tracing\", \"expert_consensus_lookup\"].",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "chips"
+    },
+    {
+     "name": "Training_Focus",
+     "label": "Training Focus",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Claim/fact verification, 2=Source verification, 3=Both claim and source, 4=Other.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Claim/fact verification"
+      },
+      {
+       "value": 2,
+       "label": "Source verification"
+      },
+      {
+       "value": 3,
+       "label": "Both claim and source"
+      },
+      {
+       "value": 4,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Training_Format",
+     "label": "Training Format",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Direct instruction, 2=Modeling/demonstration, 3=Scaffolded practice with feedback, 4=Gamified practice, 5=Self-directed materials, 6=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Direct instruction"
+      },
+      {
+       "value": 2,
+       "label": "Modeling/demonstration"
+      },
+      {
+       "value": 3,
+       "label": "Scaffolded practice with feedback"
+      },
+      {
+       "value": 4,
+       "label": "Gamified practice"
+      },
+      {
+       "value": 5,
+       "label": "Self-directed materials"
+      },
+      {
+       "value": 6,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Instructor_Type",
+     "label": "Instructor Type",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer/AI, 5=Anthropomorphic agent, 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Researcher"
+      },
+      {
+       "value": 2,
+       "label": "Teacher"
+      },
+      {
+       "value": 3,
+       "label": "Peer"
+      },
+      {
+       "value": 4,
+       "label": "Computer/AI"
+      },
+      {
+       "value": 5,
+       "label": "Anthropomorphic agent"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Instructional_Duration_Minutes",
+     "label": "Instruction Duration (Minutes)",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "number|null",
+     "base_type": "number",
+     "description": "Total instruction/exposure time in minutes, or null.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "number"
+    },
+    {
+     "name": "Assessment_Paradigm",
+     "label": "Assessment Paradigm",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Claim-verification accuracy task, 2=Discernment (true vs false), 3=Source-credibility judgment, 4=Behavioural search trace, 5=Self-report, 6=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Claim-verification accuracy task"
+      },
+      {
+       "value": 2,
+       "label": "Discernment (true vs false)"
+      },
+      {
+       "value": 3,
+       "label": "Source-credibility judgment"
+      },
+      {
+       "value": 4,
+       "label": "Behavioural search trace"
+      },
+      {
+       "value": 5,
+       "label": "Self-report"
+      },
+      {
+       "value": 6,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Transfer_Task",
+     "label": "Transfer Task",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Description of any novel-context transfer task, or null.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "text"
+    },
+    {
+     "name": "Feedback_Provided",
+     "label": "Feedback Provided",
+     "group": "Intervention module (fact_checking_training)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (corrective/elaborated feedback during practice), 0=No, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "fact_checking_training",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No"
+      },
+      {
+       "value": 1,
+       "label": "Yes (corrective/elaborated feedback during practice)"
+      }
+     ]
+    }
+   ]
+  },
+  "openmindedness_intervention": {
+   "label": "Open-Mindedness / Actively Open-Minded Thinking",
+   "family": "boost",
+   "intervention_types": [
+    "openmindedness_intervention"
+   ],
+   "description": "Interventions that train open-minded, reflective, or perspective-taking dispositions (actively open-minded thinking, consider-the-opposite, intellectual humility, values affirmation) to reduce myside/identity-protective reasoning about (mis)information. Use with the common core.",
+   "fields": [
+    {
+     "name": "Mechanism",
+     "label": "Mechanism",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Actively open-minded thinking (AOT) training, 2=Consider-the-opposite/ counterargument generation, 3=Perspective-taking induction, 4=Intellectual-humility training, 5=Values affirmation, 6=Reflection/ metacognitive prompt, 7=Other.",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Actively open-minded thinking (AOT) training"
+      },
+      {
+       "value": 2,
+       "label": "Consider-the-opposite/ counterargument generation"
+      },
+      {
+       "value": 3,
+       "label": "Perspective-taking induction"
+      },
+      {
+       "value": 4,
+       "label": "Intellectual-humility training"
+      },
+      {
+       "value": 5,
+       "label": "Values affirmation"
+      },
+      {
+       "value": 6,
+       "label": "Reflection/ metacognitive prompt"
+      },
+      {
+       "value": 7,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Target_Response",
+     "label": "Target Response",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Belief updating/receptivity to correction, 2=Myside bias reduction, 3=Sharing behaviour, 4=Openness attitudes, 5=Multiple.",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Belief updating/receptivity to correction"
+      },
+      {
+       "value": 2,
+       "label": "Myside bias reduction"
+      },
+      {
+       "value": 3,
+       "label": "Sharing behaviour"
+      },
+      {
+       "value": 4,
+       "label": "Openness attitudes"
+      },
+      {
+       "value": 5,
+       "label": "Multiple"
+      }
+     ]
+    },
+    {
+     "name": "Session_Structure",
+     "label": "Session Structure",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Single brief exercise, 2=Multi-session training, 3=Integrated into curriculum, 4=Booster session.",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Single brief exercise"
+      },
+      {
+       "value": 2,
+       "label": "Multi-session training"
+      },
+      {
+       "value": 3,
+       "label": "Integrated into curriculum"
+      },
+      {
+       "value": 4,
+       "label": "Booster session"
+      }
+     ]
+    },
+    {
+     "name": "Delivered_Via",
+     "label": "Delivered Via",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Text exercise, 2=Video, 3=Interactive dialogue, 4=Group discussion, 5=Task/quiz, 6=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Text exercise"
+      },
+      {
+       "value": 2,
+       "label": "Video"
+      },
+      {
+       "value": 3,
+       "label": "Interactive dialogue"
+      },
+      {
+       "value": 4,
+       "label": "Group discussion"
+      },
+      {
+       "value": 5,
+       "label": "Task/quiz"
+      },
+      {
+       "value": 6,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Instructional_Duration_Minutes",
+     "label": "Instruction Duration (Minutes)",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "number|null",
+     "base_type": "number",
+     "description": "Total duration in minutes, or null.",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "number"
+    },
+    {
+     "name": "Outcome_Measures",
+     "label": "Outcome Measures",
+     "group": "Intervention module (openmindedness_intervention)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array, e.g. [\"AOT scale\", \"receptiveness to opposing views\", \"belief accuracy\", \"sharing intentions\"].",
+     "required": false,
+     "derived": false,
+     "module": "openmindedness_intervention",
+     "editor": "chips"
+    }
+   ]
+  },
+  "debunking_and_rebuttals": {
+   "label": "Debunking and Rebuttals",
+   "family": "correction",
+   "intervention_types": [
+    "debunking_and_rebuttals"
+   ],
+   "description": "Refutation strategies that dispel misconceptions, counter false beliefs, and attenuate the continued influence of misinformation by providing corrective factual information or dissecting misleading argumentation (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Refutation_Type",
+     "label": "Refutation Strategy Type",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Topic rebuttal / factual debunking (correcting facts directly), 2=Technique rebuttal (exposing rhetorical tactics/fallacies), 3=Combined topic and technique rebuttal.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Topic rebuttal / factual debunking (correcting facts directly)"
+      },
+      {
+       "value": 2,
+       "label": "Technique rebuttal (exposing rhetorical tactics/fallacies)"
+      },
+      {
+       "value": 3,
+       "label": "Combined topic and technique rebuttal"
+      }
+     ]
+    },
+    {
+     "name": "Correction_Structure_Steps",
+     "label": "Four-Step Structure Compliance",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Subset of the 4 debunking steps present: [\"fact_first_statement\", \"salience_warning_pre_exposure\", \"misinformation_specification_and_flaw_explanation\", \"alternative_causal_explanation\"].",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "chips"
+    },
+    {
+     "name": "Alternative_Causal_Explanation_Present",
+     "label": "Alternative Causal Explanation Present",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Explicit alternative causal model provided, 0=Simple retraction/negation only, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "Simple retraction/negation only"
+      },
+      {
+       "value": 1,
+       "label": "Explicit alternative causal model provided"
+      }
+     ]
+    },
+    {
+     "name": "Narrative_Format",
+     "label": "Correction Format",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Narrative correction (story/case-based), 2=Non-narrative correction (factual/list-based), 3=Visual/infographic.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Narrative correction (story/case-based)"
+      },
+      {
+       "value": 2,
+       "label": "Non-narrative correction (factual/list-based)"
+      },
+      {
+       "value": 3,
+       "label": "Visual/infographic"
+      }
+     ]
+    },
+    {
+     "name": "Correction_Source",
+     "label": "Source of Debunking",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Professional independent fact-checker, 2=Government/public-health institution, 3=Peer/social correction (user comment), 4=Algorithmic/ platform system message, 5=Anonymous/unattributed source, 6=Trusted messenger (e.g. local health worker), 7=Other.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Professional independent fact-checker"
+      },
+      {
+       "value": 2,
+       "label": "Government/public-health institution"
+      },
+      {
+       "value": 3,
+       "label": "Peer/social correction (user comment)"
+      },
+      {
+       "value": 4,
+       "label": "Algorithmic/ platform system message"
+      },
+      {
+       "value": 5,
+       "label": "Anonymous/unattributed source"
+      },
+      {
+       "value": 6,
+       "label": "Trusted messenger (e.g. local health worker)"
+      },
+      {
+       "value": 7,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Timing_Relative_to_Misinformation",
+     "label": "Timing of Correction",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Immediate correction (same exposure instance), 2=Delayed correction (subsequent session/turn), 3=Pre-exposure rebuttal.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Immediate correction (same exposure instance)"
+      },
+      {
+       "value": 2,
+       "label": "Delayed correction (subsequent session/turn)"
+      },
+      {
+       "value": 3,
+       "label": "Pre-exposure rebuttal"
+      }
+     ]
+    },
+    {
+     "name": "Misinformation_Continued_Influence_Assessed",
+     "label": "Continued Influence Effect (CIE) Measured",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (open-ended inferential reasoning/scenario comprehension), 0=No (isolated item belief/accuracy rating only).",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No (isolated item belief/accuracy rating only)"
+      },
+      {
+       "value": 1,
+       "label": "Yes (open-ended inferential reasoning/scenario comprehension)"
+      }
+     ]
+    },
+    {
+     "name": "Repeated_Correction",
+     "label": "Repeated Correction",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (same correction delivered more than once), 0=No, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No"
+      },
+      {
+       "value": 1,
+       "label": "Yes (same correction delivered more than once)"
+      }
+     ]
+    },
+    {
+     "name": "Threat_to_Worldview",
+     "label": "Identities/Worldviews Threat",
+     "group": "Intervention module (debunking_and_rebuttals)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (correction challenges a salient identity/worldview), 0=No, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "debunking_and_rebuttals",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No"
+      },
+      {
+       "value": 1,
+       "label": "Yes (correction challenges a salient identity/worldview)"
+      }
+     ]
+    }
+   ]
+  },
+  "community_correction": {
+   "label": "Community / Collective Correction",
+   "family": "correction",
+   "intervention_types": [
+    "community_correction"
+   ],
+   "description": "Crowdsourced or peer-driven corrections and collective judgments (community notes, user comments, collective-intelligence platforms, peer flagging) that counter misinformation through aggregated social input. Use with the common core.",
+   "fields": [
+    {
+     "name": "Crowd_Mechanism",
+     "label": "Crowd Mechanism",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Community notes/context annotations, 2=Peer comment correction, 3=Collective intelligence/judgment platform, 4=Crowd flagging/reporting, 5=Collective evaluation task, 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Community notes/context annotations"
+      },
+      {
+       "value": 2,
+       "label": "Peer comment correction"
+      },
+      {
+       "value": 3,
+       "label": "Collective intelligence/judgment platform"
+      },
+      {
+       "value": 4,
+       "label": "Crowd flagging/reporting"
+      },
+      {
+       "value": 5,
+       "label": "Collective evaluation task"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Correction_Source",
+     "label": "Correction Source",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=General public/peers, 2=In-group peers, 3=Trained community members, 4=Expert-verified crowd, 5=Platform-mediated.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "General public/peers"
+      },
+      {
+       "value": 2,
+       "label": "In-group peers"
+      },
+      {
+       "value": 3,
+       "label": "Trained community members"
+      },
+      {
+       "value": 4,
+       "label": "Expert-verified crowd"
+      },
+      {
+       "value": 5,
+       "label": "Platform-mediated"
+      }
+     ]
+    },
+    {
+     "name": "Timing_Relative_to_Misinformation",
+     "label": "Timing of Correction",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Concurrent (attached to the post), 2=Delayed (added later), 3=Pre-exposure, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Concurrent (attached to the post)"
+      },
+      {
+       "value": 2,
+       "label": "Delayed (added later)"
+      },
+      {
+       "value": 3,
+       "label": "Pre-exposure"
+      }
+     ]
+    },
+    {
+     "name": "Visibility",
+     "label": "Correction Visibility",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Visible to all users, 2=Visible only to a subgroup, 3=Collapsed/behind a click, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Visible to all users"
+      },
+      {
+       "value": 2,
+       "label": "Visible only to a subgroup"
+      },
+      {
+       "value": 3,
+       "label": "Collapsed/behind a click"
+      }
+     ]
+    },
+    {
+     "name": "Primary_Outcome",
+     "label": "Primary Outcome",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Belief accuracy, 2=Sharing/engagement, 3=Correction adoption, 4=Discernment, 5=Multiple.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Belief accuracy"
+      },
+      {
+       "value": 2,
+       "label": "Sharing/engagement"
+      },
+      {
+       "value": 3,
+       "label": "Correction adoption"
+      },
+      {
+       "value": 4,
+       "label": "Discernment"
+      },
+      {
+       "value": 5,
+       "label": "Multiple"
+      }
+     ]
+    },
+    {
+     "name": "Assessment_Paradigm",
+     "label": "Assessment Paradigm",
+     "group": "Intervention module (community_correction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Headline-discernment, 2=Real platform field experiment, 3=Simulated feed, 4=Longitudinal trace, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "community_correction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Headline-discernment"
+      },
+      {
+       "value": 2,
+       "label": "Real platform field experiment"
+      },
+      {
+       "value": 3,
+       "label": "Simulated feed"
+      },
+      {
+       "value": 4,
+       "label": "Longitudinal trace"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    }
+   ]
+  },
+  "source_credibility_labels": {
+   "label": "Source-Credibility Labels",
+   "family": "label",
+   "intervention_types": [
+    "credibility_labels"
+   ],
+   "description": "Refutation/decision-support intervention displaying independent professional ratings of the overall journalistic credibility and transparency of news sources and domains (Kozyreva et al., 2024). Use with the common core. NOTE: a label is information provision, not skills training. If no skill is taught, route here rather than to lateral_reading_and_verification.",
+   "fields": [
+    {
+     "name": "Rating_System",
+     "label": "Credibility System",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Continuous journalistic index (e.g. NewsGuard 0-100), 2=Categorical/ color-coded badge (green trustworthy/red untrustworthy), 3=Binary trust seal/warning shield, 4=Crowdsourced trust metric, 5=The Trust Project transparency indicators, 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Continuous journalistic index (e.g. NewsGuard 0-100)"
+      },
+      {
+       "value": 2,
+       "label": "Categorical/ color-coded badge (green trustworthy/red untrustworthy)"
+      },
+      {
+       "value": 3,
+       "label": "Binary trust seal/warning shield"
+      },
+      {
+       "value": 4,
+       "label": "Crowdsourced trust metric"
+      },
+      {
+       "value": 5,
+       "label": "The Trust Project transparency indicators"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Unit_of_Evaluation",
+     "label": "Evaluated Unit",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Domain/news-outlet level, 2=Specific publication channel/page, 3=Individual author/journalist.",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Domain/news-outlet level"
+      },
+      {
+       "value": 2,
+       "label": "Specific publication channel/page"
+      },
+      {
+       "value": 3,
+       "label": "Individual author/journalist"
+      }
+     ]
+    },
+    {
+     "name": "Interface_Integration_Method",
+     "label": "Interface Integration Method",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Browser extension/add-on in natural browsing, 2=In-feed badge beside the headline, 3=Search-engine results page snippet label, 4=Survey experimental card overlay, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Browser extension/add-on in natural browsing"
+      },
+      {
+       "value": 2,
+       "label": "In-feed badge beside the headline"
+      },
+      {
+       "value": 3,
+       "label": "Search-engine results page snippet label"
+      },
+      {
+       "value": 4,
+       "label": "Survey experimental card overlay"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Metric_Transparency_Degree",
+     "label": "Information Detail Provided",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Simple badge/score only, 2=Expandable nutrition label with specific criteria (transparency, corrections, ownership).",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Simple badge/score only"
+      },
+      {
+       "value": 2,
+       "label": "Expandable nutrition label with specific criteria (transparency, corrections, ownership)"
+      }
+     ]
+    },
+    {
+     "name": "Information_Diet_Quality_Assessed",
+     "label": "Information Diet Quality Assessed",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (tracked domain visits/exposure quality via digital trace), 0=No (isolated headline evaluation only).",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No (isolated headline evaluation only)"
+      },
+      {
+       "value": 1,
+       "label": "Yes (tracked domain visits/exposure quality via digital trace)"
+      }
+     ]
+    },
+    {
+     "name": "Label_Provider",
+     "label": "Label Provider",
+     "group": "Intervention module (source_credibility_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Independent rating org (NewsGuard/Trust Project), 2=Platform, 3=Researchers, 4=Crowd, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "source_credibility_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Independent rating org (NewsGuard/Trust Project)"
+      },
+      {
+       "value": 2,
+       "label": "Platform"
+      },
+      {
+       "value": 3,
+       "label": "Researchers"
+      },
+      {
+       "value": 4,
+       "label": "Crowd"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    }
+   ]
+  },
+  "warning_and_fact_checking_labels": {
+   "label": "Warning and Fact-Checking Labels",
+   "family": "label",
+   "intervention_types": [
+    "credibility_labels"
+   ],
+   "description": "Refutation interventions that explicitly alert users to contested, misleading, or debunked individual content items, indicating professional fact-checker ratings (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Label_Type",
+     "label": "Label Type",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=General warning label (content may be disputed/inaccurate), 2=Specific fact-checking label (fact-checker attribution + rating), 3=Contextual information label (background without rating).",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "General warning label (content may be disputed/inaccurate)"
+      },
+      {
+       "value": 2,
+       "label": "Specific fact-checking label (fact-checker attribution + rating)"
+      },
+      {
+       "value": 3,
+       "label": "Contextual information label (background without rating)"
+      }
+     ]
+    },
+    {
+     "name": "Rating_Granularity",
+     "label": "Veracity Rating Granularity",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Binary (\"False\"/\"Disputed\"), 2=Graded/multi-level (e.g. False, Partly False, Altered, Missing Context), 3=Numeric scale.",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Binary (\"False\"/\"Disputed\")"
+      },
+      {
+       "value": 2,
+       "label": "Graded/multi-level (e.g. False, Partly False, Altered, Missing Context)"
+      },
+      {
+       "value": 3,
+       "label": "Numeric scale"
+      }
+     ]
+    },
+    {
+     "name": "Display_Timing_and_Salience",
+     "label": "Display Mode",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=In-line tag below/above headline, 2=Interstitial warning/obscuring overlay (click-through), 3=Post-interaction warning (after share click).",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "In-line tag below/above headline"
+      },
+      {
+       "value": 2,
+       "label": "Interstitial warning/obscuring overlay (click-through)"
+      },
+      {
+       "value": 3,
+       "label": "Post-interaction warning (after share click)"
+      }
+     ]
+    },
+    {
+     "name": "Fact_Checker_Identity_Visible",
+     "label": "Fact-Checking Source Disclosed",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Named independent fact-checker (PolitiFact, Snopes), 2=Platform message (\"Independent fact-checkers\"), 3=Unspecified source.",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Named independent fact-checker (PolitiFact, Snopes)"
+      },
+      {
+       "value": 2,
+       "label": "Platform message (\"Independent fact-checkers\")"
+      },
+      {
+       "value": 3,
+       "label": "Unspecified source"
+      }
+     ]
+    },
+    {
+     "name": "Implied_Truth_Effect_Tested",
+     "label": "Implied Truth Effect Tested",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (tested whether unlabelled false headlines gained spurious accuracy), 0=No (only labelled vs control).",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No (only labelled vs control)"
+      },
+      {
+       "value": 1,
+       "label": "Yes (tested whether unlabelled false headlines gained spurious accuracy)"
+      }
+     ]
+    },
+    {
+     "name": "Primary_Outcome_Variable",
+     "label": "Primary Evaluated Outcome",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Accuracy/veracity judgments, 2=Sharing intentions/click-to-share, 3=Belief in underlying claim, 4=Both accuracy and sharing.",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Accuracy/veracity judgments"
+      },
+      {
+       "value": 2,
+       "label": "Sharing intentions/click-to-share"
+      },
+      {
+       "value": 3,
+       "label": "Belief in underlying claim"
+      },
+      {
+       "value": 4,
+       "label": "Both accuracy and sharing"
+      }
+     ]
+    },
+    {
+     "name": "Correction_Source",
+     "label": "Label Source",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Professional fact-checker, 2=Platform/algorithm, 3=Crowd/community, 4=Government/health authority, 5=Unattributed.",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Professional fact-checker"
+      },
+      {
+       "value": 2,
+       "label": "Platform/algorithm"
+      },
+      {
+       "value": 3,
+       "label": "Crowd/community"
+      },
+      {
+       "value": 4,
+       "label": "Government/health authority"
+      },
+      {
+       "value": 5,
+       "label": "Unattributed"
+      }
+     ]
+    },
+    {
+     "name": "Audience",
+     "label": "Label Audience",
+     "group": "Intervention module (warning_and_fact_checking_labels)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=General users, 2=Targeted at sharers, 3=Targeted at consumers, 4=Both.",
+     "required": false,
+     "derived": false,
+     "module": "warning_and_fact_checking_labels",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "General users"
+      },
+      {
+       "value": 2,
+       "label": "Targeted at sharers"
+      },
+      {
+       "value": 3,
+       "label": "Targeted at consumers"
+      },
+      {
+       "value": 4,
+       "label": "Both"
+      }
+     ]
+    }
+   ]
+  },
+  "accuracy_prompts": {
+   "label": "Accuracy Prompts",
+   "family": "nudge",
+   "intervention_types": [
+    "accuracy_prompts"
+   ],
+   "description": "Nudging interventions that shift attention to the concept of accuracy before sharing or evaluating online content, mitigating inattention-driven misinformation spread (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Prompt_Mechanism",
+     "label": "Prompt Mechanism",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Direct headline accuracy evaluation (rate veracity of a single neutral/unrelated headline), 2=Explicit prime/reminder (text prompt reminding user accuracy matters), 3=Educational video/multimedia prime on the value of accurate information, 4=Passive accuracy salience banner/header, 5=Other prompt format.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Direct headline accuracy evaluation (rate veracity of a single neutral/unrelated headline)"
+      },
+      {
+       "value": 2,
+       "label": "Explicit prime/reminder (text prompt reminding user accuracy matters)"
+      },
+      {
+       "value": 3,
+       "label": "Educational video/multimedia prime on the value of accurate information"
+      },
+      {
+       "value": 4,
+       "label": "Passive accuracy salience banner/header"
+      },
+      {
+       "value": 5,
+       "label": "Other prompt format"
+      }
+     ]
+    },
+    {
+     "name": "Evaluation_Item_Veracity",
+     "label": "Veracity of Prompt Item",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=True, 2=False, 3=Neutral/non-political, 4=Both true and false shown, null=Not applicable.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "True"
+      },
+      {
+       "value": 2,
+       "label": "False"
+      },
+      {
+       "value": 3,
+       "label": "Neutral/non-political"
+      },
+      {
+       "value": 4,
+       "label": "Both true and false shown"
+      }
+     ]
+    },
+    {
+     "name": "Evaluation_Item_Political_Concordance",
+     "label": "Political Concordance of Prompt Headline",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Politically concordant, 2=Politically discordant, 3=Politically neutral/apolitical, null=Not applicable.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Politically concordant"
+      },
+      {
+       "value": 2,
+       "label": "Politically discordant"
+      },
+      {
+       "value": 3,
+       "label": "Politically neutral/apolitical"
+      }
+     ]
+    },
+    {
+     "name": "Prompt_Timing",
+     "label": "Timing of Prompt",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Prior to feed browsing task, 2=In-line during feed browsing (periodically), 3=At immediate point of sharing decision.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Prior to feed browsing task"
+      },
+      {
+       "value": 2,
+       "label": "In-line during feed browsing (periodically)"
+      },
+      {
+       "value": 3,
+       "label": "At immediate point of sharing decision"
+      }
+     ]
+    },
+    {
+     "name": "Delivery_Context",
+     "label": "Delivery Context",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Survey/lab simulation (headline-discernment paradigm), 2=Social media platform direct message (field experiment, e.g. Twitter DM), 3=Platform public feed/interstitial.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Survey/lab simulation (headline-discernment paradigm)"
+      },
+      {
+       "value": 2,
+       "label": "Social media platform direct message (field experiment, e.g. Twitter DM)"
+      },
+      {
+       "value": 3,
+       "label": "Platform public feed/interstitial"
+      }
+     ]
+    },
+    {
+     "name": "Number_of_Prompts",
+     "label": "Prompt Repetition Count",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "Total number of accuracy prompts delivered during the experimental session.",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "number"
+    },
+    {
+     "name": "Evaluated_Headline_Domain",
+     "label": "Evaluated Content Domain",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array of content domains tested, e.g. [\"politics\", \"covid-19\", \"climate_change\", \"general_science\", \"conspiracy\"].",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "chips"
+    },
+    {
+     "name": "Primary_Discernment_Metric",
+     "label": "Primary Discernment Metric",
+     "group": "Intervention module (accuracy_prompts)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Sharing discernment (Sharing True minus Sharing False), 2=Accuracy discernment (Belief True minus Belief False), 3=Raw false-sharing reduction only, 4=Quality score of shared domains (digital trace data).",
+     "required": false,
+     "derived": false,
+     "module": "accuracy_prompts",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Sharing discernment (Sharing True minus Sharing False)"
+      },
+      {
+       "value": 2,
+       "label": "Accuracy discernment (Belief True minus Belief False)"
+      },
+      {
+       "value": 3,
+       "label": "Raw false-sharing reduction only"
+      },
+      {
+       "value": 4,
+       "label": "Quality score of shared domains (digital trace data)"
+      }
+     ]
+    }
+   ]
+  },
+  "friction": {
+   "label": "Friction",
+   "family": "nudge",
+   "intervention_types": [
+    "friction"
+   ],
+   "description": "Nudging interventions that introduce behavioral or cognitive slowing into social sharing pathways to disrupt impulsive sharing and encourage deliberative evaluation (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Friction_Mechanism",
+     "label": "Friction Mechanism",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Read-before-sharing prompt (open/read article link), 2=Pause-and-think reflection prompt, 3=Second-step confirmation modal (extra click), 4=Cognitive justification requirement (write why true/false), 5=Time delay constraint (mandatory wait timer), 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Read-before-sharing prompt (open/read article link)"
+      },
+      {
+       "value": 2,
+       "label": "Pause-and-think reflection prompt"
+      },
+      {
+       "value": 3,
+       "label": "Second-step confirmation modal (extra click)"
+      },
+      {
+       "value": 4,
+       "label": "Cognitive justification requirement (write why true/false)"
+      },
+      {
+       "value": 5,
+       "label": "Time delay constraint (mandatory wait timer)"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Friction_Modality",
+     "label": "Modal Interface Type",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Non-blocking warning/banner, 2=Blocking pop-up modal requiring user input, 3=Hard delay timer.",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Non-blocking warning/banner"
+      },
+      {
+       "value": 2,
+       "label": "Blocking pop-up modal requiring user input"
+      },
+      {
+       "value": 3,
+       "label": "Hard delay timer"
+      }
+     ]
+    },
+    {
+     "name": "Target_Action",
+     "label": "Action Subject to Friction",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Share/Retweet action, 2=Post creation/submission, 3=External link navigation, 4=Like/Upvote.",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Share/Retweet action"
+      },
+      {
+       "value": 2,
+       "label": "Post creation/submission"
+      },
+      {
+       "value": 3,
+       "label": "External link navigation"
+      },
+      {
+       "value": 4,
+       "label": "Like/Upvote"
+      }
+     ]
+    },
+    {
+     "name": "Content_Targeting_Rule",
+     "label": "Targeting Rule for Friction Trigger",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Universal friction (all links/shares), 2=Unopened-link trigger only, 3=Suspect/flagged content trigger only.",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Universal friction (all links/shares)"
+      },
+      {
+       "value": 2,
+       "label": "Unopened-link trigger only"
+      },
+      {
+       "value": 3,
+       "label": "Suspect/flagged content trigger only"
+      }
+     ]
+    },
+    {
+     "name": "Primary_Behavioral_Outcome",
+     "label": "Primary Outcome Metric",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Sharing intention (self-report), 2=Observed platform sharing (digital trace), 3=Link click-through/reading rate, 4=Sharing discernment (true vs. false sharing-rate delta).",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Sharing intention (self-report)"
+      },
+      {
+       "value": 2,
+       "label": "Observed platform sharing (digital trace)"
+      },
+      {
+       "value": 3,
+       "label": "Link click-through/reading rate"
+      },
+      {
+       "value": 4,
+       "label": "Sharing discernment (true vs. false sharing-rate delta)"
+      }
+     ]
+    },
+    {
+     "name": "Friction_Disclosed",
+     "label": "Friction Disclosed to User",
+     "group": "Intervention module (friction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Yes (rationale shown), 0=No (silent friction), null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "friction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 0,
+       "label": "No (silent friction)"
+      },
+      {
+       "value": 1,
+       "label": "Yes (rationale shown)"
+      }
+     ]
+    }
+   ]
+  },
+  "social_norms": {
+   "label": "Social Norms",
+   "family": "nudge",
+   "intervention_types": [
+    "social_norms"
+   ],
+   "description": "Nudging interventions that mobilize descriptive or injunctive social information (peer influence, collective standards) to steer people away from believing or sharing unverified information (Kozyreva et al., 2024). Use with the common core.",
+   "fields": [
+    {
+     "name": "Norm_Type",
+     "label": "Social Norm Type",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Descriptive norm (what most people do), 2=Injunctive norm (what is approved/disapproved), 3=Dynamic norm (trending change in peer behaviour), 4=Combined descriptive and injunctive.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Descriptive norm (what most people do)"
+      },
+      {
+       "value": 2,
+       "label": "Injunctive norm (what is approved/disapproved)"
+      },
+      {
+       "value": 3,
+       "label": "Dynamic norm (trending change in peer behaviour)"
+      },
+      {
+       "value": 4,
+       "label": "Combined descriptive and injunctive"
+      }
+     ]
+    },
+    {
+     "name": "Norm_Framing",
+     "label": "Normative Framing",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Positive/truth-promoting framing, 2=Negative/misinformation-discouraging framing.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Positive/truth-promoting framing"
+      },
+      {
+       "value": 2,
+       "label": "Negative/misinformation-discouraging framing"
+      }
+     ]
+    },
+    {
+     "name": "Reference_Group",
+     "label": "Reference Group Specified",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Broad platform peer group, 2=National/fellow-citizen group, 3=Ideological/in-group peers, 4=Unspecified/generic social consensus, 5=Local community.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Broad platform peer group"
+      },
+      {
+       "value": 2,
+       "label": "National/fellow-citizen group"
+      },
+      {
+       "value": 3,
+       "label": "Ideological/in-group peers"
+      },
+      {
+       "value": 4,
+       "label": "Unspecified/generic social consensus"
+      },
+      {
+       "value": 5,
+       "label": "Local community"
+      }
+     ]
+    },
+    {
+     "name": "Delivery_Format",
+     "label": "Presentation Format",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Statistical normative statement/banner, 2=Simulated social counter/ upvote ratio, 3=Peer comment feedback prompt, 4=Interactive norm elicitation task.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Statistical normative statement/banner"
+      },
+      {
+       "value": 2,
+       "label": "Simulated social counter/ upvote ratio"
+      },
+      {
+       "value": 3,
+       "label": "Peer comment feedback prompt"
+      },
+      {
+       "value": 4,
+       "label": "Interactive norm elicitation task"
+      }
+     ]
+    },
+    {
+     "name": "Primary_Target_Variable",
+     "label": "Primary Behavioral / Cognitive Outcome",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Sharing intentions, 2=Belief in misinformation, 3=Flagging/reporting suspicious content, 4=Discernment score.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Sharing intentions"
+      },
+      {
+       "value": 2,
+       "label": "Belief in misinformation"
+      },
+      {
+       "value": 3,
+       "label": "Flagging/reporting suspicious content"
+      },
+      {
+       "value": 4,
+       "label": "Discernment score"
+      }
+     ]
+    },
+    {
+     "name": "Ingroup_Congruence",
+     "label": "In-group Congruence of Norm Source",
+     "group": "Intervention module (social_norms)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Ideological in-group source, 2=Out-group/general source, 3=Not applicable, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "social_norms",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Ideological in-group source"
+      },
+      {
+       "value": 2,
+       "label": "Out-group/general source"
+      },
+      {
+       "value": 3,
+       "label": "Not applicable"
+      }
+     ]
+    }
+   ]
+  },
+  "platform_exposure_reduction": {
+   "label": "Platform Exposure Reduction / Downranking",
+   "family": "nudge",
+   "intervention_types": [
+    "platform_exposure_reduction"
+   ],
+   "description": "Platform- or system-level interventions that reduce, downrank, demote, or remove low-quality or untrustworthy content (feed algorithm changes, exposure-reduction field experiments, deplatforming). Use with the common core.",
+   "fields": [
+    {
+     "name": "Exposure_Mechanism",
+     "label": "Exposure Mechanism",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Downranking/demotion in feed or search, 2=Removal/deletion of content, 3=Deplatforming/account removal, 4=Reduced distribution/reach, 5=Warning interruption before exposure, 6=Other.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Downranking/demotion in feed or search"
+      },
+      {
+       "value": 2,
+       "label": "Removal/deletion of content"
+      },
+      {
+       "value": 3,
+       "label": "Deplatforming/account removal"
+      },
+      {
+       "value": 4,
+       "label": "Reduced distribution/reach"
+      },
+      {
+       "value": 5,
+       "label": "Warning interruption before exposure"
+      },
+      {
+       "value": 6,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Platform",
+     "label": "Platform",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Platform or system (e.g. \"Facebook\", \"Instagram\", \"Search\", \"YouTube\"), or null.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "text"
+    },
+    {
+     "name": "Targeting_Rule",
+     "label": "Targeting Rule",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Untrustworthy sources/domains, 2=False content items, 3=Engagement/reach threshold, 4=Universal exposure limit, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Untrustworthy sources/domains"
+      },
+      {
+       "value": 2,
+       "label": "False content items"
+      },
+      {
+       "value": 3,
+       "label": "Engagement/reach threshold"
+      },
+      {
+       "value": 4,
+       "label": "Universal exposure limit"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Primary_Outcome",
+     "label": "Primary Outcome",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Exposure/reach (digital trace), 2=Belief/accuracy, 3=Sharing/engagement, 4=Information-diet quality, 5=Multiple.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Exposure/reach (digital trace)"
+      },
+      {
+       "value": 2,
+       "label": "Belief/accuracy"
+      },
+      {
+       "value": 3,
+       "label": "Sharing/engagement"
+      },
+      {
+       "value": 4,
+       "label": "Information-diet quality"
+      },
+      {
+       "value": 5,
+       "label": "Multiple"
+      }
+     ]
+    },
+    {
+     "name": "Assignment_Level",
+     "label": "Assignment Level",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=User-level randomization, 2=Cluster/geography randomization, 3=Platform-wide policy, 4=Natural experiment, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "User-level randomization"
+      },
+      {
+       "value": 2,
+       "label": "Cluster/geography randomization"
+      },
+      {
+       "value": 3,
+       "label": "Platform-wide policy"
+      },
+      {
+       "value": 4,
+       "label": "Natural experiment"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Content_Harm_Level",
+     "label": "Content Harm Level",
+     "group": "Intervention module (platform_exposure_reduction)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Low-quality/untrustworthy, 2=False/misleading, 3=Harmful, 4=Mixed, null=Unclear.",
+     "required": false,
+     "derived": false,
+     "module": "platform_exposure_reduction",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Low-quality/untrustworthy"
+      },
+      {
+       "value": 2,
+       "label": "False/misleading"
+      },
+      {
+       "value": 3,
+       "label": "Harmful"
+      },
+      {
+       "value": 4,
+       "label": "Mixed"
+      }
+     ]
+    }
+   ]
+  },
+  "generic": {
+   "label": "Generic Misinformation Intervention",
+   "family": null,
+   "intervention_types": [
+    "other"
+   ],
+   "description": "Misinformation/media-literacy interventions that are not primarily psychological inoculation or source-evaluation training, e.g. debunking corrections, media-literacy lessons, accuracy nudges, fact-checking training, open-mindedness interventions, or platform exposure-reduction experiments. Use with the common core (common.yaml).",
+   "fields": [
+    {
+     "name": "Theory_Basis",
+     "label": "Theory Basis",
+     "group": "Intervention module (generic)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Theory the intervention is based on (e.g. \"inoculation theory\", \"elaboration likelihood\", \"motivated reasoning\", \"none stated\"), or null.",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "textarea"
+    },
+    {
+     "name": "Intervention_Delivery",
+     "label": "Intervention Delivery",
+     "group": "Intervention module (generic)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Direct Instruction, 2=Interactive/Practice, 3=Game-based, 4=Other.",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Direct Instruction"
+      },
+      {
+       "value": 2,
+       "label": "Interactive/Practice"
+      },
+      {
+       "value": 3,
+       "label": "Game-based"
+      },
+      {
+       "value": 4,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Message_Timing",
+     "label": "Message Timing",
+     "group": "Intervention module (generic)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Pre-exposure/prebunking, 2=Concurrent, 3=Post-exposure/debunking, 4=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Pre-exposure/prebunking"
+      },
+      {
+       "value": 2,
+       "label": "Concurrent"
+      },
+      {
+       "value": 3,
+       "label": "Post-exposure/debunking"
+      },
+      {
+       "value": 4,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Correction_Scope",
+     "label": "Correction Scope",
+     "group": "Intervention module (generic)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Specific claim, 2=Technique/generalizable, 3=General/abstract, 4=Other.",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Specific claim"
+      },
+      {
+       "value": 2,
+       "label": "Technique/generalizable"
+      },
+      {
+       "value": 3,
+       "label": "General/abstract"
+      },
+      {
+       "value": 4,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Intervention_Components",
+     "label": "Intervention Components",
+     "group": "Intervention module (generic)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array of applicable strings: [\"Correction\", \"Warning\", \"Skills training\", \"Feedback\", \"Nudge\", \"Platform downranking/exposure reduction\", \"Community messaging\"].",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "multiselect",
+     "vocab": [
+      "Corrective information",
+      "Threat/forewarning",
+      "Refutation",
+      "Technique exposure",
+      "Narrative/storytelling",
+      "Discussion/interaction",
+      "Emotion induction/regulation",
+      "Source salience",
+      "Instruction",
+      "Nudge",
+      "Feedback",
+      "Community messaging",
+      "Platform/exposure reduction",
+      "Other"
+     ]
+    },
+    {
+     "name": "Outcome_Measures",
+     "label": "Outcome Measures",
+     "group": "Intervention module (generic)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array of outcome measure descriptions, e.g. [\"Misinformation discernment\", \"Credibility ratings\", \"Sharing intentions\", \"Belief accuracy\"].",
+     "required": false,
+     "derived": false,
+     "module": "generic",
+     "editor": "chips"
+    }
+   ]
+  },
+  "sourcing": {
+   "label": "Sourcing / Source Evaluation",
+   "family": null,
+   "intervention_types": [
+    "lateral_reading"
+   ],
+   "description": "Studies of sourcing and source-evaluation training interventions, typically lateral reading, click restraint, CRAAP/checklist evaluation, or fact-checking strategies that teach participants to evaluate the credibility of sources and online information. Use with the common core (common.yaml).",
+   "fields": [
+    {
+     "name": "Source_Eval_Strategy",
+     "label": "Source Evaluation Strategy",
+     "group": "Intervention module (sourcing)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "The strategy taught - e.g. \"lateral reading\", \"click restraint\", \"source-checking\", \"fact-checking site use\", \"CRAAP\".",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "text"
+    },
+    {
+     "name": "Search_Task",
+     "label": "Search Task",
+     "group": "Intervention module (sourcing)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Description of the search/evaluation task participants completed, or null.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "text"
+    },
+    {
+     "name": "Intervention_Source_Concept",
+     "label": "Source Concept",
+     "group": "Intervention module (sourcing)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Sourcing, 2=Lateral Reading, 3=Both/Mixed. Sourcing = leaving the original text to assess credibility of authors/publisher via third-party sources.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Sourcing"
+      },
+      {
+       "value": 2,
+       "label": "Lateral Reading"
+      },
+      {
+       "value": 3,
+       "label": "Both/Mixed. Sourcing = leaving the original text to assess credibility of authors/publisher via third-party sources"
+      }
+     ]
+    },
+    {
+     "name": "Intervention_Delivery",
+     "label": "Intervention Delivery",
+     "group": "Intervention module (sourcing)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Direct Instruction, 2=Guided Inquiry, 3=Practice-based/Collaborative.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Direct Instruction"
+      },
+      {
+       "value": 2,
+       "label": "Guided Inquiry"
+      },
+      {
+       "value": 3,
+       "label": "Practice-based/Collaborative"
+      }
+     ]
+    },
+    {
+     "name": "Training_Strategies",
+     "label": "Training Strategies",
+     "group": "Intervention module (sourcing)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array of applicable strings: [\"Explicit strategy instruction\", \"Modeling/demonstration\", \"Scaffolded practice\", \"Feedback\", \"Group discussion\"].",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "chips"
+    },
+    {
+     "name": "Human_Trainer",
+     "label": "Human Trainer",
+     "group": "Intervention module (sourcing)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer/AI, 5=Other.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Researcher"
+      },
+      {
+       "value": 2,
+       "label": "Teacher"
+      },
+      {
+       "value": 3,
+       "label": "Peer"
+      },
+      {
+       "value": 4,
+       "label": "Computer/AI"
+      },
+      {
+       "value": 5,
+       "label": "Other"
+      }
+     ]
+    },
+    {
+     "name": "Assessment_Format",
+     "label": "Assessment Format",
+     "group": "Intervention module (sourcing)",
+     "type": "integer|null",
+     "base_type": "integer",
+     "description": "1=Quantitative rating scales, 2=Multiple-choice/forced-choice, 3=Open response/qualitative, 4=Mixed.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "select",
+     "options": [
+      {
+       "value": 1,
+       "label": "Quantitative rating scales"
+      },
+      {
+       "value": 2,
+       "label": "Multiple-choice/forced-choice"
+      },
+      {
+       "value": 3,
+       "label": "Open response/qualitative"
+      },
+      {
+       "value": 4,
+       "label": "Mixed"
+      }
+     ]
+    },
+    {
+     "name": "Outcome_Measures",
+     "label": "Outcome Measures",
+     "group": "Intervention module (sourcing)",
+     "type": "list",
+     "base_type": "list",
+     "description": "Array of applicable strings: [\"Source credibility ratings\", \"Lateral reading behavior\", \"Fact vs fiction discernment\", \"Source selection\", \"Technique adoption\"].",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "chips"
+    },
+    {
+     "name": "Transfer_Task",
+     "label": "Transfer Task",
+     "group": "Intervention module (sourcing)",
+     "type": "string|null",
+     "base_type": "string",
+     "description": "Description of any transfer/novel-context task the trained skill was applied to, or null.",
+     "required": false,
+     "derived": false,
+     "module": "sourcing",
+     "editor": "text"
+    }
+   ]
+  }
+ },
+ "intervention_type_modules": {
+  "inoculation": [
+   "inoculation"
+  ],
+  "prebunking_warning": [
+   "inoculation"
+  ],
+  "lateral_reading": [
+   "lateral_reading_and_verification",
+   "sourcing"
+  ],
+  "credibility_labels": [
+   "source_credibility_labels",
+   "warning_and_fact_checking_labels"
+  ],
+  "media_literacy_tips": [
+   "media_literacy_tips"
+  ],
+  "fact_checking_training": [
+   "fact_checking_training"
+  ],
+  "openmindedness_intervention": [
+   "openmindedness_intervention"
+  ],
+  "debunking_and_rebuttals": [
+   "debunking_and_rebuttals"
+  ],
+  "community_correction": [
+   "community_correction"
+  ],
+  "accuracy_prompts": [
+   "accuracy_prompts"
+  ],
+  "friction": [
+   "friction"
+  ],
+  "social_norms": [
+   "social_norms"
+  ],
+  "platform_exposure_reduction": [
+   "platform_exposure_reduction"
+  ],
+  "other": []
+ },
+ "vocabularies": {
+  "intervention_types": [
+   "inoculation",
+   "prebunking_warning",
+   "lateral_reading",
+   "credibility_labels",
+   "media_literacy_tips",
+   "fact_checking_training",
+   "openmindedness_intervention",
+   "debunking_and_rebuttals",
+   "community_correction",
+   "accuracy_prompts",
+   "friction",
+   "social_norms",
+   "platform_exposure_reduction",
+   "other"
+  ],
+  "intervention_types_requiring_detail": [
+   "other"
+  ],
+  "intervention_families": [
+   "boost",
+   "correction",
+   "label",
+   "nudge",
+   "system",
+   "other"
+  ],
+  "dv_domains": [
+   "technique_recognition",
+   "credibility",
+   "sharing_intention",
+   "search_behavior",
+   "attitude_policy",
+   "trust",
+   "media_literacy_attitudes",
+   "critical_thinking",
+   "other"
+  ],
+  "score_types": [
+   "separate_true",
+   "separate_false",
+   "separate_manipulative",
+   "separate_nonmanipulative",
+   "discernment_difference",
+   "composite",
+   "signal_detection_auc",
+   "signal_detection_d_prime",
+   "signal_detection_c",
+   "dichotomous_accuracy",
+   "continuous_accuracy",
+   "proportion",
+   "proportion_difference",
+   "behavioral_choice",
+   "other",
+   "count",
+   "single_item",
+   "behavioral_intention",
+   "change_score",
+   "signal_detection_other"
+  ],
+  "contrast_types": {
+   "1": "primary_treatment_vs_no_treatment",
+   "2": "treatment_vs_active_or_placebo",
+   "3": "dose_response",
+   "4": "within_person",
+   "5": "factorial_main_effect",
+   "6": "simple_effect",
+   "7": "other",
+   "8": "misinformation_vs_no_misinformation",
+   "9": "informative_message_vs_control",
+   "10": "factorial_interaction",
+   "11": "omnibus_model_term",
+   "12": "moderator_main_effect",
+   "13": "non_intervention_factor"
+  },
+  "contrast_roles": {
+   "1": "intervention_effect",
+   "2": "moderator_main",
+   "3": "moderation",
+   "4": "within_training_learning_gain",
+   "5": "adverse_side_effect"
+  },
+  "posttest_types": {
+   "1": "immediate",
+   "2": "delayed",
+   "3": "both",
+   "4": "cross_sectional",
+   "5": "other"
+  },
+  "settings": {
+   "1": "lab",
+   "2": "field",
+   "3": "classroom",
+   "4": "online_panel_survey",
+   "5": "online_experiment",
+   "6": "simulated_field",
+   "7": "other"
+  },
+  "technique_taxonomy": [
+   "emotional_manipulation",
+   "fake_experts",
+   "conspiracy",
+   "polarization",
+   "amplification",
+   "trolling",
+   "naturalistic_fallacy",
+   "ad_hominem",
+   "false_dichotomy",
+   "coherence_break",
+   "discrediting",
+   "scapegoating",
+   "false_balance",
+   "conjunction_fallacy",
+   "impersonation"
+  ],
+  "attention_cues": [
+   "Visual Signaling/Highlighting",
+   "Explicit Ignore Instructions",
+   "Physiological/Emotional Focus"
+  ],
+  "media_support": [
+   "Visual aids",
+   "Video",
+   "Audio",
+   "Text",
+   "Interactive/gamified",
+   "Model teaching",
+   "Physical materials",
+   "Other"
+  ],
+  "comm_strategies": [
+   "Sketching/narrative",
+   "Verbal labelling",
+   "Interview techniques",
+   "Group discussion",
+   "Debate",
+   "Other"
+  ],
+  "practice_strategy": [
+   "Recall tests",
+   "Easy-to-hard sequencing",
+   "Classification/sorting",
+   "Compare-and-contrast",
+   "Self-explanation/reflection",
+   "Guided practice",
+   "Feedback-based practice",
+   "Media production",
+   "Other"
+  ],
+  "intervention_components": [
+   "Corrective information",
+   "Threat/forewarning",
+   "Refutation",
+   "Technique exposure",
+   "Narrative/storytelling",
+   "Discussion/interaction",
+   "Emotion induction/regulation",
+   "Source salience",
+   "Instruction",
+   "Nudge",
+   "Feedback",
+   "Community messaging",
+   "Platform/exposure reduction",
+   "Other"
+  ],
+  "modules": [
+   "inoculation",
+   "lateral_reading_and_verification",
+   "media_literacy_tips",
+   "fact_checking_training",
+   "openmindedness_intervention",
+   "debunking_and_rebuttals",
+   "community_correction",
+   "source_credibility_labels",
+   "warning_and_fact_checking_labels",
+   "accuracy_prompts",
+   "friction",
+   "social_norms",
+   "platform_exposure_reduction",
+   "generic",
+   "sourcing"
+  ],
+  "effect_size_types": [
+   "d",
+   "g",
+   "eta2p",
+   "beta",
+   "odds_ratio",
+   "r",
+   "means",
+   "none",
+   "dprime",
+   "c",
+   "other"
+  ],
+  "publication_types": [
+   "paper_peer_reviewed",
+   "paper_unreviewed",
+   "thesis",
+   "dissertation",
+   "preprint",
+   "working_paper",
+   "conference_paper",
+   "unpublished_manuscript",
+   "report"
+  ],
+  "publication_type_labels": {
+   "paper_peer_reviewed": "Paper (peer-reviewed)",
+   "paper_unreviewed": "Paper (unreviewed)",
+   "thesis": "Thesis",
+   "dissertation": "Dissertation",
+   "preprint": "Preprint",
+   "working_paper": "Working paper",
+   "conference_paper": "Conference paper",
+   "unpublished_manuscript": "Unpublished manuscript",
+   "report": "Report"
+  },
+  "module_field_levels": {
+   "Assessment_Paradigm": {
+    "lateral_reading_and_verification": {
+     "1": "Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace)",
+     "2": "Controlled website credibility judgment task",
+     "3": "Self-reported verification-strategy usage",
+     "4": "Knowledge/skill assessment quiz"
+    },
+    "fact_checking_training": {
+     "1": "Claim-verification accuracy task",
+     "2": "Discernment (true vs false)",
+     "3": "Source-credibility judgment",
+     "4": "Behavioural search trace",
+     "5": "Self-report",
+     "6": "Mixed"
+    },
+    "community_correction": {
+     "1": "Headline-discernment",
+     "2": "Real platform field experiment",
+     "3": "Simulated feed",
+     "4": "Longitudinal trace",
+     "5": "Other"
+    }
+   },
+   "Intervention_Source_Concept": {
+    "lateral_reading_and_verification": {
+     "1": "Sourcing",
+     "2": "Lateral Reading",
+     "3": "Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources"
+    },
+    "sourcing": {
+     "1": "Sourcing",
+     "2": "Lateral Reading",
+     "3": "Both/Mixed. Sourcing = leaving the original text to assess credibility of authors/publisher via third-party sources"
+    }
+   },
+   "Human_Trainer": {
+    "lateral_reading_and_verification": {
+     "1": "Researcher",
+     "2": "Teacher",
+     "3": "Peer",
+     "4": "Computer/AI",
+     "5": "Other"
+    },
+    "sourcing": {
+     "1": "Researcher",
+     "2": "Teacher",
+     "3": "Peer",
+     "4": "Computer/AI",
+     "5": "Other"
+    }
+   },
+   "Correction_Source": {
+    "debunking_and_rebuttals": {
+     "1": "Professional independent fact-checker",
+     "2": "Government/public-health institution",
+     "3": "Peer/social correction (user comment)",
+     "4": "Algorithmic/ platform system message",
+     "5": "Anonymous/unattributed source",
+     "6": "Trusted messenger (e.g. local health worker)",
+     "7": "Other"
+    },
+    "community_correction": {
+     "1": "General public/peers",
+     "2": "In-group peers",
+     "3": "Trained community members",
+     "4": "Expert-verified crowd",
+     "5": "Platform-mediated"
+    },
+    "warning_and_fact_checking_labels": {
+     "1": "Professional fact-checker",
+     "2": "Platform/algorithm",
+     "3": "Crowd/community",
+     "4": "Government/health authority",
+     "5": "Unattributed"
+    }
+   },
+   "Timing_Relative_to_Misinformation": {
+    "debunking_and_rebuttals": {
+     "1": "Immediate correction (same exposure instance)",
+     "2": "Delayed correction (subsequent session/turn)",
+     "3": "Pre-exposure rebuttal"
+    },
+    "community_correction": {
+     "1": "Concurrent (attached to the post)",
+     "2": "Delayed (added later)",
+     "3": "Pre-exposure"
+    }
+   },
+   "Primary_Outcome": {
+    "community_correction": {
+     "1": "Belief accuracy",
+     "2": "Sharing/engagement",
+     "3": "Correction adoption",
+     "4": "Discernment",
+     "5": "Multiple"
+    },
+    "platform_exposure_reduction": {
+     "1": "Exposure/reach (digital trace)",
+     "2": "Belief/accuracy",
+     "3": "Sharing/engagement",
+     "4": "Information-diet quality",
+     "5": "Multiple"
+    }
+   },
+   "Intervention_Delivery": {
+    "generic": {
+     "1": "Direct Instruction",
+     "2": "Interactive/Practice",
+     "3": "Game-based",
+     "4": "Other"
+    },
+    "sourcing": {
+     "1": "Direct Instruction",
+     "2": "Guided Inquiry",
+     "3": "Practice-based/Collaborative"
+    }
+   }
+  }
+ }
+}

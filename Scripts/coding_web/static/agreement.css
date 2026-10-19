@@ -1,0 +1,208 @@
+/* ============================================================
+   Coding Studio — Agreement tab
+   Gwet's AC1/AC2 across deterministic labels + a Master conflict
+   resolver.  See agreement.js and the /api/agreement/* endpoints.
+   ============================================================ */
+
+#view-agreement[hidden] { display: none !important; }
+
+/* single-column page, like the Analysis tab (not the 3-pane coding grid) */
+.workspace.agreement { display: block; overflow: auto; padding: 0; }
+.ag-head .an-title { flex: 1 1 420px; min-width: 320px; }
+
+/* the Master field lives in the top bar, styled like the Coder field */
+#master-field { display: none !important; }
+body.view-agreement #master-field { display: inline-flex !important; }
+
+/* Fast resolve lives in the top bar next to the Master field */
+#ag-fast { display: none !important; }
+body.view-agreement #ag-fast { display: inline-flex !important; }
+
+body.view-agreement .actions > .field-inline:not(#master-field),
+body.view-agreement #blind-btn,
+body.view-agreement #clear-btn,
+body.view-agreement #save-btn,
+body.view-agreement #next-btn { display: none !important; }
+
+.ag-page { max-width: none; margin: 0; padding: 16px 18px 40px; }
+.ag-head { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.ag-head h1 {
+  margin: 0; font-family: var(--serif); font-size: 19px; font-weight: 600; letter-spacing: -.01em;
+}
+.ag-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; max-width: 720px; }
+
+/* ------------------------------------------------------------ reliability */
+.ag-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0; }
+.ag-raters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.ag-rater {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+  border-radius: 99px; padding: 3px 10px; font-size: 11.5px; color: var(--ink-2); background: var(--panel);
+}
+.ag-rater b { font-weight: 700; }
+.ag-rater.ref { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); color: var(--accent-ink); }
+.ag-rater .n { color: var(--faint); font-size: 10.5px; }
+.ag-tablewrap { max-height: 68vh; }
+
+table.ag-table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+table.ag-table th, table.ag-table td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; white-space: nowrap; }
+table.ag-table thead th { position: sticky; top: 0; z-index: 2; background: var(--panel-2); font-weight: 700; color: var(--ink-2); border-bottom: 1px solid var(--line-2); }
+table.ag-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--panel-2) 45%, transparent); }
+table.ag-table tbody tr:hover { background: var(--accent-soft); }
+table.ag-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.ag-table td .grp { color: var(--faint); font-size: 10.5px; }
+.ac-good { color: var(--ok); font-weight: 700; }
+.ac-mid { color: var(--warn); font-weight: 700; }
+.ac-low { color: var(--danger); font-weight: 700; }
+.ac-na { color: var(--faint); }
+
+/* DV alignment: matched vs unmatched coverage and the suppression message */
+table.ag-table td.ag-aligncell { white-space: normal; line-height: 1.35; }
+.ag-insuff {
+  display: inline-block; max-width: 210px; white-space: normal; line-height: 1.25;
+  color: var(--faint); font-size: 10.5px; font-style: italic;
+}
+.ag-dvalign { margin: 14px 0 4px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.ag-dvalign > summary {
+  cursor: pointer; padding: 8px 11px; font-size: 12px; font-weight: 700; color: var(--ink-2);
+}
+.ag-dvalign > summary::marker { color: var(--muted); }
+.ag-dvalign .an-tablewrap { max-height: 40vh; padding: 0 11px; }
+.ag-dvalign .an-note { padding: 0 11px 9px; }
+.ag-alignraters { white-space: normal; }
+.ag-alignrater {
+  display: inline-block; border: 1px solid var(--line); border-radius: 99px;
+  padding: 1px 7px; margin: 1px 4px 1px 0; font-size: 10.5px; color: var(--muted); background: var(--panel-2);
+}
+.ag-gate { display: inline-block; border-radius: 99px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; }
+.ag-gate.ok { color: var(--ok); background: var(--ok-soft); }
+.ag-gate.off { color: var(--danger); background: var(--danger-soft); }
+
+/* ------------------------------------------------------------ conflicts */
+.ag-conflicts { display: grid; grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(340px, 1.05fr); gap: 14px; align-items: start; margin-top: 14px; }
+.ag-side { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 12px; max-height: 82vh; overflow: auto; }
+.ag-sidehead { display: flex; align-items: center; gap: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; margin: 4px 2px 0; }
+.ag-studylist { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); overflow: auto; max-height: 40vh; padding: 6px; }
+.ag-studybtn {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid transparent; background: transparent; color: var(--ink-2);
+  border-radius: var(--r-sm); padding: 6px 8px; font-size: 12px; cursor: pointer;
+}
+.ag-studybtn:hover { background: var(--panel-2); }
+.ag-studybtn.active { background: var(--accent-soft); color: var(--accent-ink); }
+.ag-studybtn .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-studybtn .n { font: 700 10.5px/1 var(--mono); color: var(--danger); background: var(--danger-soft); border-radius: 99px; padding: 2px 6px; white-space: nowrap; }
+.ag-studybtn .n i { font-style: normal; font-weight: 400; opacity: .65; margin-left: 3px; }
+.ag-studybtn .n.settled { color: var(--ok); background: var(--ok-soft); }
+.ag-fieldlist {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  max-height: 26vh; overflow: auto; padding: 6px;
+}
+
+/* read-only viewer: the abstract (abstract scope) or the paper text / PDF (fulltext) */
+.ag-viewer { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); display: flex; flex-direction: column; max-height: 82vh; overflow: hidden; position: sticky; top: 12px; }
+.ag-viewer-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; }
+.ag-viewer-body { flex: 1; min-height: 0; overflow: auto; }
+.ag-viewer-body.pdf-mode { display: flex; flex-direction: column; overflow: hidden; }
+.ag-viewer-body .pdf-scroll { padding: 10px 6px 30px; }
+.ag-abs { padding: 14px 16px; }
+.ag-abs-title { margin: 0 0 4px; font-family: var(--serif); font-size: 17px; font-weight: 600; line-height: 1.3; }
+.ag-abs-sub { margin: 0 0 12px; color: var(--muted); font-size: 11.5px; }
+.ag-abs-text { margin: 0; font-size: 13.5px; line-height: 1.6; white-space: pre-wrap; }
+.ag-text { margin: 0; padding: 12px 14px; white-space: pre-wrap; word-wrap: break-word; font: 12.5px/1.65 var(--mono, monospace); }
+.ag-fieldbtn {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 1px solid transparent; background: transparent; color: var(--ink-2);
+  border-radius: var(--r-sm); padding: 6px 8px; font-size: 12px; cursor: pointer;
+}
+.ag-fieldbtn:hover { background: var(--panel-2); }
+.ag-fieldbtn.active { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.ag-fieldbtn .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-fieldbtn .cnt { font: 700 10.5px/1 var(--mono); color: var(--danger); background: var(--danger-soft); border-radius: 99px; padding: 2px 6px; }
+.ag-fieldbtn .cnt.zero { color: var(--faint); background: var(--panel-3); }
+.ag-fieldbtn .cnt.settled { color: var(--ok); background: var(--ok-soft); }
+.ag-fieldgrp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; margin: 8px 6px 2px; }
+
+.ag-conftoolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ag-conftoolbar .grow { flex: 1; }
+/* middle column is independently scrollable so a long conflict list never
+   escapes the window height (side list and viewer are sticky already) */
+.ag-confmain {
+  min-width: 0; min-height: 0; display: flex; flex-direction: column;
+  position: sticky; top: 12px; max-height: calc(100vh - 150px); overflow: hidden;
+}
+#ag-conflist { overflow-y: auto; min-height: 0; padding-right: 2px; }
+#ag-conftail { flex: none; }
+.ag-confcard {
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  padding: 9px 11px; margin-bottom: 8px;
+}
+.ag-confcard.settled { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.ag-confhead { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ag-confhead .sid { font-weight: 700; font-size: 12.5px; }
+.ag-confhead .fld { font-size: 11.5px; color: var(--muted); }
+.ag-confhead .meta { margin-left: auto; font-size: 10.5px; color: var(--faint); }
+.ag-values { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.ag-chip {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+  background: var(--panel-2); color: var(--ink-2); border-radius: 99px; padding: 3px 10px;
+  font-size: 11.5px; cursor: pointer;
+}
+.ag-chip:hover { border-color: var(--accent); color: var(--ink); }
+.ag-chip b { font-weight: 600; }
+.ag-chip .who { color: var(--faint); font-size: 10.5px; }
+.ag-chip.master { border-color: color-mix(in srgb, var(--ok) 50%, transparent); background: var(--ok-soft); color: var(--ok); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 22%, transparent); }
+.ag-chip.clear { color: var(--muted); }
+.ag-levels { display: flex; align-items: center; gap: 6px; margin-top: 7px; }
+.ag-levels .select { min-width: 0; max-width: 260px; }
+
+/* LLM excluded, raters would include (abstract scope) */
+.ag-llmexcl { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 10px 12px; margin: 2px 0 14px; }
+.ag-llmexcl-head { display: flex; align-items: center; gap: 8px; }
+.ag-llmexcl-head h3 { margin: 0; font-size: 12.5px; font-weight: 700; }
+.ag-llmexcl-list { display: flex; flex-direction: column; gap: 6px; max-height: 38vh; overflow: auto; margin-top: 8px; }
+.ag-llmexcl-row {
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2);
+}
+.ag-llmexcl-info { min-width: 0; flex: 1; }
+.ag-llmexcl-info .t { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-llmexcl-info .m { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-llmexcl-raters { display: flex; gap: 5px; flex-wrap: wrap; }
+.ag-llmexcl-row .ag-chip { cursor: default; }
+.ag-empty { padding: 24px 14px; text-align: center; color: var(--muted); border: 1px dashed var(--line-2); border-radius: var(--r); }
+
+/* ------------------------------------------------------------ fast resolve */
+/* Raters are toggle buttons in the reliability subtab. */
+button.ag-rater { cursor: pointer; font-family: inherit; }
+button.ag-rater:hover { border-color: var(--accent); }
+.ag-rater.off { opacity: .48; text-decoration: line-through; text-decoration-thickness: 1px; }
+
+#ag-fast[aria-pressed="true"] {
+  background: var(--accent-soft); color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* the numbered key badge on a rater's value chip (fast mode) */
+.ag-chip .k {
+  font: 700 9px/1 var(--mono); border: 1px solid currentColor; border-radius: 4px;
+  padding: 2px 4px; opacity: .75;
+}
+/* the conflict being resolved */
+.ag-confcard.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+body.ag-fast .ag-confcard:not(.active) { opacity: .72; }
+body.ag-fast .ag-confcard { cursor: pointer; }
+.ag-confcard .fld { white-space: normal; }
+.ag-confcard.active .fld { color: var(--ink); }
+/* per-experiment group headers inside the conflict list */
+.ag-exphead {
+  display: flex; align-items: baseline; gap: 8px; flex: none;
+  position: sticky; top: 0; z-index: 2;
+  background: var(--panel); padding: 8px 2px 6px; margin-top: 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px; font-weight: 700;
+}
+.ag-exphead .cnt { margin-left: auto; font: 700 10.5px/1 var(--mono); color: var(--danger);
+  background: var(--danger-soft); border-radius: 99px; padding: 2px 6px; white-space: nowrap; }
+.ag-exphead .cnt.settled { color: var(--ok); background: var(--ok-soft); }

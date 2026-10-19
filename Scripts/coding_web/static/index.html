@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coding Studio · Misinformation Interventions</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="stylesheet" href="/static/analysis.css">
+<link rel="stylesheet" href="/static/assignment.css">
+<link rel="stylesheet" href="/static/coverage.css">
+<link rel="stylesheet" href="/static/summary.css">
+<link rel="stylesheet" href="/static/screening.css">
+<link rel="stylesheet" href="/static/agreement.css">
+<link rel="stylesheet" href="/static/repro.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-mark" viewBox="0 0 24 24"><path d="M5 4.5h11a3 3 0 0 1 3 3V19a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16M9.5 5.6A9.6 9.6 0 0 1 12 5c6.4 0 10 6 10 6a17 17 0 0 1-3.4 3.9M6.3 7.6A16.4 16.4 0 0 0 2 11s3.6 6 10 6a9.4 9.4 0 0 0 4-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+    <symbol id="i-caret" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.5 5 5L20 6.5"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2.5 20h19L12 3Z"/><path d="M12 9v5M12 17h.01"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5V5.5Z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5Z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-broom" viewBox="0 0 24 24"><path d="M14 4l6 6M12.5 7.5 5 15l-1 5 5-1 7.5-7.5M8 12l4 4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H15"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7H4V2"/><path d="M4 7a8 8 0 1 1-1 8"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0M16 5.6a3 3 0 0 1 0 5.5M17 19a5.6 5.6 0 0 0-2-4.2"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4-2v-4L3 5Z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h7A1.5 1.5 0 0 1 19 9v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 18V6.5Z"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V7M16 16v-6M20 16v-2"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7V5Z"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M4 7h3l10 10h3M4 17h3l3-3M14 7h6M20 7l-3-3M20 7l-3 3M20 17l-3-3M20 17l-3 3"/></symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <nav class="toptabs" role="tablist" aria-label="Sections">
+    <button class="viewtab" data-view="summary" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-list"/></svg>
+      Summary
+    </button>
+    <button class="viewtab" data-view="screening" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-list"/></svg>
+      Screening
+    </button>
+    <button class="viewtab active" data-view="coding" role="tab" aria-selected="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mark"/></svg>
+      Coding
+    </button>
+    <button class="viewtab" data-view="agreement" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>
+      Agreement
+    </button>
+    <button class="viewtab" data-view="coverage" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
+      Harmonization
+    </button>
+    <button class="viewtab" data-view="reproduction" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
+      Reproduction
+    </button>
+    <button class="viewtab" data-view="analysis" role="tab" aria-selected="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
+      Analysis
+    </button>
+  </nav>
+
+  <div class="actions">
+    <button class="btn" id="coder-mode" aria-pressed="false" title="Coder mode — auto-advance between fields; in screening a verdict jumps to the next unfilled criterion and the last one loads the next abstract">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
+      Coder mode
+    </button>
+    <div class="field-inline coder-field">
+      <input class="input" id="coder-input" list="coder-options" placeholder="Coder" autocomplete="off" spellcheck="false" title="Your coder name — pick an existing one or type a new name to add yourself">
+      <datalist id="coder-options"></datalist>
+    </div>
+    <div class="field-inline master-top" id="master-field">
+      <input class="input" id="ag-master" placeholder="Master" autocomplete="off" spellcheck="false">
+    </div>
+    <button class="btn" id="ag-fast" aria-pressed="false" title="Fast resolve — auto-select the next conflict, follow it in the paper, press a coder's number to settle, auto-advance">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
+      Fast resolve
+    </button>
+    <button class="btn" id="blind-btn" aria-pressed="false" title="Blind coding — hide existing coding (Ctrl+B)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-eye" id="blind-icon"/></svg>
+      <span id="blind-label">Blind</span>
+    </button>
+    <button class="btn ghost danger" id="clear-btn" title="Clear the manual coding for this paper">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-broom"/></svg>
+      <span id="clear-label">Clear</span>
+    </button>
+    <button class="btn" id="save-btn" title="Save coding with coder suffix (Ctrl+S)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-save"/></svg>
+      Save
+    </button>
+    <button class="btn" id="shuffle-btn" title="Shuffle — jump to a random study you have not coded yet">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-shuffle"/></svg>
+    </button>
+    <button class="btn primary" id="next-btn" title="Save and open the next paper (Ctrl+Enter or Insert)">
+      Next
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-next"/></svg>
+    </button>
+    <button class="btn" id="merge-btn" hidden title="Merge your abstract-screening decisions into master_dataset.xlsx">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
+      Merge
+    </button>
+    <button class="btn" id="an-full-top" title="Generate every diagram and table (full analysis)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
+      Full analysis
+    </button>
+    <span class="pill" id="an-gen" title="Analysis results last updated">–</span>
+    <button class="btn ghost icon" id="project-btn" aria-label="Project folder" title="Choose the project folder (Papers/, Text/, Extraction/)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+    </button>
+    <button class="btn ghost theme-toggle" id="theme-btn" title="Toggle theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-moon" id="theme-icon"/></svg>
+    </button>
+  </div>
+</header>
+<main class="workspace" id="view-coding">
+  <aside class="pane left" id="left-pane">
+    <button class="rail rail-left" id="rail-left" title="Show the paper list" tabindex="-1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg>
+      <span>Papers</span>
+    </button>
+    <div class="side-search">
+      <div class="search-row">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          <input class="input" id="search-input" placeholder="Search papers…  (Ctrl+K)" autocomplete="off" spellcheck="false">
+        </div>
+        <button class="btn icon ft-chip icon-only" id="show-excluded" aria-pressed="false" title="Show studies excluded at full text by coder agreement" aria-label="Toggle full-text-excluded studies">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-eye-off"/></svg>
+          <span class="cnt" id="ft-count" hidden>0</span>
+        </button>
+        <button class="btn icon facet-btn" id="facet-btn" title="Filter by study characteristics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-filter"/></svg>
+          <span class="facet-count" id="facet-count" hidden>0</span>
+        </button>
+        <button class="pane-min" id="min-left" title="Minimise the paper list" tabindex="-1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg>
+        </button>
+      </div>
+      <div class="filters" id="filters">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="uncoded">To code</button>
+        <button class="chip" data-filter="coded">My codings</button>
+        <button class="chip" data-filter="missing">Missing</button>
+      </div>
+    </div>
+    <div class="paper-list" id="paper-list">
+      <div class="skeleton"><div class="sk" style="width:70%"></div><div class="sk" style="width:90%"></div><div class="sk" style="width:55%"></div><div class="sk" style="width:80%"></div></div>
+    </div>
+
+    <div class="gutter-h" id="rationale-gutter" title="Drag to resize"></div>
+
+    <div class="side-block" id="rationale-block">
+      <header>
+        <button class="block-toggle" id="rationale-toggle" aria-expanded="true">
+          <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg>
+          <h2>Coding rationale</h2>
+        </button>
+      </header>
+      <div class="body" id="rationale-body">
+        <p class="side-hint"><b>Coding rationale</b> is your own justification for this experiment. It is saved inside the record as <code>Rationale_Notes</code> and is what gets compared across coders.</p>
+        <textarea class="textarea" id="rationale-input" placeholder="Why you coded it this way: inferred values, group-size inference, sign conventions, effect-size conversions…"></textarea>
+        <details class="notes-details" id="notes-details" hidden>
+          <summary>
+            <span class="notes-for">Original coder notes</span>
+            <span class="notes-raw-toggle" id="notes-raw-toggle" role="button" tabindex="-1">raw</span>
+          </summary>
+          <p class="side-hint"><b>Original coder notes</b> come from the earlier coding pass (<code>Extraction/&lt;Key&gt;.md</code>). They are read-only reference material and are never saved back.</p>
+          <div class="md" id="notes-md"></div>
+          <pre class="notes-pre" id="notes-pre" hidden></pre>
+        </details>
+      </div>
+    </div>
+  </aside>
+
+  <div class="gutter" data-resize="left" title="Drag to resize"></div>
+
+  <section class="pane mid">
+    <div class="toolstrip">
+      <div class="ts-left">
+        <div class="mini-box">
+          <span class="mini-box-label">Experiment</span>
+          <div class="mini-box-row" id="rec-tabs"></div>
+        </div>
+        <div class="mini-box">
+          <span class="mini-box-label">Interventions</span>
+          <div class="mini-box-row" id="interventions-tabs"></div>
+        </div>
+      </div>
+      <div class="ts-mid"></div>
+      <div class="ts-right">
+        <div class="var-search" id="field-search-wrap">
+          <button class="btn ghost icon var-search-toggle" id="field-search-toggle" title="Search variables" aria-label="Search variables" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          </button>
+          <div class="search-wrap var-search-field" id="field-search-field" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+            <input class="input" id="field-search" placeholder="Search variables…" autocomplete="off" spellcheck="false" title="Filter the coding form by variable name or label">
+          </div>
+        </div>
+        <button class="btn" id="missings-only" aria-pressed="false" title="Show only contrasts without complete metrics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-alert"/></svg>
+          Missing only
+        </button>
+        <span class="lab">Compare</span>
+        <select class="select compare-select" id="compare-select" title="Show another coder's values in a side column next to your coding"></select>
+      </div>
+    </div>
+    <div class="interventions-editor" id="interventions-panel" hidden></div>
+    <div class="pane-body">
+      <div class="form" id="form">
+        <div class="skeleton"><div class="sk" style="width:40%"></div><div class="sk" style="width:80%"></div><div class="sk" style="width:65%"></div><div class="sk" style="width:90%"></div><div class="sk" style="width:50%"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="gutter" data-resize="mid" title="Drag to resize"></div>
+
+  <section class="pane right" id="paper-pane">
+    <button class="rail rail-right" id="rail-right" title="Show the paper" tabindex="-1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(180deg)"><use href="#i-caret"/></svg>
+      <span>Paper</span>
+    </button>
+    <div class="pane-head">
+      <div class="seg" id="viewer-seg">
+        <button class="active" data-view="pdf">PDF</button>
+        <button data-view="text">Text</button>
+      </div>
+      <span class="grow" style="flex:1"></span>
+      <div class="pdf-controls" id="pdf-controls">
+        <select class="select supp-select" id="supp-select" hidden title="Supplementary PDF"></select>
+        <div class="pagebox" title="Page">
+          <input class="input" id="page-input" type="number" min="1" step="1" value="1">
+          <span class="pagetotal">/ <span id="page-total">–</span></span>
+        </div>
+        <button class="btn" id="fit-toggle" aria-pressed="true" title="Fit page width">Fit width</button>
+        <button class="btn" id="mark-btn" aria-pressed="false" title="Select text in the PDF, then click to record it as the source location for the focused variable">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-target"/></svg>
+          Mark source
+        </button>
+        <span class="pdf-markwarn" id="mark-warn" hidden></span>
+        <div class="pdf-search">
+          <button class="btn ghost icon pdf-find-toggle" id="pdf-find-toggle" title="Find in PDF" aria-label="Find in PDF" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          </button>
+          <div class="search-wrap pdf-search-wrap" id="pdf-find-field" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+            <input class="input" id="pdf-find" type="text" placeholder="Find in PDF…" autocomplete="off" spellcheck="false" title="Highlight text in the PDF — Enter / ↓ = next match, Shift+Enter / ↑ = previous, Esc = clear">
+          </div>
+          <span class="pdf-find-count" id="pdf-find-count" hidden>0</span>
+          <button class="btn ghost icon pdf-find-nav" id="pdf-find-prev" title="Previous match" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(180deg)"><use href="#i-caret"/></svg></button>
+          <button class="btn ghost icon pdf-find-nav" id="pdf-find-next" title="Next match" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg></button>
+        </div>
+      </div>
+      <a class="btn ghost icon" id="open-pdf" target="_blank" rel="noopener" title="Open the PDF in a new tab" tabindex="-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-external"/></svg>
+      </a>
+      <button class="pane-min" id="min-right" title="Minimise the paper" tabindex="-1">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg>
+      </button>
+    </div>
+    <div class="viewer" id="viewer"></div>
+  </section>
+</main>
+
+<main class="workspace screening" id="view-screening" hidden>
+  <aside class="pane left" id="screen-left">
+    <div class="side-search">
+      <div class="search-row">
+        <div class="search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          <input class="input" id="screen-search" placeholder="Search abstracts…  (Ctrl+K)" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="filters" id="screen-filters">
+        <button class="chip active" data-sfilter="all">All</button>
+        <button class="chip" data-sfilter="toscreen">To screen</button>
+        <button class="chip" data-sfilter="screened">Screened</button>
+        <button class="chip" data-sfilter="included">Included</button>
+        <button class="chip" data-sfilter="excluded">Excluded</button>
+      </div>
+      <div class="screen-progress" id="screen-progress"></div>
+    </div>
+    <div class="paper-list" id="screen-list"></div>
+  </aside>
+
+  <section class="pane mid">
+    <div class="toolstrip">
+      <div class="ts-left">
+        <span class="pill" id="screen-pos">–</span>
+        <span class="pill" id="screen-decision"></span>
+      </div>
+    </div>
+    <div class="pane-body pad" id="screen-body">
+      <div id="screen-form"><p class="side-hint">Select an abstract to screen.</p></div>
+      <p class="screen-keys">Criteria with no keyword evidence are pre-filled Unsure · Tab = accept &amp; next criterion · Y = Yes · N = No · U = Unsure · Shift+Tab = back · the last Tab saves and loads the next abstract</p>
+    </div>
+  </section>
+
+  <section class="pane right" id="screen-right">
+    <div class="pane-head">
+      <div class="seg" id="screen-viewer-seg">
+        <button class="active" data-sview="abstract">Abstract</button>
+        <button data-sview="meta">Metadata</button>
+        <button data-sview="ai">AI reference</button>
+      </div>
+      <span class="grow" style="flex:1"></span>
+      <span class="an-note" id="screen-hint"></span>
+    </div>
+    <div class="viewer" id="screen-viewer"></div>
+  </section>
+</main>
+
+<main class="workspace agreement" id="view-agreement" hidden>
+  <div class="ag-page">
+    <div class="ag-head">
+      <div class="an-title">
+        <h1>Inter-rater agreement</h1>
+        <p>Gwet's AC1 (nominal) and AC2 (linear weights) on every deterministic label with fewer than 50 levels. Raters need not overlap; missing cells are ignored. The canonical coding is the <code>LLM/base</code> rater.</p>
+      </div>
+    </div>
+
+    <div class="an-tabbar">
+      <div class="seg" id="ag-scope">
+        <button class="active" data-agscope="fulltext">Fulltext</button>
+        <button data-agscope="abstract">Abstract</button>
+      </div>
+      <div class="seg" id="ag-tabs">
+        <button class="active" data-agtab="reliability">Reliability</button>
+        <button data-agtab="conflicts">Conflicts</button>
+      </div>
+      <span class="grow"></span>
+      <span class="an-hint" id="ag-hint"></span>
+    </div>
+
+    <section id="ag-panel-reliability">
+      <section class="ag-kpis" id="ag-kpis"></section>
+      <div class="ag-raters" id="ag-raters"></div>
+      <div class="an-tablewrap ag-tablewrap"><div id="ag-rel-table"></div></div>
+      <p class="an-note" id="ag-rel-note"></p>
+      <div id="ag-dv-align"></div>
+    </section>
+
+    <section id="ag-panel-conflicts" hidden>
+      <div class="ag-conflicts">
+        <aside class="ag-side">
+          <div class="ag-sidehead">Conflicted studies <span class="pill" id="ag-studycount">–</span>
+            <button class="btn icon ghost" id="ag-show-settled" aria-pressed="false" title="Show only studies with settled conflicts" aria-label="Toggle settled studies filter">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>
+            </button>
+          </div>
+          <div class="ag-studylist" id="ag-studies"></div>
+          <div class="ag-sidehead">Exclusion criteria <span class="pill" id="ag-fieldcount">–</span></div>
+          <aside class="ag-fieldlist" id="ag-fields"></aside>
+          <div id="ag-llmexcl" hidden></div>
+        </aside>
+        <div class="ag-confmain">
+          <div class="ag-conftoolbar">
+            <label class="field-inline"><span>Show</span>
+              <select class="select" id="ag-status">
+                <option value="open">Open</option>
+                <option value="settled">Settled</option>
+                <option value="all">All</option>
+              </select>
+            </label>
+            <span class="grow"></span>
+            <span class="pill" id="ag-confcount">–</span>
+          </div>
+          <p class="an-note" id="ag-confnote">Click a rater's value to settle the conflict with it; the Master's file is <code>Codings/&lt;Key&gt; - &lt;master&gt;.json</code>.</p>
+          <div id="ag-conflist"></div>
+          <div id="ag-conftail"></div>
+        </div>
+        <section class="ag-viewer" id="ag-viewer">
+          <div class="ag-viewer-head">
+            <div class="seg" id="ag-viewerseg">
+              <button class="active" data-agviewer="abstract">Abstract</button>
+              <button data-agviewer="text">Text</button>
+              <button data-agviewer="pdf">PDF</button>
+            </div>
+            <span class="grow" style="flex:1"></span>
+            <div class="pdf-controls" id="ag-pdf-controls" hidden>
+              <div class="pagebox" title="Page">
+                <input class="input" id="ag-page-input" type="number" min="1" step="1" value="1">
+                <span class="pagetotal">/ <span id="ag-page-total">–</span></span>
+              </div>
+              <button class="btn" id="ag-fit-toggle" aria-pressed="true" title="Fit page width">Fit width</button>
+            </div>
+            <div class="pdf-search" id="ag-find-wrap" hidden>
+              <button class="btn ghost icon pdf-find-toggle" id="ag-find-toggle" title="Find in PDF" aria-label="Find in PDF" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+              </button>
+              <div class="search-wrap pdf-search-wrap" id="ag-find-field" hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+                <input class="input" id="ag-find" type="text" placeholder="Find in PDF…" autocomplete="off" spellcheck="false" title="Highlight text in the PDF — Enter = next match, Shift+Enter = previous, Esc = clear">
+              </div>
+              <span class="pdf-find-count" id="ag-find-count" hidden>0</span>
+              <button class="btn ghost icon pdf-find-nav" id="ag-find-prev" title="Previous match" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(180deg)"><use href="#i-caret"/></svg></button>
+              <button class="btn ghost icon pdf-find-nav" id="ag-find-next" title="Next match" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-caret"/></svg></button>
+            </div>
+            <a class="btn ghost icon" id="ag-open-pdf" target="_blank" rel="noopener" title="Open the PDF in a new tab" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-external"/></svg>
+            </a>
+          </div>
+          <div class="ag-viewer-body" id="ag-viewer-body"></div>
+        </section>
+      </div>
+    </section>
+  </div>
+</main>
+
+<main class="workspace coverage" id="view-coverage" hidden>
+  <div class="cv-page">
+    <div class="cv-head">
+      <div class="an-title">
+        <h1>Harmonization</h1>
+        <p>Every harmonized study ranked by the poolability-weighted missingness of the 11 essential
+          slots. Click a study or a slot chip to open the assignment workspace at that gap and label
+          the variable with value labels, example rows and codebook context. Machine statuses are
+          filled / missing / ambiguous; <b>n/a</b> and <b>confirmed</b> come from coder assignments.</p>
+      </div>
+    </div>
+    <section class="cv-kpis" id="cv-kpis"></section>
+    <div class="cv-funnel" id="cv-funnel"></div>
+    <div class="cv-audit" id="cv-audit"></div>
+    <div class="cv-toolbar">
+      <div class="filters" id="cv-filters"></div>
+      <span class="cv-grow"></span>
+      <div class="search-wrap" style="width:240px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+        <input class="input" id="cv-search" placeholder="Search studies…" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="cv-assign-host" id="cv-assign-host" hidden></div>
+    <div class="cv-tablewrap"><div id="cv-table"></div></div>
+    <p class="an-note" id="cv-note"></p>
+  </div>
+</main>
+
+<main class="workspace summary" id="view-summary" hidden>
+  <div class="sm-page">
+    <div class="sm-head">
+      <div class="an-title">
+        <h1>Coding summary</h1>
+        <p id="sm-sub">Every coding variable, grouped by the coding-tab categories, with the number of levels. Pick a field, click a level to list the studies and their coding context, and edit the value inline.</p>
+      </div>
+      <div class="sm-actions">
+        <span class="pill" id="sm-dirty"></span>
+      </div>
+    </div>
+
+    <section class="sm-kpis" id="sm-kpis"></section>
+
+    <section class="sm-levels" id="sm-levels"></section>
+
+    <section class="sm-levelchips" id="sm-levelchips"></section>
+
+    <section class="sm-list">
+      <div class="sm-listhead">
+        <span id="sm-listtitle">Select a level above to list its studies.</span>
+        <span class="grow"></span>
+        <div class="search-wrap" style="width:240px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          <input class="input" id="sm-search" placeholder="Filter variables…" autocomplete="off" spellcheck="false">
+        </div>
+        <button class="btn" id="sm-clearfilter" title="Clear the level filter">Clear</button>
+      </div>
+      <div class="sm-tablewrap"><div id="sm-table"></div></div>
+      <p class="an-note" id="sm-note"></p>
+    </section>
+  </div>
+</main>
+
+<main class="workspace analysis" id="view-analysis" hidden>
+  <div class="an-page">
+    <div class="an-head">
+      <div class="an-controls">
+        <div class="seg an-layers" id="an-layer-switch">
+          <button class="active" data-layer="meta">Meta-Analysis</button>
+          <button data-layer="sdt">Re-Analysis</button>
+        </div>
+        <div class="seg an-model" id="an-model-switch" title="Estimation framework — frequentist (DerSimonian–Laird random effects) or Bayesian (posterior mean and 95% credible interval, half-normal prior on τ)">
+          <button class="active" data-model="freq">Frequentist</button>
+          <button data-model="bayes">Bayes</button>
+        </div>
+        <div class="an-priors" id="an-priors" hidden>
+          <label class="field-inline"><span>μ prior</span>
+            <select class="select" id="an-mu-prior" title="Prior on the pooled effect μ">
+              <option value="1">N(0, 1²)</option>
+              <option value="5">N(0, 5²)</option>
+              <option value="10" selected>N(0, 10²)</option>
+              <option value="100">N(0, 100²)</option>
+            </select>
+          </label>
+          <label class="field-inline"><span>τ prior</span>
+            <select class="select" id="an-tau-prior" title="Prior on the between-study SD τ">
+              <option value="half-normal|0.25">half-Normal(0.25)</option>
+              <option value="half-normal|0.5" selected>half-Normal(0.5)</option>
+              <option value="half-normal|1">half-Normal(1)</option>
+              <option value="half-cauchy|0.5">half-Cauchy(0.5)</option>
+              <option value="half-cauchy|1">half-Cauchy(1)</option>
+            </select>
+          </label>
+          <button class="btn" id="an-sens" title="Bayes-factor robustness across the prior presets">Prior sensitivity</button>
+        </div>
+        <label class="field-inline"><span>Pretest</span>
+          <select class="select" id="an-pre" title="Pretest handling — “-”: ignore the pretest; “only”: only studies with a pretest, using the pretest-corrected (DiD) effect; “all”: every study, pretest-corrected where possible and the posttest otherwise">
+            <option value="-">-</option>
+            <option value="only">only</option>
+            <option value="all" selected>all</option>
+          </select>
+        </label>
+        <label class="field-inline"><span>Follow-up</span>
+          <select class="select" id="an-fu" title="Follow-up (delayed posttest) handling — none: the follow-up is ignored (the Pretest control decides the specification); immediate: the immediate posttest only; delayed: only studies with a follow-up (persistence); all: every study, the follow-up where available and the immediate posttest otherwise">
+            <option value="none">none</option>
+            <option value="immediate">immediate</option>
+            <option value="delayed">delayed</option>
+            <option value="all" selected>all</option>
+          </select>
+        </label>
+        <label class="an-check"><input type="checkbox" id="an-cred"> Credibility only</label>
+        <label class="an-check"><input type="checkbox" id="an-excl-on" checked> Apply author exclusions</label>
+        <label class="an-check" title="Fully-within (single-arm, no-control) studies are excluded from the pooled analysis by default; tick to include them"><input type="checkbox" id="an-fully-within"> Include fully-within studies</label>
+        <label class="field-inline" title="Restrict the overall analysis to a subgroup (e.g., lateral-reading studies)">
+          <span>Subgroup</span>
+          <select class="select" id="an-filter">
+            <option value="">All studies</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <div class="an-body">
+    <div class="an-main">
+    <section class="an-kpis" id="an-kpis"></section>
+    <div class="an-sens-panel" id="an-sens-panel" hidden></div>
+
+    <section class="an-card">
+      <div class="an-tabbar">
+        <div class="seg" id="an-tabs">
+          <button class="active" data-tab="summary">Summary</button>
+          <button data-tab="tables">Quality</button>
+          <button data-tab="moderator">Moderator</button>
+          <button data-tab="figures">Figures</button>
+          <button data-tab="methods">Methods</button>
+          <button data-tab="apa">Export</button>
+        </div>
+        <span class="grow"></span>
+        <span class="an-hint" id="an-hint"><span id="an-hint-text"></span><span class="an-bar" id="an-hint-bar" hidden><i></i></span></span>
+      </div>
+
+      <div class="an-panel" id="an-panel-summary">
+        <div id="an-summary" class="an-summary"></div>
+      </div>
+
+      <div class="an-panel" id="an-panel-tables" hidden>
+        <p class="an-note" id="an-quality-note"></p>
+        <div id="an-quality" class="an-summary"></div>
+      </div>
+
+      <div class="an-panel" id="an-panel-figures" hidden>
+        <div class="an-figfilters" id="an-fig-filters"></div>
+        <div class="an-figlist" id="an-fig-list"></div>
+        <div class="an-figview">
+          <img id="an-fig-img" alt="Figure" hidden>
+          <p class="an-figcap" id="an-fig-cap">Select a figure.</p>
+        </div>
+      </div>
+
+      <div class="an-panel" id="an-panel-moderator" hidden>
+        <div class="an-modgrid">
+          <div class="an-modcol">
+            <h4>Moderators</h4>
+            <div class="an-modlist" id="an-mod-featured"></div>
+          </div>
+          <div class="an-modcol">
+            <div id="an-mod-groups" class="an-modgroups"></div>
+          </div>
+        </div>
+        <div class="an-modint">
+          <h4>Interactions</h4>
+          <p class="an-note">Add a product term between two selected moderators.</p>
+          <div class="an-intadd">
+            <select class="select" id="an-int-a"></select>
+            <span>×</span>
+            <select class="select" id="an-int-b"></select>
+            <button class="btn" id="an-int-add">Add</button>
+          </div>
+          <div class="an-intlist" id="an-int-list"></div>
+        </div>
+        <div class="an-modindicators">
+          <h4>Moderator model indicators</h4>
+          <p class="an-note">These belong to the fitted moderator model alone — they are <b>not</b> the pooled indicators in the strip at the top of the tab.</p>
+          <div class="an-modindrow">
+            <span class="an-wait" id="an-mod-wait" hidden><span class="spinner"></span> Fitting moderator model…</span>
+            <section class="an-kpis an-modkpis" id="an-mod-kpis"></section>
+          </div>
+        </div>
+        <div id="an-mod-results"></div>
+      </div>
+
+      <div class="an-panel an-methods" id="an-panel-methods" hidden>
+        <div class="md" id="an-methods"></div>
+      </div>
+
+      <div class="an-panel" id="an-panel-apa" hidden>
+        <div class="apa-grid">
+          <div>
+            <h4>Report contents</h4>
+            <div class="apa-actions">
+              <label class="field-inline"><span>Format</span>
+                <select class="select" id="apa-fmt" title="Report format">
+                  <option value="docx">Word (DOCX)</option>
+                  <option value="md">Markdown</option>
+                </select>
+              </label>
+              <button class="btn" id="apa-all" title="Select every analysis">All</button>
+              <button class="btn" id="apa-none" title="Clear every analysis">None</button>
+            </div>
+            <div id="apa-echo" class="an-note"></div>
+            <h4>Descriptives to report</h4>
+            <div id="apa-desc" class="apa-checks"></div>
+            <h4>Models &amp; analyses</h4>
+            <div id="apa-an" class="apa-checks"></div>
+            <h4>Moderator meta-regressions</h4>
+            <p class="an-note" id="apa-mod-note">Taken from the <b>Moderator</b> tab: each selected
+              moderator is fitted separately, plus one combined model with all moderators and
+              interactions.</p>
+            <h4>Other exports</h4>
+            <div class="apa-actions">
+              <label class="field-inline"><span>Format</span>
+                <select class="select" id="an-export-fmt" title="Export format">
+                  <option value="xlsx">Excel</option>
+                  <option value="pptx">PowerPoint</option>
+                </select>
+              </label>
+              <button class="btn" id="an-export" title="Export every current results table and figure">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-external"/></svg>
+                Export all results
+              </button>
+            </div>
+          </div>
+          <div>
+            <div class="apa-actions">
+              <button class="btn" id="apa-preview">Preview PRISMA</button>
+              <button class="btn primary" id="apa-download">Download report</button>
+            </div>
+            <p class="an-warn" id="apa-stale" hidden></p>
+            <p class="an-note">The report uses the layer, specification, timepoint, model and
+              Bayesian priors currently selected at the top of this tab, plus the moderators chosen
+              in the <b>Moderator</b> tab. Reliability, publication-bias analyses, the
+              statistical-analysis subsection and the PRISMA chart are included automatically when
+              available.</p>
+            <img id="apa-prisma-img" alt="PRISMA flow diagram" hidden>
+          </div>
+        </div>
+      </div>
+    </section>
+    </div>
+    <aside class="an-side">
+      <div class="an-sidehead"><h3>Effects</h3><span class="an-sidecap" id="an-side-cap"></span></div>
+      <div class="an-sideimg"><img id="an-side-img" alt="Effects figure"></div>
+      <div class="an-sidefoot">
+        <span id="an-side-none" class="an-note">No figure for this specification — run Full analysis.</span>
+        <span id="an-side-fallback" class="an-note" hidden></span>
+        <a id="an-side-png" href="#" target="_blank" rel="noopener" hidden>PNG</a>
+        <a id="an-side-pdf" href="#" target="_blank" rel="noopener" hidden>PDF</a>
+      </div>
+      <!-- One figure per selected moderator (right rail). -->
+      <div class="an-sidefigwrap" id="an-side-figwrap" hidden>
+        <div class="an-sidefighead">Selected moderators</div>
+        <div class="an-sidefigs" id="an-side-figs"></div>
+      </div>
+      <!-- Run window/panel: lives in the right column, below the effects figure. -->
+      <div class="an-runlog" id="an-runlog" hidden>
+        <div class="an-runlog-head">
+          <span id="an-runlog-title">Run</span>
+          <span class="grow"></span>
+          <button class="btn ghost icon" id="an-runlog-close" title="Hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-x"/></svg></button>
+        </div>
+        <pre id="an-runlog-body"></pre>
+      </div>
+    </aside>
+    </div>
+  </div>
+</main>
+
+<main class="workspace reproduction" id="view-reproduction" hidden>
+  <div class="an-page rp-page">
+    <div class="an-head">
+      <div class="an-title">
+        <h1>Reproduction</h1>
+        <p id="rp-sub">Per-study harmonization mapping and reproduction report: the variable mapping, exclusion criteria, analysis applied and the recalculated-versus-paper verdicts. Generate the per-study scripts, run every harmonizer, or run every reproducer — the outputs land in <code>harmonization_mapping.xlsx</code> and <code>reproduction_summary.xlsx</code>.</p>
+      </div>
+    </div>
+
+    <div class="an-controls rp-runbar" id="rp-runbar">
+      <button class="btn" id="rp-gen" title="Write the thin per-study reproduction wrappers (idempotent — bespoke scripts are never overwritten)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plus"/></svg>
+        Generate scripts
+      </button>
+      <button class="btn" id="rp-harm" title="Run Datasets/&lt;Key&gt;/harmonizer.py for every study and rebuild harmonization_mapping.xlsx">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
+        Run all harmonizers
+      </button>
+      <button class="btn primary" id="rp-repro" title="Run every Datasets/&lt;Key&gt;/&lt;Key&gt; - reproduction.py and rebuild reproduction_summary.xlsx">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
+        Run all reproducers
+      </button>
+      <label class="field-inline" title="Restrict harmonizers/reproducers to study keys containing this substring (case-insensitive). NB: a filtered run rebuilds the aggregate workbook for the matching studies only — run without a filter to restore the full summary.">
+        <span>Only</span>
+        <input class="input" id="rp-only" placeholder="study substring" autocomplete="off" spellcheck="false">
+      </label>
+      <span class="pill" id="rp-status-pill">Idle</span>
+    </div>
+
+    <section class="an-kpis" id="rp-kpis"></section>
+
+    <section class="an-card rp-list">
+      <div class="an-tabbar">
+        <div class="filters rp-filters" id="rp-filters"></div>
+        <span class="grow"></span>
+        <div class="search-wrap" style="width:240px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-search"/></svg>
+          <input class="input" id="rp-search" placeholder="Search studies…" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="an-tablewrap"><div id="rp-table">
+        <div class="skeleton"><div class="sk" style="width:40%"></div><div class="sk" style="width:80%"></div><div class="sk" style="width:65%"></div><div class="sk" style="width:90%"></div></div>
+      </div></div>
+      <p class="an-note" id="rp-note"></p>
+    </section>
+
+    <section class="rp-detail" id="rp-detail">
+      <div class="an-empty" id="rp-detail-empty">Select a study row to see its variable mapping, exclusion criteria, analysis and reproduction report.</div>
+      <div id="rp-detail-body" hidden></div>
+    </section>
+
+    <div class="an-runlog" id="rp-runlog" hidden>
+      <div class="an-runlog-head">
+        <span id="rp-runlog-title">Run</span>
+        <span class="grow"></span>
+        <button class="btn ghost icon" id="rp-runlog-close" title="Hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-x"/></svg></button>
+      </div>
+      <pre id="rp-runlog-body"></pre>
+    </div>
+  </div>
+</main>
+
+<dialog class="sheet" id="dialog">
+  <div class="sheet-body">
+    <h3 id="dialog-title">Confirm</h3>
+    <p id="dialog-text"></p>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn ghost" id="dialog-cancel">Cancel</button>
+    <button class="btn primary" id="dialog-ok">Confirm</button>
+  </div>
+</dialog>
+
+<dialog class="sheet wide" id="facet-dialog">
+  <div class="sheet-body">
+    <h3>Filter studies</h3>
+    <p>A paper is shown when it matches every group you select in.</p>
+    <div id="facet-body" class="facet-body"></div>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn ghost" id="facet-clear">Clear all</button>
+    <span style="flex:1"></span>
+    <button class="btn ghost" id="facet-cancel">Cancel</button>
+    <button class="btn primary" id="facet-apply">Apply</button>
+  </div>
+</dialog>
+
+<dialog class="sheet" id="project-dialog">
+  <div class="sheet-body">
+    <h3>Project folder</h3>
+    <p>The folder that holds <code>Papers/</code>, <code>Text/</code>, <code>Extraction/</code> and where <code>Codings/</code> is written.</p>
+    <div class="proj-row">
+      <input class="input mono-val" id="project-input" placeholder="C:\path\to\project" spellcheck="false">
+      <button class="btn" id="project-browse" title="Choose a folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+        Browse…
+      </button>
+    </div>
+    <p class="proj-status" id="project-status"></p>
+  </div>
+  <div class="sheet-foot">
+    <button class="btn ghost" id="project-cancel">Cancel</button>
+    <button class="btn primary" id="project-save">Use this folder</button>
+  </div>
+</dialog>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="/static/core.js"></script>
+<script src="/static/pdfsearch.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/analysis.js"></script>
+<script src="/static/assignment.js"></script>
+<script src="/static/coverage.js"></script>
+<script src="/static/summary.js"></script>
+<script src="/static/screening.js"></script>
+<script src="/static/agreement.js"></script>
+<script src="/static/repro.js"></script>
+</body>
+</html>

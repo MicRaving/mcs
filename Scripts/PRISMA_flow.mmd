@@ -1,0 +1,11 @@
+```mermaid
+flowchart TD
+  A["Records identified<br/>n = 30,345"] --> B["Records screened (title/abstract)<br/>n = 22,426"]
+  A --> DUP["Duplicates removed<br/>n = 7,919"]
+  B --> C["Records excluded<br/>n = 21,292"]
+  B --> D["Reports sought for retrieval<br/>n = 1,134"]
+  D --> NR["Reports not retrieved<br/>n = 0"]
+  D --> E["Reports assessed for eligibility<br/>n = 1,134"]
+  E --> F["Reports excluded<br/>n = 609"]
+  E --> G["Studies included<br/>n = 525"]
+```
