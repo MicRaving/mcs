@@ -209,9 +209,9 @@ def convert(legacy, scheme_id="misinformation", name="misinformation-interventio
     # their module.  Only the groups that really hold study fields survive.
     study_groups = []
     for raw in legacy.get("common_fields") or []:
-        name = raw.get("group")
-        if name and name not in study_groups:
-            study_groups.append(name)
+        group_name = raw.get("group")
+        if group_name and group_name not in study_groups:
+            study_groups.append(group_name)
     groups = [{"name": g, "label": g} for g in study_groups]
 
     fields = []
