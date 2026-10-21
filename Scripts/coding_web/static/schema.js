@@ -129,6 +129,7 @@
     pane: "field",       // "field" | "prompt"
     problems: [],
     loaded: false,
+    previousView: "",    // the view the editor returns to when it closes
   };
 
   /* fields whose name was typed by hand (or that carry a legacy name the
@@ -634,7 +635,7 @@
 
     renderValue();
 
-    const host = $("#scheme-dialog") || document.body;
+    const host = $("#view-scheme") || document.body;
     host.appendChild(box);
     placePop(box, anchor);
     pop = box;
@@ -1826,16 +1827,21 @@
   }
 
   /* ---------------------------------------------------------- public API */
+  /* The editor is a VIEW of its own (``#view-scheme``), not a modal: the
+     "Scheme" tab in the top strip opens it, and closing it returns to the
+     view the user came from. */
   function isOpen() {
-    const dlg = $("#scheme-dialog");
-    return !!(dlg && dlg.open);
+    const view = $("#view-scheme");
+    return !!(view && !view.hidden);
   }
 
   function open() {
-    const dlg = $("#scheme-dialog");
-    if (!dlg) return;
-    if (dlg.open) return;          // already open — never reload over unsaved work
-    dlg.showModal();
+    const view = $("#view-scheme");
+    if (!view) return;
+    if (!isOpen() && window.CS && typeof window.CS.showView === "function") {
+      window.CS.showView("scheme");
+    }
+    if (state.loaded) return;     // already loaded - never reload over unsaved work
     state.problems = [];
     renderLoading();
     load();
@@ -1848,14 +1854,17 @@
       if (!ok) return;
     }
     closePop();
-    const dlg = $("#scheme-dialog");
-    if (dlg && dlg.open) dlg.close();
+    const back = state.previousView || "coding";
+    if (window.CS && typeof window.CS.showView === "function") {
+      window.CS.showView(back);
+    } else {
+      const view = $("#view-scheme");
+      if (view) view.hidden = true;
+    }
   }
 
   /* ---------------------------------------------------------- wiring */
   function wire() {
-    const btn = $("#schema-btn");
-    if (btn) btn.addEventListener("click", () => open());
     const cancel = $("#scheme-cancel");
     if (cancel) cancel.addEventListener("click", () => close());
     const saveBtn = $("#scheme-save");
@@ -1865,13 +1874,23 @@
       state.pane = b.dataset.spane;
       renderRight();
     }));
-    const dlg = $("#scheme-dialog");
-    if (dlg) {
-      dlg.addEventListener("cancel", (e) => {
-        e.preventDefault();
-        close();
-      });
-    }
+    // The "Scheme" tab opens the editor; the editor is a view, so the tab
+    // itself is the only entry point.
+    const tab = document.querySelector('.viewtab[data-view="scheme"]');
+    if (tab) tab.addEventListener("click", () => open());
+    // Remember where to go back to: the app announces every view change.
+    // Leaving the editor with unsaved edits is allowed (the draft is kept),
+    // but it is said out loud - the editor is a view now, so the user can
+    // walk away from it without the app stopping them.
+    document.addEventListener("cs:view", (e) => {
+      const name = e && e.detail;
+      if (!name || name === "scheme") return;
+      if (state.previousView === "scheme" && isDirty()) {
+        toast("The scheme has unsaved changes", "err",
+          "Reopen the Scheme tab to finish or discard them.");
+      }
+      state.previousView = name;
+    });
   }
 
   if (document.readyState === "loading") {

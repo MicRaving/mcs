@@ -5,12 +5,21 @@
    ============================================================ */
 
 /* -------------------------------------------------- top-bar section tabs */
+/* The strip holds eight tabs now (Summary, Screening, Coding, Agreement,
+   Harmonization, Reproduction, Analysis, Scheme).  It takes the space the
+   actions leave and scrolls when that is not enough, so the app's own
+   buttons (Save, Next, the coder field) are never pushed off the window -
+   they used to be, and the Scheme entry was the one that got cut. */
 .toptabs {
   display: inline-flex; align-items: center; gap: 2px;
   padding: 3px; margin-left: 4px;
   border: 1px solid var(--line); border-radius: 99px;
   background: var(--panel-3);
+  min-width: 0; flex: 0 1 auto;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
 }
+.toptabs::-webkit-scrollbar { display: none; }
 .viewtab {
   display: inline-flex; align-items: center; gap: 6px;
   border: 0; background: transparent; color: var(--muted);

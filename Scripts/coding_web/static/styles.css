@@ -97,15 +97,24 @@ a { color: var(--accent); }
 
 /* ------------------------------------------------------------ topbar */
 .topbar {
-  height: var(--topbar);
+  min-height: var(--topbar);
+  height: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  padding: 0 16px;
+  gap: 8px 14px;
+  padding: 6px 16px;
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   backdrop-filter: blur(10px) saturate(1.2);
   border-bottom: 1px solid var(--line);
   z-index: 40;
+}
+/* Wide enough for one row: the strip and the actions share it.  Below that
+   the actions wrap onto a second row, so the section tabs (and with them the
+   Scheme entry) and the app's own buttons are BOTH always reachable - they
+   used to run off the right edge of the window. */
+@media (min-width: 1560px) {
+  .topbar { flex-wrap: nowrap; height: var(--topbar); padding: 0 16px; }
 }
 
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
@@ -131,7 +140,7 @@ a { color: var(--accent); }
 .pill.accent { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
 .pill.violet { background: color-mix(in srgb, var(--violet) 14%, transparent); color: var(--violet); border-color: transparent; }
 
-.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
 
 .field-inline { display: flex; align-items: center; gap: 7px; }
 .field-inline label { font-size: 11.5px; color: var(--muted); }
