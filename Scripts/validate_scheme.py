@@ -63,7 +63,6 @@ import time
 from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(HERE)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
@@ -246,7 +245,10 @@ def check_c3(scheme):
         if not role:
             continue
         owners.setdefault(role, []).append((field.get("name"), field.get("scope")))
-    shared = {role: names for role, names in owners.items() if len(names) > 1}
+    # A role claimed by two *different* field names is the collision class;
+    # the same name twice is a duplicate field (C2 reports that).
+    shared = {role: names for role, names in owners.items()
+              if len({n for n, _ in names}) > 1}
 
     # The same field name in two scopes with two different roles is the other
     # half of the collision class: ``role_map`` would silently keep one of them.
