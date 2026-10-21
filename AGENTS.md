@@ -455,6 +455,7 @@ python Scripts/validate_repro_dossier.py          # per-study reproduction dossi
 python Scripts/parse_reproduction_reports.py      # 5 required report elements (expect 342/342)
 python Scripts/convert_legacy_schema.py --check    # the scheme conversion is lossless
 python Scripts/validate_scheme.py                  # scheme structure, roles, corpus conformance
+python Scripts/check_scheme_module.py              # the scheme library's own invariants
 ```
 
 Fully-within (single-arm, no-control) experiments are **excluded from every pooled
