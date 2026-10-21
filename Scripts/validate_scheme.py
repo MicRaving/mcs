@@ -825,6 +825,7 @@ def run(root, scan=True):
         rows.append(_row("C6", INFO, "skipped: the screening scan was not requested",
                          "(--no-corpus)"))
     rows.extend(check_c7(scheme))
+    rows.extend(check_c8(scheme))
     return rows, scheme, source, time.perf_counter() - started
 
 
@@ -850,6 +851,80 @@ def _resolve_root(args):
         note = (f"the app's active project is {active}; the gate validated {root} "
                 f"(pass --project-root to validate another project)")
     return root, note
+
+
+def check_c8(scheme):
+    """C8: the legacy view of the scheme is the legacy document, field for field.
+
+    The coder form, the agreement tab and the analysis tab read the *legacy
+    view* of the scheme (``studio_lib._schema()``).  If that view drifts from
+    the v3.1 document, the form renders different controls, the blank values
+    differ (the ``|null`` marker decides whether an empty string is stored as
+    ``null``) and the agreement tab scores a different field list.
+
+    So the view must be identical to the legacy document, field for field.
+    """
+    legacy_path = PC.legacy_schema_path()
+    if not legacy_path or not os.path.exists(legacy_path):
+        return [_row("C8", INFO,
+                     "the project has no legacy schema.json, so there is no "
+                     "legacy view to compare the scheme against",
+                     legacy_path or "")]
+    try:
+        with open(legacy_path, encoding="utf-8") as fh:
+            legacy = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [_row("C8", FAIL, "the legacy schema.json could not be read",
+                     repr(exc))]
+
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                    "coding_web"))
+    try:
+        import studio_lib
+        view = studio_lib.legacy_schema_view(scheme)
+        studio_lib._restore_legacy_field_detail(view, legacy)
+    except Exception as exc:  # noqa: BLE001
+        return [_row("C8", FAIL, "the legacy view could not be rendered",
+                     repr(exc))]
+
+    problems = []
+    for bucket in ("common_fields", "dv_fields"):
+        old = {f.get("name"): f for f in (legacy.get(bucket) or [])}
+        new = {f.get("name"): f for f in (view.get(bucket) or [])}
+        for name in sorted(set(old) | set(new)):
+            if name not in old:
+                problems.append(f"{bucket}: '{name}' is in the view but not in "
+                                "the legacy document")
+                continue
+            if name not in new:
+                problems.append(f"{bucket}: '{name}' is MISSING from the view")
+                continue
+            o, n = old[name], new[name]
+            for prop in ("label", "group", "type", "base_type", "description",
+                         "required", "derived", "module", "editor"):
+                if str(o.get(prop)) != str(n.get(prop)):
+                    problems.append(f"{bucket}.{name}: {prop} "
+                                    f"{o.get(prop)!r} -> {n.get(prop)!r}")
+            oo = [(x.get("value"), x.get("label")) for x in (o.get("options") or [])]
+            no = [(x.get("value"), x.get("label")) for x in (n.get("options") or [])]
+            if oo != no:
+                problems.append(f"{bucket}.{name}: options {oo!r} -> {no!r}")
+            if (o.get("vocab") or []) != (n.get("vocab") or []):
+                problems.append(f"{bucket}.{name}: vocab differs")
+    if list(legacy.get("groups") or []) != list(view.get("groups") or []):
+        problems.append("the group list differs")
+    if sorted((legacy.get("modules") or {})) != sorted((view.get("modules") or {})):
+        problems.append("the module list differs")
+
+    if problems:
+        return [_row("C8", FAIL,
+                     f"the legacy view differs from the legacy document in "
+                     f"{len(problems)} place(s)",
+                     "\n".join(problems[:25]))]
+    return [_row("C8", PASS,
+                 "the legacy view is field-for-field identical to the legacy "
+                 "document (the coder form renders exactly what it did before)",
+                 legacy_path)]
 
 
 def main(argv=None):

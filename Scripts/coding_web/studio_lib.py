@@ -11,6 +11,18 @@ import tempfile
 import time
 from studio_state import S, SCHEMA, paper_keys
 
+try:
+    import scheme_lib as _SL  # noqa: E402
+except Exception:  # pragma: no cover - source layout fallback
+    for _d in (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               os.path.join(S.ROOT, "Scripts")):
+        if _d and _d not in sys.path:
+            sys.path.insert(0, _d)
+    import scheme_lib as _SL  # noqa: E402
+
+#: The value types a scheme field may hold (``scheme_lib.FIELD_TYPES``).
+FIELD_TYPES = _SL.FIELD_TYPES
+
 #: Version stamp for the portable build (D6).  Bump on every coordinated rebuild
 #: so a frozen binary can be matched against the source it was built from.
 APP_VERSION = "2026-09-22+ws_w2app"
@@ -619,6 +631,11 @@ def project_scheme():
     return scheme
 
 
+def _base_type_of(field_type):
+    """The base part of a v3.1 type: "string|null" -> "string"."""
+    return str(field_type or "").split("|")[0].strip()
+
+
 def legacy_schema_view(scheme):
     """Render a scheme in the legacy v3.1 shape.
 
@@ -784,14 +801,19 @@ def _restore_module_membership(doc, legacy):
 def _restore_legacy_field_detail(doc, legacy):
     """Restore the v3.1 details a scheme cannot carry.
 
-    Two things are lost in the conversion and are taken back from the v3.1
+    Three things are lost in the conversion and are taken back from the v3.1
     document when it is still there:
 
-    * the **nullable marker** of a field (``"string|null"``): the scheme only
-      knows the base type, and the coder form reads the marker when it
-      initialises a blank value;
+    * the **nullable marker** of a field (``"string|null"``) and the couple of
+      types the scheme does not model (``"multiselect"``): the scheme knows the
+      base type, and the coder form reads the marker when it initialises a
+      blank value;
     * the **group of the DV fields** (the v3.1 document put them in "Other"),
-      and with it the group list the coder form walks through.
+      and with it the group list the coder form walks through;
+    * the **field list itself**: a scheme may declare fields the v3.1 document
+      never had (the corpus-only fields the pipeline reads).  The
+      compatibility view renders the v3.1 document, so those stay out of the
+      coder form until the form renders the derived blocks instead.
     """
     if not legacy:
         return doc
@@ -804,25 +826,41 @@ def _restore_legacy_field_detail(doc, legacy):
             legacy_fields.setdefault(field.get("name"), field)
     groups = list(doc.get("groups") or [])
     for bucket in ("common_fields", "dv_fields"):
+        kept = []
         for field in (doc.get(bucket) or []):
             old = legacy_fields.get(field.get("name"))
             if not old:
-                continue
+                continue          # a corpus-only field: not part of v3.1
+            kept.append(field)
             old_type = old.get("type")
-            if old_type and field.get("base_type") == old.get("base_type"):
+            if old_type and (_base_type_of(old_type) == field.get("type")
+                             or _base_type_of(old_type) not in FIELD_TYPES):
+                # the v3.1 spelling carries the nullable marker ("string|null")
+                # and a couple of types the scheme does not model ("multiselect")
                 field["type"] = old_type
+                field["base_type"] = old.get("base_type") or _base_type_of(old_type)
+            elif field.get("nullable"):
+                field["type"] = "%s|null" % field.get("type")
             if bucket == "dv_fields" and old.get("group"):
                 field["group"] = old["group"]
                 if old["group"] not in groups:
                     groups.append(old["group"])
+        doc[bucket] = kept
     for mod in (doc.get("modules") or {}).values():
+        kept = []
         for field in (mod.get("fields") or []):
             old = legacy_fields.get(field.get("name"))
             if not old:
                 continue
+            kept.append(field)
             old_type = old.get("type")
-            if old_type and field.get("base_type") == old.get("base_type"):
+            if old_type and (_base_type_of(old_type) == field.get("type")
+                             or _base_type_of(old_type) not in FIELD_TYPES):
                 field["type"] = old_type
+                field["base_type"] = old.get("base_type") or _base_type_of(old_type)
+            elif field.get("nullable"):
+                field["type"] = "%s|null" % field.get("type")
+        mod["fields"] = kept
     doc["groups"] = groups
     return doc
 
@@ -842,6 +880,7 @@ def legacy_schema_document():
     if raw:
         doc = legacy_schema_view(project_scheme())
         _restore_module_membership(doc, _legacy_document())
+        _restore_legacy_field_detail(doc, _legacy_document())
         doc["source"] = "project scheme"
     else:
         doc = dict(_legacy_document())
@@ -859,7 +898,9 @@ def _schema():
     """
     stamp = _scheme_stamp()
     if _SCHEMA_CACHE["obj"] is None or _SCHEMA_CACHE.get("stamp") != stamp:
-        _SCHEMA_CACHE["obj"] = legacy_schema_view(project_scheme())
+        doc = legacy_schema_view(project_scheme())
+        _restore_legacy_field_detail(doc, _legacy_document())
+        _SCHEMA_CACHE["obj"] = doc
         _SCHEMA_CACHE["stamp"] = stamp
     return _SCHEMA_CACHE["obj"]
 

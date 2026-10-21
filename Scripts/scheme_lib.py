@@ -568,6 +568,12 @@ def normalise_field(raw, fallback_group=DEFAULT_GROUP, scope="study"):
         return None
     label = _as_text(raw.get("label"), name) or name
     field_type = _as_text(raw.get("type"), "string") or "string"
+    nullable = _as_bool(raw.get("nullable"), False)
+    if "|" in field_type:
+        # the legacy spelling: "string|null" / "integer|null"
+        base, _, marker = field_type.partition("|")
+        field_type = base.strip()
+        nullable = nullable or marker.strip() == "null"
     if field_type not in FIELD_TYPES:
         base = field_type.split("|")[0].strip()
         field_type = base if base in FIELD_TYPES else "string"
@@ -586,6 +592,8 @@ def normalise_field(raw, fallback_group=DEFAULT_GROUP, scope="study"):
         "group": _as_text(raw.get("group"), fallback_group) or fallback_group,
         "scope": scope,
         "type": field_type,
+        "base_type": field_type,
+        "nullable": nullable,
         "editor": editor,
         "options": options,
         "vocab": vocab,
