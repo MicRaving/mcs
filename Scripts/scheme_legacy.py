@@ -194,6 +194,66 @@ DEFAULT_RULES = {
     # it routes a DV to "change", "post_assumed" or "other" when the label is
     # not one of the three canonical buckets.
     "timepoint_values": ["pre", "post", "followup", "change", "post_assumed", "other"],
+
+    # -- the score-type families ------------------------------------------- #
+    # Which score_types tokens mark a difference/composite measure and which
+    # mark a separate stimulus-veracity component.  These sets exist in
+    # Scripts/contract.py and Scripts/suite_common.py; they must end up here
+    # only once, because two copies are two answers.
+    "score_type_families": {
+        "difference": [
+            "discernment_difference", "proportion_difference",
+            "signal_detection_auc", "signal_detection_d_prime",
+            "signal_detection_other", "composite",
+        ],
+        "component": [
+            "separate_true", "separate_false",
+            "separate_manipulative", "separate_nonmanipulative",
+        ],
+        "component_true": ["separate_true", "separate_nonmanipulative"],
+        "component_false": ["separate_false", "separate_manipulative"],
+    },
+
+    # -- the domain policy -------------------------------------------------- #
+    # A legacy label that resolves to a controlled domain
+    # (Scripts/domain_restriction.py OFF_VOCAB_MAP; the evidence for each
+    # mapping is in Scripts/DOMAIN_RESTRICTION_NOTE.md).
+    "domain_aliases": {
+        "social_norms": "other",
+        "behavioral_choice": "other",
+        "echo_chamber": "other",
+        "information_overload": "other",
+        "general_transfer": "other",
+        "confidence": "confidence",
+        "affect": "other",
+        "engagement_behavior": "sharing_intention",
+    },
+    # A label merged into another one at coding time (the 2026-09-19 PI
+    # decision); the legacy label stays decodable.
+    "domain_merges": {"belief_accuracy": "credibility"},
+    # A domain that must never be pooled, not even as "other".
+    "non_outcome_domains": ["confidence"],
+    # The misinformation-susceptibility family: the restricted pooled model.
+    "susceptibility_domains": [
+        "credibility", "sharing_intention", "technique_recognition",
+    ],
+    # The domains whose polarity depends on the stimulus veracity
+    # (Scripts/dv_polarity.py): behaviour, credibility and the technique
+    # recognition family, which mixes two construct families.
+    "veracity_dependent_domains": {
+        "behaviour": ["sharing_intention", "engagement_behavior"],
+        "credibility": ["credibility", "belief_accuracy"],
+        "technique_recognition": ["technique_recognition"],
+    },
+
+    # -- what a complete coding needs --------------------------------------- #
+    # One list, read by B_validate.py and by the app's save-time validator.
+    "required_fields": [
+        "Study_ID", "Year", "Authors", "Title", "Study_Description",
+        "Intervention_Type", "DV_Metrics",
+    ],
+    # The descriptive fields that make a contrast poolable on its own.
+    "descriptive_fields": ["n1i", "m1i", "sd1i", "n2i", "m2i", "sd2i"],
 }
 
 

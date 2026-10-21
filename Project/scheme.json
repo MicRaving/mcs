@@ -10749,6 +10749,81 @@
    "post_assumed",
    "other"
   ],
+  "score_type_families": {
+   "difference": [
+    "discernment_difference",
+    "proportion_difference",
+    "signal_detection_auc",
+    "signal_detection_d_prime",
+    "signal_detection_other",
+    "composite"
+   ],
+   "component": [
+    "separate_true",
+    "separate_false",
+    "separate_manipulative",
+    "separate_nonmanipulative"
+   ],
+   "component_true": [
+    "separate_true",
+    "separate_nonmanipulative"
+   ],
+   "component_false": [
+    "separate_false",
+    "separate_manipulative"
+   ]
+  },
+  "domain_aliases": {
+   "social_norms": "other",
+   "behavioral_choice": "other",
+   "echo_chamber": "other",
+   "information_overload": "other",
+   "general_transfer": "other",
+   "confidence": "confidence",
+   "affect": "other",
+   "engagement_behavior": "sharing_intention"
+  },
+  "domain_merges": {
+   "belief_accuracy": "credibility"
+  },
+  "non_outcome_domains": [
+   "confidence"
+  ],
+  "susceptibility_domains": [
+   "credibility",
+   "sharing_intention",
+   "technique_recognition"
+  ],
+  "veracity_dependent_domains": {
+   "behaviour": [
+    "sharing_intention",
+    "engagement_behavior"
+   ],
+   "credibility": [
+    "credibility",
+    "belief_accuracy"
+   ],
+   "technique_recognition": [
+    "technique_recognition"
+   ]
+  },
+  "required_fields": [
+   "Study_ID",
+   "Year",
+   "Authors",
+   "Title",
+   "Study_Description",
+   "Intervention_Type",
+   "DV_Metrics"
+  ],
+  "descriptive_fields": [
+   "n1i",
+   "m1i",
+   "sd1i",
+   "n2i",
+   "m2i",
+   "sd2i"
+  ],
   "harmonization_slots": [
    {
     "id": "S1",
