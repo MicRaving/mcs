@@ -134,39 +134,15 @@ def relative_or_absolute(path, root):
 # Repairing the frozen converter's name shadowing
 # --------------------------------------------------------------------------- #
 
-def intended_scheme_name():
-    """The scheme name the frozen converter documents as its default.
+def scheme_name_is_shadowed(scheme):
+    """True when the scheme is named after one of its own groups.
 
-    ``scheme_legacy.convert`` takes a ``name`` argument, but the loop that
-    collects the group names rebinds that argument to the last field's group.
-    The converted scheme therefore carries a *group* name instead of the
-    scheme name.  The default in the signature is the intended value; once the
-    shadowing is fixed upstream this helper simply returns the same string and
-    the repair below becomes a no-op.
+    That is the fingerprint of a shadowed ``name`` argument in the converter
+    (a loop variable rebinding the parameter).  It used to be repaired
+    silently; now it is a loud check, because a silent repair hides the bug.
     """
-    try:
-        default = inspect.signature(scheme_legacy.convert).parameters["name"].default
-    except (KeyError, TypeError, ValueError):
-        return None
-    return default if isinstance(default, str) and default else None
-
-
-def repair_scheme_name(scheme):
-    """Put the intended scheme name back; returns ``(scheme, repaired)``.
-
-    The repair only fires when the converted name is one of the scheme's own
-    group names - the fingerprint of the shadowing - so a scheme that names
-    itself is never touched.
-    """
-    intended = intended_scheme_name()
-    if not intended:
-        return scheme, False
     group_names = {group.get("name") for group in scheme.get("groups") or []}
-    if scheme.get("name") in group_names and scheme.get("name") != intended:
-        repaired = dict(scheme)
-        repaired["name"] = intended
-        return repaired, True
-    return scheme, False
+    return bool(scheme.get("name")) and scheme.get("name") in group_names
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +245,22 @@ def check_rows(legacy, scheme, legacy_path, stored_scheme_path):
     ``"FAIL"`` or ``"SKIP"``.
     """
     rows = []
+
+    # 0 -- the scheme is named after the project, not after one of its groups.
+    if scheme_name_is_shadowed(scheme):
+        rows.append({
+            "check": "the scheme is named after the project",
+            "status": "FAIL",
+            "detail": "the scheme is named %r, which is one of its own groups - "
+                      "the converter's 'name' argument is shadowed"
+                      % scheme.get("name"),
+        })
+    else:
+        rows.append({
+            "check": "the scheme is named after the project",
+            "status": "PASS",
+            "detail": "named %r" % scheme.get("name"),
+        })
 
     # 1 -- the conversion is lossless: the same field names, no more, no less.
     legacy_names = scheme_legacy.legacy_field_names(legacy)
@@ -456,6 +448,9 @@ def build_parser():
                         help="overwrite an existing scheme")
     parser.add_argument("--quiet", action="store_true",
                         help="print only errors")
+    parser.add_argument("--bundle", action="store_true",
+                        help="also regenerate the agent bundle "
+                             "(Project/bundles/<scheme>/) from the new scheme")
     return parser
 
 
@@ -470,10 +465,25 @@ def resolve_paths(args):
     return root, schema, out, manifest_out
 
 
-def print_name_note(scheme):
-    """Tell the user that the scheme name had to be restored."""
-    print("Note: the frozen converter's group loop shadows its 'name' "
-          "argument; the scheme name was restored to %r." % scheme.get("name"))
+def write_bundle_files(scheme, root):
+    """Regenerate the agent bundle from the scheme; returns the written paths.
+
+    The bundle is what an external agent reads (``scheme.json``,
+    ``json-schema.json``, ``prompt.md``, ``criteria.json``, ``mcp.json``,
+    ``openapi.json``), so it must not drift from the scheme.
+    """
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "coding_web"))
+        import scheme_export
+    except Exception as exc:  # pragma: no cover - the exporter is optional
+        print("Could not regenerate the agent bundle: %r" % (exc,), file=sys.stderr)
+        return []
+    try:
+        return scheme_export.write_bundle(scheme, root=root)
+    except Exception as exc:  # pragma: no cover
+        print("Could not regenerate the agent bundle: %r" % (exc,), file=sys.stderr)
+        return []
 
 
 def main(argv=None):
@@ -483,11 +493,8 @@ def main(argv=None):
 
     legacy = read_json(schema_path)
     scheme = scheme_legacy.convert_to_normalised(legacy)
-    scheme, name_repaired = repair_scheme_name(scheme)
 
     if args.check:
-        if name_repaired and not args.quiet:
-            print_name_note(scheme)
         rows = check_rows(legacy, scheme, schema_path, scheme_target)
         print_rows(rows, quiet=args.quiet)
         failed = [row for row in rows if row["status"] == "FAIL"]
@@ -499,14 +506,18 @@ def main(argv=None):
             print("All %d checks PASS." % len(rows))
         return 0
 
+    if scheme_name_is_shadowed(scheme):
+        print("The converted scheme is named after one of its own groups (%r) - "
+              "the converter's 'name' argument is shadowed." % scheme.get("name"),
+              file=sys.stderr)
+        print("Nothing was written.", file=sys.stderr)
+        return 1
+
     if os.path.exists(scheme_target) and not args.force:
         print("The scheme already exists: %s" % scheme_target, file=sys.stderr)
         print("Refusing to overwrite it. Re-run with --force to replace it.",
               file=sys.stderr)
         return 1
-
-    if name_repaired and not args.quiet:
-        print_name_note(scheme)
 
     rows = check_rows(legacy, scheme, schema_path, scheme_target)
     failed = [row for row in rows if row["status"] == "FAIL"
@@ -523,6 +534,10 @@ def main(argv=None):
     write_scheme_document(scheme, root, scheme_target)
     write_manifest_document(manifest, root, manifest_target)
 
+    bundle_paths = []
+    if args.bundle:
+        bundle_paths = write_bundle_files(scheme, root)
+
     if not args.quiet:
         print("Converted %s" % schema_path)
         print("  scheme   %s" % scheme_target)
@@ -534,6 +549,8 @@ def main(argv=None):
                    for mod in (scheme.get("modules") or {}).values())))
         print("  blocks   %d" % len(SL.derive_blocks(scheme)))
         print("  sha256   %s" % manifest["source_schema"]["sha256"])
+        for path in bundle_paths:
+            print("  bundle   %s" % path)
     return 0
 
 

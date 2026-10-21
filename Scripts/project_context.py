@@ -277,26 +277,64 @@ def _atomic_write(path, payload):
     return path
 
 
+#: How many scheme revisions the history keeps.
+HISTORY_LIMIT = 20
+
+
+def _snapshot(path, folder):
+    """Keep the previous version of a document under ``folder``."""
+    if not os.path.exists(path):
+        return ""
+    try:
+        os.makedirs(folder, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        target = os.path.join(folder, os.path.basename(path).replace(".json", "")
+                              + "-" + stamp + ".json")
+        with open(path, encoding="utf-8") as src, open(target, "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        # keep the history short
+        entries = sorted(
+            (os.path.join(folder, name) for name in os.listdir(folder)
+             if name.startswith(os.path.basename(path).replace(".json", ""))),
+            reverse=True)
+        for stale in entries[HISTORY_LIMIT:]:
+            try:
+                os.unlink(stale)
+            except OSError:
+                pass
+        return target
+    except OSError:
+        return ""
+
+
 def write_manifest(doc, root=None):
     """Write ``Project/project.json``."""
     return _atomic_write(project_paths(root)["manifest"], doc)
 
 
 def write_scheme(doc, root=None):
-    """Write ``Project/scheme.json`` after validating it."""
+    """Write ``Project/scheme.json`` after validating it.
+
+    The previous version is kept under ``Project/history/`` so a scheme edit
+    can be undone and so the history records how a scheme evolved.
+    """
     normalised = SL.normalise_scheme(doc)
     problems = [p for p in SL.validate_scheme(normalised) if p["level"] == "error"]
     if problems:
         raise ValueError("the scheme has structural errors: " +
                          "; ".join(p["message"] for p in problems))
-    return _atomic_write(project_paths(root)["scheme"], normalised)
+    paths = project_paths(root)
+    _snapshot(paths["scheme"], paths["history"])
+    return _atomic_write(paths["scheme"], normalised)
 
 
 def write_criteria(doc, root=None):
     """Write ``Project/criteria.json`` after normalising it."""
     import criteria_lib
     normalised = criteria_lib.normalise_criteria(doc)
-    return _atomic_write(project_paths(root)["criteria"], normalised)
+    paths = project_paths(root)
+    _snapshot(paths["criteria"], paths["history"])
+    return _atomic_write(paths["criteria"], normalised)
 
 
 def invalidate():

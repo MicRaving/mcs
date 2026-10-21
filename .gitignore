@@ -42,3 +42,6 @@ __pycache__/
 Thumbs.db
 .openchamber/
 .opencode/
+
+# the scheme's local revision history (the scheme itself IS versioned)
+/Project/history/
