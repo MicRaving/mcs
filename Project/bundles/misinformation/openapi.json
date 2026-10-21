@@ -1068,6 +1068,15 @@
       "description": "Corresponding author (source) — Where the corresponding author was read from, e.g. \"pdf: correspondence note, p. 1\" or \"openalex: corresponding_author_ids\".",
       "x-role": "corresponding_author_source"
      },
+     "Fully_Within": {
+      "type": [
+       "boolean",
+       "null"
+      ],
+      "title": "Fully within (single arm)",
+      "description": "Fully within (single arm) — True when the experiment has no control arm, so it is excluded from every pooled product by default.",
+      "x-role": "fully_within"
+     },
      "Inoculation_Target": {
       "type": [
        "integer",
@@ -3263,6 +3272,15 @@
       "title": "Source Quote",
       "description": "Source Quote — Verbatim statistic from the paper, e.g. \"d = 0.31, 95% CI [0.12, 0.50]\"; must be findable in Text/<Key>.txt after whitespace normalisation.",
       "x-role": "source_quote"
+     },
+     "source_span": {
+      "type": [
+       "object",
+       "null"
+      ],
+      "title": "Source span (PDF rectangle)",
+      "description": "Source span (PDF rectangle) — The page and the normalised rectangles of the passage the source quote was taken from.",
+      "x-role": "source_span"
      }
     },
     "additionalProperties": true

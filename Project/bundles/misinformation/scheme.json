@@ -2935,6 +2935,35 @@
     "auto": true,
     "hidden": false
    }
+  },
+  {
+   "name": "Fully_Within",
+   "label": "Fully within (single arm)",
+   "group": "Open Science & Design",
+   "scope": "study",
+   "type": "boolean",
+   "editor": "boolean",
+   "options": [],
+   "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
+   "columns": [],
+   "role": "fully_within",
+   "required": false,
+   "derived": false,
+   "moderator": true,
+   "description": "True when the experiment has no control arm, so it is excluded from every pooled product by default.",
+   "instruction": "",
+   "show_if": null,
+   "required_if": null,
+   "module": null,
+   "module_options": {},
+   "kind": null,
+   "source": {},
+   "coder": {
+    "auto": true,
+    "hidden": false
+   }
   }
  ],
  "metrics": {
@@ -5454,6 +5483,35 @@
     "derived": false,
     "moderator": true,
     "description": "Verbatim statistic from the paper, e.g. \"d = 0.31, 95% CI [0.12, 0.50]\"; must be findable in Text/<Key>.txt after whitespace normalisation.",
+    "instruction": "",
+    "show_if": null,
+    "required_if": null,
+    "module": null,
+    "module_options": {},
+    "kind": null,
+    "source": {},
+    "coder": {
+     "auto": true,
+     "hidden": false
+    }
+   },
+   {
+    "name": "source_span",
+    "label": "Source span (PDF rectangle)",
+    "group": "DV_Metrics",
+    "scope": "metric",
+    "type": "object",
+    "editor": "json",
+    "options": [],
+    "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
+    "columns": [],
+    "role": "source_span",
+    "required": false,
+    "derived": false,
+    "moderator": true,
+    "description": "The page and the normalised rectangles of the passage the source quote was taken from.",
     "instruction": "",
     "show_if": null,
     "required_if": null,
@@ -10577,6 +10635,15 @@
     "name": "provenance",
     "weight": 1.0
    }
+  ]
+ },
+ "field_aliases": {
+  "Rationale_Notes": [
+   "notes"
+  ],
+  "Publication": [
+   "Publication_Type",
+   "Publication_Category"
   ]
  },
  "effect_families": [

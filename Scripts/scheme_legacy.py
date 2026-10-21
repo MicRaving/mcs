@@ -176,6 +176,44 @@ LEGACY_OPTIONS = {
     ],
 }
 
+#: Fields the CORPUS carries that the legacy v3.1 schema never declared.
+#: They are added to the scheme because the pipeline reads them (or because a
+#: contrast's provenance needs them); the remaining undeclared corpus keys are
+#: legacy fields the campaign never retired and are recorded as a finding
+#: rather than blessed as contract.
+#:
+#: * ``Fully_Within`` - the single-arm marker; ``Scripts/contract.py``
+#:   ``is_fully_within`` reads it by name and it decides whether a study is in
+#:   every pool.
+#: * ``source_span`` - the PDF rectangle of a contrast's source quote, next to
+#:   the record-level ``source_spans``; it is per-contrast, so it is a metric
+#:   field.
+#:
+#: The other legacy spellings are ALIASES of a field the scheme already has,
+#: not new fields - two fields cannot share a role, so the canonical name wins
+#: and the alternative spelling is accepted on read.
+CORPUS_ONLY_STUDY_FIELDS = [
+    {"name": "Fully_Within", "label": "Fully within (single arm)",
+     "group": "Open Science & Design", "type": "boolean", "editor": "boolean",
+     "role": "fully_within",
+     "description": "True when the experiment has no control arm, so it is "
+                    "excluded from every pooled product by default."},
+]
+
+CORPUS_ONLY_METRIC_FIELDS = [
+    {"name": "source_span", "label": "Source span (PDF rectangle)",
+     "group": "DV_Metrics", "type": "object", "editor": "json",
+     "role": "source_span",
+     "description": "The page and the normalised rectangles of the passage the "
+                    "source quote was taken from."},
+]
+
+#: Legacy spellings the corpus carries next to the canonical field.
+FIELD_ALIASES = {
+    "Rationale_Notes": ["notes"],
+    "Publication": ["Publication_Type", "Publication_Category"],
+}
+
 #: The policy that used to be hardcoded in the pipeline, now data.
 DEFAULT_RULES = {
     # A multi-df omnibus cannot be signed and is never a two-arm effect.
@@ -327,6 +365,11 @@ def convert(legacy, scheme_id="misinformation", name="misinformation-interventio
         field["scope"] = "study"
         fields.append(_decorate(field, "study"))
         seen[field.get("name")] = field
+    for raw in CORPUS_ONLY_STUDY_FIELDS:
+        field = dict(raw)
+        field["scope"] = "study"
+        fields.append(_decorate(field, "study"))
+        seen[field.get("name")] = field
 
     modules = {}
     for key, mod in (legacy.get("modules") or {}).items():
@@ -364,6 +407,10 @@ def convert(legacy, scheme_id="misinformation", name="misinformation-interventio
         field["scope"] = "metric"
         field["group"] = "DV_Metrics"
         metric_fields.append(_decorate(field, "metric"))
+    for raw in CORPUS_ONLY_METRIC_FIELDS:
+        field = dict(raw)
+        field["scope"] = "metric"
+        metric_fields.append(_decorate(field, "metric"))
 
     return {
         "scheme_version": SL.SCHEME_VERSION,
@@ -386,6 +433,7 @@ def convert(legacy, scheme_id="misinformation", name="misinformation-interventio
         "modules": modules,
         "intervention_type_modules": legacy.get("intervention_type_modules") or {},
         "vocabularies": _vocabularies(legacy),
+        "field_aliases": {k: list(v) for k, v in FIELD_ALIASES.items()},
         "effect_families": list(SL.EFFECT_FAMILIES),
         "kinds": [],
         "structures": {

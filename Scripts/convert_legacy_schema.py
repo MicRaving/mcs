@@ -262,24 +262,31 @@ def check_rows(legacy, scheme, legacy_path, stored_scheme_path):
             "detail": "named %r" % scheme.get("name"),
         })
 
-    # 1 -- the conversion is lossless: the same field names, no more, no less.
+    # 1 -- the conversion is lossless: every legacy field name survives, and
+    #      the only names it ADDS are the declared corpus-only fields.
     legacy_names = scheme_legacy.legacy_field_names(legacy)
     converted_names = scheme_field_names(scheme)
     missing = sorted(legacy_names - converted_names)
-    extra = sorted(converted_names - legacy_names)
-    if missing or extra:
-        detail = ("%d legacy field name(s) missing (%s); %d scheme field "
-                  "name(s) not in the source (%s)" %
+    added = sorted(converted_names - legacy_names)
+    declared_additions = set(scheme_legacy.CORPUS_ONLY_STUDY_FIELDS and
+                              [f["name"] for f in scheme_legacy.CORPUS_ONLY_STUDY_FIELDS] or [])
+    declared_additions |= set(f["name"] for f in scheme_legacy.CORPUS_ONLY_METRIC_FIELDS)
+    undeclared = sorted(set(added) - declared_additions)
+    if missing or undeclared:
+        detail = ("%d legacy field name(s) missing (%s); %d undeclared field "
+                  "name(s) added (%s)" %
                   (len(missing), ", ".join(missing) or "-",
-                   len(extra), ", ".join(extra) or "-"))
+                   len(undeclared), ", ".join(undeclared) or "-"))
         rows.append({"check": "legacy field names preserved", "status": "FAIL",
                      "detail": detail})
     else:
         rows.append({
             "check": "legacy field names preserved",
             "status": "PASS",
-            "detail": "%d field names in, %d field names out, no loss"
-                      % (len(legacy_names), len(converted_names)),
+            "detail": "%d field names in, %d out, no loss%s" %
+                      (len(legacy_names), len(converted_names),
+                       ("; %d declared corpus-only field(s) added (%s)"
+                        % (len(added), ", ".join(added))) if added else ""),
         })
 
     # 2 -- the scheme has no structural errors.

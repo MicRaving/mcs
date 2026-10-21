@@ -137,7 +137,7 @@ METRIC_ROLES = (
     "eta2p", "eta2p_ci_low", "eta2p_ci_high",
     "effect_type_reported", "effect_favors", "effect_direction_meaning",
     "conversion_method", "conversion_inputs", "cell_descriptives",
-    "missing_reason", "source_location", "source_quote",
+    "missing_reason", "source_location", "source_quote", "source_span",
 )
 
 #: Every recognised role.
@@ -699,6 +699,7 @@ def normalise_scheme(raw):
              (book.get("intervention_type_modules") or {}).items() if isinstance(v, list)}
         ),
         "vocabularies": book.get("vocabularies") if isinstance(book.get("vocabularies"), dict) else {},
+        "field_aliases": (book.get("field_aliases") if isinstance(book.get("field_aliases"), dict) else {}),
         "effect_families": [f for f in (book.get("effect_families") or []) if f in EFFECT_FAMILIES],
         "kinds": kinds,
         "structures": normalise_structures(book.get("structures")),
@@ -918,6 +919,36 @@ def value_by_role(values, roles, role):
     if not name:
         return None
     return (values or {}).get(name)
+
+
+def value_by_name(values, name, aliases=None):
+    """The value of a field, accepting the spellings the corpus may use.
+
+    A record may spell a field differently from the scheme - the corpus
+    carries ``notes`` next to ``Rationale_Notes`` and ``Publication_Type``
+    next to ``Publication``.  The scheme declares the canonical name and the
+    accepted aliases; the value is the first of them that is present.
+    """
+    if not name:
+        return None
+    values = values or {}
+    if name in values:
+        return values.get(name)
+    for alias in (aliases or {}).get(name) or []:
+        if alias in values:
+            return values.get(alias)
+    return None
+
+
+def alias_map(scheme):
+    """``{canonical field name: [accepted spellings]}``."""
+    out = {}
+    for name, aliases in ((scheme or {}).get("field_aliases") or {}).items():
+        if isinstance(aliases, str):
+            aliases = [aliases]
+        if isinstance(aliases, list):
+            out[str(name)] = [str(a) for a in aliases if str(a)]
+    return out
 
 
 # --------------------------------------------------------------------------- #

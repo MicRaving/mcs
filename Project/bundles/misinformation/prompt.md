@@ -93,6 +93,7 @@ Return a **JSON array** with one object per experiment, and nothing else - no pr
 * **unit_of_analysis** — Unit of Analysis: 1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other. Options: 1, 2, 3, 4. [role: unit_of_analysis]
 * **clustering** — Clustering: Clustering/random effects structure, e.g. "standard errors clustered by post", or null. [role: clustering]
 * **control_group_type** — Control Group Type: 1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other. Options: 1, 2, 3, 4, 5, 6. [role: control_group_type]
+* **Fully_Within** — Fully within (single arm): True when the experiment has no control arm, so it is excluded from every pooled product by default. [role: fully_within]
 
 ### Intervention
 
@@ -383,8 +384,9 @@ One entry per inferential dependent variable (DV) and per reported group contras
 * **missing_metrics_reason** — Missing Metrics Reason: Short explanation when no full descriptives or fallback statistics are available; empty string otherwise. [role: missing_reason]
 * **source_location** — Source Location: Where the statistic is reported in the paper, e.g. "Table 2, p. 7", "Fig. 1", "Sect. 3.2"; empty string when truly absent. [role: source_location]
 * **source_quote** — Source Quote: Verbatim statistic from the paper, e.g. "d = 0.31, 95% CI [0.12, 0.50]"; must be findable in Text/<Key>.txt after whitespace normalisation. [role: source_quote]
+* **source_span** — Source span (PDF rectangle): The page and the normalised rectangles of the passage the source quote was taken from. [role: source_span]
 
-Metric roles in use: F, beta, beta_se, cell_descriptives, chi2, comparison_label, contrast_type, conversion_inputs, conversion_method, d, d_ci_high, d_ci_low, d_se, delay_weeks, df_den, df_num, discernment, dv_domain, dv_name, effect_direction_meaning, effect_favors, effect_type_reported, eligible_primary, eta2p, eta2p_ci_high, eta2p_ci_low, g, g_ci_high, g_ci_low, g_se, group1_label, group2_label, log_odds, m1, m1_post, m1_pre, m2, m2_post, m2_pre, missing_reason, n1, n1_post, n1_pre, n2, n2_post, n2_pre, n_total, or, or_ci_high, or_ci_low, p, p_censored, polarity, posttest_type, r, rr, scale_max, scale_min, scale_points, scale_type, score_types, sd1, sd1_post, sd1_pre, sd2, sd2_post, sd2_pre, sei, source_location, source_quote, t, timepoint_1, timepoint_2, vi, yi, z.
+Metric roles in use: F, beta, beta_se, cell_descriptives, chi2, comparison_label, contrast_type, conversion_inputs, conversion_method, d, d_ci_high, d_ci_low, d_se, delay_weeks, df_den, df_num, discernment, dv_domain, dv_name, effect_direction_meaning, effect_favors, effect_type_reported, eligible_primary, eta2p, eta2p_ci_high, eta2p_ci_low, g, g_ci_high, g_ci_low, g_se, group1_label, group2_label, log_odds, m1, m1_post, m1_pre, m2, m2_post, m2_pre, missing_reason, n1, n1_post, n1_pre, n2, n2_post, n2_pre, n_total, or, or_ci_high, or_ci_low, p, p_censored, polarity, posttest_type, r, rr, scale_max, scale_min, scale_points, scale_type, score_types, sd1, sd1_post, sd1_pre, sd2, sd2_post, sd2_pre, sei, source_location, source_quote, source_span, t, timepoint_1, timepoint_2, vi, yi, z.
 
 Preferred effect-size families: descriptives, t, F, r, yi, d_g, odds_ratio, risk_ratio, beta, eta2p, chi2.
 

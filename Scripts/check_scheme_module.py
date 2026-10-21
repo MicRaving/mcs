@@ -147,7 +147,13 @@ def test_legacy_conversion():
     before = LEG.legacy_field_names(legacy)
     after = {f["name"] for f in SL.all_fields(scheme)}
     check("no field name is lost", not (before - after), str(sorted(before - after)[:5]))
-    check("no field name is invented", not (after - before), str(sorted(after - before)[:5]))
+    # The conversion may ADD fields the corpus carries but the legacy schema
+    # never declared - but only the ones it declares.
+    declared = {f["name"] for f in LEG.CORPUS_ONLY_STUDY_FIELDS}
+    declared |= {f["name"] for f in LEG.CORPUS_ONLY_METRIC_FIELDS}
+    added = set(after) - before
+    check("every added field is a declared corpus-only field",
+          not (added - declared), str(sorted(added - declared)[:5]))
     roles = SL.role_map(scheme)
     study = [f for f in scheme["fields"] if not f.get("role")]
     metric = [f for f in scheme["metrics"]["fields"] if not f.get("role")]
@@ -156,6 +162,23 @@ def test_legacy_conversion():
     check("every metric field has a role", not metric,
           str([f["name"] for f in metric][:5]))
     check("the roles are unique", len(roles) == len(set(roles.values())))
+
+
+def test_field_aliases():
+    section("field aliases")
+    scheme = LEG.convert_to_normalised(_load_legacy())
+    aliases = SL.alias_map(scheme)
+    check("the aliases are normalised", "Rationale_Notes" in aliases)
+    check("an alias finds the value under the canonical name",
+          SL.value_by_name({"Rationale_Notes": "why"}, "Rationale_Notes", aliases)
+          == "why")
+    check("an alias finds the value under the legacy spelling",
+          SL.value_by_name({"notes": "why"}, "Rationale_Notes", aliases) == "why")
+    check("the canonical name wins over the alias",
+          SL.value_by_name({"Rationale_Notes": "a", "notes": "b"},
+                           "Rationale_Notes", aliases) == "a")
+    check("a missing field is None",
+          SL.value_by_name({}, "Rationale_Notes", aliases) is None)
 
 
 def test_blocks():
@@ -258,7 +281,8 @@ def _load_legacy():
 def main():
     print("scheme module self-test")
     for test in (test_slugify, test_conditions, test_options, test_roles,
-                 test_normalise_is_idempotent, test_legacy_conversion, test_blocks,
+                 test_normalise_is_idempotent, test_legacy_conversion,
+                 test_field_aliases, test_blocks,
                  test_validator_catches_defects, test_visibility, test_effective_values):
         test()
     print()
