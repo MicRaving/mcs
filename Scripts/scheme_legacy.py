@@ -143,6 +143,39 @@ HARMONIZATION_SLOTS = [
     {"id": "S11", "name": "provenance", "weight": 1.0},
 ]
 
+#: The fields whose vocabulary is a CONTROLLED vocabulary even though the
+#: control is a token field: the values are closed, the pipeline resolves
+#: anything else.  Their vocabulary moves to ``controlled_values`` so a
+#: validation contract can use it without turning a suggestion list into an
+#: enumeration.  The other token fields stay open - the corpus types prose
+#: into them on purpose (``Media_Support`` -> "Images", ``Audience`` -> a
+#: whole sentence).
+CONTROLLED_VOCAB_FIELDS = (
+    "Intervention_Type",     # the module routing depends on it
+    "dv_domain",             # the pipeline maps anything else to "other"
+    "score_types",           # the pipeline matches the score type by token
+)
+
+#: Values that are accepted on read but never offered to a coder: the
+#: vocabularies the campaign retired but the pipeline still resolves.
+#:
+#: * ``dv_domain`` - the 2026-09-19 merge folded ``engagement_behavior`` into
+#:   ``sharing_intention``, ``confidence`` and ``affect`` into ``other`` and
+#:   ``belief_accuracy`` into ``credibility`` (see ``Scripts/domain_restriction.py``,
+#:   whose ``OFF_VOCAB_MAP`` still decodes them).  The live vocabulary never
+#:   offers them; a coded record may still carry them.
+#: * ``effect_size_type_reported`` - the pipeline matches the reported
+#:   estimator by token (``suite_common._PAIRWISE_EST_EXACT`` /
+#:   ``_PAIRWISE_EST_TOKENS``), so the corpus carries t, F, chi2, log_odds and
+#:   the d/g spellings beside the eleven the scheme offers.
+LEGACY_OPTIONS = {
+    "dv_domain": ["engagement_behavior", "confidence", "affect", "belief_accuracy"],
+    "effect_size_type_reported": [
+        "t", "F", "chi2", "log_odds", "means_sd",
+        "cohen_d", "cohens_d", "hedges_g", "smd", "d_val", "g_val",
+    ],
+}
+
 #: The policy that used to be hardcoded in the pipeline, now data.
 DEFAULT_RULES = {
     # A multi-df omnibus cannot be signed and is never a two-arm effect.
@@ -157,7 +190,10 @@ DEFAULT_RULES = {
     },
     "polarity_values": ["higher_is_better", "higher_is_worse", "ambiguous"],
     "veracity_values": ["true", "false", "true_vs_false"],
-    "timepoint_values": ["pre", "post", "followup"],
+    # The pipeline's own timepoint labels (Scripts/contract.py classify_timepoint):
+    # it routes a DV to "change", "post_assumed" or "other" when the label is
+    # not one of the three canonical buckets.
+    "timepoint_values": ["pre", "post", "followup", "change", "post_assumed", "other"],
 }
 
 
@@ -181,7 +217,7 @@ def _rules(legacy):
 
 
 def _decorate(field, scope):
-    """Attach the coder-mode flags and the PDF-search hints."""
+    """Attach the coder-mode flags, the PDF-search hints and the legacy values."""
     name = field.get("name")
     if scope == "metric":
         field["coder"] = {"auto": True, "hidden": name in CODER_DV_HIDE}
@@ -191,6 +227,16 @@ def _decorate(field, scope):
     locate = CODER_LOCATE.get(name)
     if locate:
         field["source"] = {"locate": list(locate)}
+    legacy = LEGACY_OPTIONS.get(name)
+    if legacy:
+        field["legacy_options"] = [{"value": v, "label": v} for v in legacy]
+    if name in CONTROLLED_VOCAB_FIELDS:
+        controlled = list(field.get("vocab") or [])
+        for option in field.get("options") or []:
+            value = option.get("value")
+            if value is not None and value not in controlled:
+                controlled.append(value)
+        field["controlled_values"] = controlled
     return field
 
 
@@ -282,6 +328,26 @@ def convert(legacy, scheme_id="misinformation", name="misinformation-interventio
         "vocabularies": _vocabularies(legacy),
         "effect_families": list(SL.EFFECT_FAMILIES),
         "kinds": [],
+        "structures": {
+            # The record's structural list: the intervention arms.  The
+            # pipeline addresses the arm id by name (contract.py
+            # INTERVENTIONS_KEY), so the scheme declares the arm's members.
+            "Interventions": {
+                "kind": "list",
+                "label": "Intervention arms",
+                "description": "One entry per arm of the experiment; each arm "
+                               "carries its own type and may override the "
+                               "record's field values.",
+                "item_fields": [
+                    {"name": "Intervention_ID", "label": "Arm id", "type": "string",
+                     "role": "intervention_id"},
+                    {"name": "Intervention_Type", "label": "Arm type", "type": "list",
+                     "role": "intervention_type"},
+                    {"name": "label", "label": "Arm label", "type": "string"},
+                    {"name": "overrides", "label": "Field overrides", "type": "object"},
+                ],
+            },
+        },
         "rules": _rules(legacy),
     }
 

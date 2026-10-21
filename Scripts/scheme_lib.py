@@ -29,9 +29,18 @@ Layout of a scheme document::
 
 A *field* is::
 
-    {name, label, group, scope, type, editor, options, columns, role,
-     required, derived, moderator, description, instruction, show_if,
-     required_if, module, module_options, source, coder, kind}
+    {name, label, group, scope, type, editor, options, vocab, legacy_options,
+     columns, role, required, derived, moderator, description, instruction,
+     show_if, required_if, module, module_options, source, coder, kind}
+
+``options`` is a **closed** list (what a ``select`` offers); ``vocab`` is the
+**suggestion** list of an open token field (a ``chips``/``multiselect`` field
+whose coder may type anything); ``controlled_values`` is the set of values a
+**controlled vocabulary** accepts (the vocabulary is closed even though the
+control is a token field); ``legacy_options`` holds values that are accepted
+on read but never offered - a retired vocabulary the pipeline still resolves.
+The four are deliberately distinct: collapsing them makes a validation
+contract out of a suggestion list.
 
 The **role** is the load-bearing part: the pipeline asks "what is the value of
 the ``eligible_primary`` field?" and never asks "what is the value of
@@ -95,7 +104,7 @@ STUDY_ROLES = (
     "design", "design_factors", "factor_levels", "unit_of_analysis",
     "clustering", "control_group_type", "n_arms", "fully_within",
     "intervention_type", "intervention_detail", "intervention_topic",
-    "intervention_duration", "modality", "exposure_schedule",
+    "intervention_duration", "intervention_id", "modality", "exposure_schedule",
     "pedagogy_type", "instructor_type", "feedback_mechanics",
     "attention_cues", "affective_design", "media_support", "comm_strategies",
     "icap_role", "social_context", "retrieval_practice", "contrasting_cases",
@@ -186,6 +195,7 @@ LEGACY_ROLE_ALIASES = {
     "control_group_type": "control_group_type",
     "Intervention_Type": "intervention_type",
     "Intervention_Type_Detail": "intervention_detail",
+    "Intervention_ID": "intervention_id",
     "Intervention_Topic": "intervention_topic",
     "Intervention_Duration": "intervention_duration",
     "Modality": "modality",
@@ -520,6 +530,35 @@ def normalise_kind(raw):
     }
 
 
+def normalise_structures(raw):
+    """Normalise the record's structural lists.
+
+    A record is not only flat fields: it also carries lists whose shape the
+    pipeline addresses by name (``Interventions`` - the arms, each with an
+    ``Intervention_ID`` and its own field overrides).  The scheme describes
+    them here so the pipeline can address their members by role too.
+    """
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for key, spec in raw.items():
+        if not isinstance(spec, dict):
+            continue
+        item_fields = []
+        for entry in spec.get("item_fields") or []:
+            field = normalise_field(entry, "", "structure")
+            if field:
+                item_fields.append(field)
+        out[str(key)] = {
+            "key": str(key),
+            "label": _as_text(spec.get("label"), str(key)) or str(key),
+            "kind": _as_text(spec.get("kind"), "list") or "list",
+            "description": _as_text(spec.get("description")),
+            "item_fields": item_fields,
+        }
+    return out
+
+
 def normalise_field(raw, fallback_group=DEFAULT_GROUP, scope="study"):
     """Normalise one field, filling every key the rest of the code relies on."""
     if not isinstance(raw, dict):
@@ -537,8 +576,7 @@ def normalise_field(raw, fallback_group=DEFAULT_GROUP, scope="study"):
         editor = default_editor(field_type)
     options = normalise_options(raw.get("options"))
     vocab = [v for v in (_as_text(v) for v in (raw.get("vocab") or [])) if v]
-    if not options and vocab and editor in ("multiselect", "chips"):
-        options = normalise_options(vocab)
+    controlled = [v for v in (_as_text(v) for v in (raw.get("controlled_values") or [])) if v]
     role = normalise_role(raw.get("role"))
     if role is None:
         role = LEGACY_ROLE_ALIASES.get(name)
@@ -551,6 +589,8 @@ def normalise_field(raw, fallback_group=DEFAULT_GROUP, scope="study"):
         "editor": editor,
         "options": options,
         "vocab": vocab,
+        "controlled_values": controlled,
+        "legacy_options": normalise_options(raw.get("legacy_options")),
         "columns": normalise_columns(raw.get("columns")),
         "role": role,
         "required": _as_bool(raw.get("required")),
@@ -661,6 +701,7 @@ def normalise_scheme(raw):
         "vocabularies": book.get("vocabularies") if isinstance(book.get("vocabularies"), dict) else {},
         "effect_families": [f for f in (book.get("effect_families") or []) if f in EFFECT_FAMILIES],
         "kinds": kinds,
+        "structures": normalise_structures(book.get("structures")),
         "rules": book.get("rules") if isinstance(book.get("rules"), dict) else {},
     }
     return apply_kinds(scheme)
@@ -824,6 +865,8 @@ def role_map(scheme, scope=None):
 
     ``scope`` restricts the map to ``"study"`` or ``"metric"`` fields; by
     default both are merged, with the metric scope winning a name clash.
+    The members of a structural list (the fields of an intervention arm) are
+    included too - the pipeline addresses them by name today.
     """
     out = {}
     if scope in (None, "study"):
@@ -834,6 +877,11 @@ def role_map(scheme, scope=None):
         for field in ((scheme or {}).get("metrics") or {}).get("fields") or []:
             if field.get("role"):
                 out[field["name"]] = field["role"]
+    if scope in (None, "study"):
+        for structure in ((scheme or {}).get("structures") or {}).values():
+            for field in structure.get("item_fields") or []:
+                if field.get("role"):
+                    out.setdefault(field["name"], field["role"])
     return out
 
 
@@ -915,10 +963,16 @@ def validate_scheme(scheme):
             add("warning", "unknown_group",
                 f"Field '{name}' points at the unknown group "
                 f"'{field.get('group')}'.", where)
-        if field.get("editor") in ("select", "multiselect") and not field.get("options"):
+        if field.get("editor") == "select" and not field.get("options"):
             add("warning", "no_options",
-                f"Field '{name}' uses the '{field.get('editor')}' editor but has no options.",
+                f"Field '{name}' uses the 'select' editor but has no options.",
                 where)
+        if field.get("editor") == "multiselect" and not (
+                field.get("options") or field.get("vocab")
+                or field.get("controlled_values")):
+            add("warning", "no_options",
+                f"Field '{name}' uses the 'multiselect' editor but "
+                "offers no vocabulary.", where)
         values = [o.get("value") for o in field.get("options") or []]
         if len(values) != len(set(map(str, values))):
             add("error", "duplicate_option",

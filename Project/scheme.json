@@ -59,6 +59,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "study_id",
    "required": true,
@@ -86,6 +88,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "parent_study_id",
    "required": false,
@@ -113,6 +117,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "year",
    "required": true,
@@ -177,6 +183,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "publication",
    "required": false,
@@ -204,6 +212,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "doi",
    "required": false,
@@ -231,6 +241,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "authors",
    "required": true,
@@ -258,6 +270,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "title",
    "required": true,
@@ -285,6 +299,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "description",
    "required": true,
@@ -312,6 +328,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "n_recruited",
    "required": false,
@@ -345,6 +363,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "sample_n",
    "required": false,
@@ -387,6 +407,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "n_reported_per_condition",
    "required": false,
@@ -427,6 +449,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "n_inference_method",
    "required": false,
@@ -454,6 +478,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "age_mean",
    "required": false,
@@ -487,6 +513,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "age_sd",
    "required": false,
@@ -531,6 +559,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "age_reported_as",
    "required": false,
@@ -575,6 +605,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "age_group",
    "required": false,
@@ -608,6 +640,8 @@
    "editor": "kv",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "gender_ratio",
    "required": false,
@@ -654,6 +688,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "gender_reported_as",
    "required": false,
@@ -681,6 +717,8 @@
    "editor": "objectlist",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [
     {
      "name": "covariate",
@@ -721,6 +759,8 @@
    "editor": "chips",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "country",
    "required": false,
@@ -753,6 +793,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "sample_region",
    "required": false,
@@ -789,6 +831,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "international_sample",
    "required": false,
@@ -825,6 +869,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "weird_western",
    "required": false,
@@ -861,6 +907,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "weird_educated",
    "required": false,
@@ -897,6 +945,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "weird_industrialized",
    "required": false,
@@ -933,6 +983,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "weird_rich",
    "required": false,
@@ -969,6 +1021,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "weird_democratic",
    "required": false,
@@ -1025,6 +1079,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "setting",
    "required": false,
@@ -1076,6 +1132,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "dataset_availability",
    "required": false,
@@ -1103,6 +1161,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "dataset_url",
    "required": false,
@@ -1130,6 +1190,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "data_repository",
    "required": false,
@@ -1157,6 +1219,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "data_available",
    "required": false,
@@ -1193,6 +1257,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "code_available",
    "required": false,
@@ -1233,6 +1299,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "preregistration_status",
    "required": false,
@@ -1260,6 +1328,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "preregistration_url",
    "required": false,
@@ -1304,6 +1374,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "ethics",
    "required": false,
@@ -1340,6 +1412,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "consent_reported",
    "required": false,
@@ -1367,6 +1441,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "n_arms",
    "required": false,
@@ -1394,6 +1470,8 @@
    "editor": "chips",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "design_factors",
    "required": false,
@@ -1421,6 +1499,8 @@
    "editor": "objectlist",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [
     {
      "name": "factor",
@@ -1470,6 +1550,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "design",
    "required": false,
@@ -1519,6 +1601,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "unit_of_analysis",
    "required": false,
@@ -1551,6 +1635,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "clustering",
    "required": false,
@@ -1603,6 +1689,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "control_group_type",
    "required": false,
@@ -1634,64 +1722,7 @@
    "scope": "study",
    "type": "list",
    "editor": "multiselect",
-   "options": [
-    {
-     "value": "inoculation",
-     "label": "inoculation"
-    },
-    {
-     "value": "prebunking_warning",
-     "label": "prebunking_warning"
-    },
-    {
-     "value": "lateral_reading",
-     "label": "lateral_reading"
-    },
-    {
-     "value": "credibility_labels",
-     "label": "credibility_labels"
-    },
-    {
-     "value": "media_literacy_tips",
-     "label": "media_literacy_tips"
-    },
-    {
-     "value": "fact_checking_training",
-     "label": "fact_checking_training"
-    },
-    {
-     "value": "openmindedness_intervention",
-     "label": "openmindedness_intervention"
-    },
-    {
-     "value": "debunking_and_rebuttals",
-     "label": "debunking_and_rebuttals"
-    },
-    {
-     "value": "community_correction",
-     "label": "community_correction"
-    },
-    {
-     "value": "accuracy_prompts",
-     "label": "accuracy_prompts"
-    },
-    {
-     "value": "friction",
-     "label": "friction"
-    },
-    {
-     "value": "social_norms",
-     "label": "social_norms"
-    },
-    {
-     "value": "platform_exposure_reduction",
-     "label": "platform_exposure_reduction"
-    },
-    {
-     "value": "other",
-     "label": "other"
-    }
-   ],
+   "options": [],
    "vocab": [
     "inoculation",
     "prebunking_warning",
@@ -1708,6 +1739,23 @@
     "platform_exposure_reduction",
     "other"
    ],
+   "controlled_values": [
+    "inoculation",
+    "prebunking_warning",
+    "lateral_reading",
+    "credibility_labels",
+    "media_literacy_tips",
+    "fact_checking_training",
+    "openmindedness_intervention",
+    "debunking_and_rebuttals",
+    "community_correction",
+    "accuracy_prompts",
+    "friction",
+    "social_norms",
+    "platform_exposure_reduction",
+    "other"
+   ],
+   "legacy_options": [],
    "columns": [],
    "role": "intervention_type",
    "required": false,
@@ -1741,6 +1789,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "intervention_detail",
    "required": false,
@@ -1768,6 +1818,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "intervention_topic",
    "required": false,
@@ -1795,6 +1847,8 @@
    "editor": "number",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "intervention_duration",
    "required": false,
@@ -1853,6 +1907,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "modality",
    "required": false,
@@ -1898,6 +1954,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "exposure_schedule",
    "required": false,
@@ -1938,6 +1996,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "pedagogy_type",
    "required": false,
@@ -1990,6 +2050,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "instructor_type",
    "required": false,
@@ -2061,6 +2123,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "feedback_mechanics",
    "required": false,
@@ -2086,25 +2150,14 @@
    "scope": "study",
    "type": "list",
    "editor": "multiselect",
-   "options": [
-    {
-     "value": "Visual Signaling/Highlighting",
-     "label": "Visual Signaling/Highlighting"
-    },
-    {
-     "value": "Explicit Ignore Instructions",
-     "label": "Explicit Ignore Instructions"
-    },
-    {
-     "value": "Physiological/Emotional Focus",
-     "label": "Physiological/Emotional Focus"
-    }
-   ],
+   "options": [],
    "vocab": [
     "Visual Signaling/Highlighting",
     "Explicit Ignore Instructions",
     "Physiological/Emotional Focus"
    ],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "attention_cues",
    "required": false,
@@ -2150,6 +2203,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "affective_design",
    "required": false,
@@ -2175,40 +2230,7 @@
    "scope": "study",
    "type": "list",
    "editor": "multiselect",
-   "options": [
-    {
-     "value": "Visual aids",
-     "label": "Visual aids"
-    },
-    {
-     "value": "Video",
-     "label": "Video"
-    },
-    {
-     "value": "Audio",
-     "label": "Audio"
-    },
-    {
-     "value": "Text",
-     "label": "Text"
-    },
-    {
-     "value": "Interactive/gamified",
-     "label": "Interactive/gamified"
-    },
-    {
-     "value": "Model teaching",
-     "label": "Model teaching"
-    },
-    {
-     "value": "Physical materials",
-     "label": "Physical materials"
-    },
-    {
-     "value": "Other",
-     "label": "Other"
-    }
-   ],
+   "options": [],
    "vocab": [
     "Visual aids",
     "Video",
@@ -2219,6 +2241,8 @@
     "Physical materials",
     "Other"
    ],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "media_support",
    "required": false,
@@ -2244,32 +2268,7 @@
    "scope": "study",
    "type": "list",
    "editor": "multiselect",
-   "options": [
-    {
-     "value": "Sketching/narrative",
-     "label": "Sketching/narrative"
-    },
-    {
-     "value": "Verbal labelling",
-     "label": "Verbal labelling"
-    },
-    {
-     "value": "Interview techniques",
-     "label": "Interview techniques"
-    },
-    {
-     "value": "Group discussion",
-     "label": "Group discussion"
-    },
-    {
-     "value": "Debate",
-     "label": "Debate"
-    },
-    {
-     "value": "Other",
-     "label": "Other"
-    }
-   ],
+   "options": [],
    "vocab": [
     "Sketching/narrative",
     "Verbal labelling",
@@ -2278,6 +2277,8 @@
     "Debate",
     "Other"
    ],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "comm_strategies",
    "required": false,
@@ -2322,6 +2323,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "icap_role",
    "required": false,
@@ -2362,6 +2365,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "social_context",
    "required": false,
@@ -2398,6 +2403,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "retrieval_practice",
    "required": false,
@@ -2434,6 +2441,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "contrasting_cases",
    "required": false,
@@ -2470,6 +2479,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "concept_labeling",
    "required": false,
@@ -2506,6 +2517,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "interleaving",
    "required": false,
@@ -2531,44 +2544,7 @@
    "scope": "study",
    "type": "list",
    "editor": "multiselect",
-   "options": [
-    {
-     "value": "Recall tests",
-     "label": "Recall tests"
-    },
-    {
-     "value": "Easy-to-hard sequencing",
-     "label": "Easy-to-hard sequencing"
-    },
-    {
-     "value": "Classification/sorting",
-     "label": "Classification/sorting"
-    },
-    {
-     "value": "Compare-and-contrast",
-     "label": "Compare-and-contrast"
-    },
-    {
-     "value": "Self-explanation/reflection",
-     "label": "Self-explanation/reflection"
-    },
-    {
-     "value": "Guided practice",
-     "label": "Guided practice"
-    },
-    {
-     "value": "Feedback-based practice",
-     "label": "Feedback-based practice"
-    },
-    {
-     "value": "Media production",
-     "label": "Media production"
-    },
-    {
-     "value": "Other",
-     "label": "Other"
-    }
-   ],
+   "options": [],
    "vocab": [
     "Recall tests",
     "Easy-to-hard sequencing",
@@ -2580,6 +2556,8 @@
     "Media production",
     "Other"
    ],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "practice_strategy",
    "required": false,
@@ -2616,6 +2594,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "self_efficacy",
    "required": false,
@@ -2656,6 +2636,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "synthetic",
    "required": false,
@@ -2725,6 +2707,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "stimuli",
    "required": false,
@@ -2758,6 +2742,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "stimuli_topic",
    "required": false,
@@ -2785,6 +2771,8 @@
    "editor": "textarea",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "notes",
    "required": false,
@@ -2841,6 +2829,8 @@
     }
    ],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "fulltext_exclusion_criterion",
    "required": false,
@@ -2868,6 +2858,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "corresponding_author_name",
    "required": false,
@@ -2895,6 +2887,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "corresponding_author_email",
    "required": false,
@@ -2922,6 +2916,8 @@
    "editor": "text",
    "options": [],
    "vocab": [],
+   "controlled_values": [],
+   "legacy_options": [],
    "columns": [],
    "role": "corresponding_author_source",
    "required": false,
@@ -2955,6 +2951,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "dv_name",
     "required": false,
@@ -2980,44 +2978,7 @@
     "scope": "metric",
     "type": "list",
     "editor": "multiselect",
-    "options": [
-     {
-      "value": "technique_recognition",
-      "label": "technique_recognition"
-     },
-     {
-      "value": "credibility",
-      "label": "credibility"
-     },
-     {
-      "value": "sharing_intention",
-      "label": "sharing_intention"
-     },
-     {
-      "value": "search_behavior",
-      "label": "search_behavior"
-     },
-     {
-      "value": "attitude_policy",
-      "label": "attitude_policy"
-     },
-     {
-      "value": "trust",
-      "label": "trust"
-     },
-     {
-      "value": "media_literacy_attitudes",
-      "label": "media_literacy_attitudes"
-     },
-     {
-      "value": "critical_thinking",
-      "label": "critical_thinking"
-     },
-     {
-      "value": "other",
-      "label": "other"
-     }
-    ],
+    "options": [],
     "vocab": [
      "technique_recognition",
      "credibility",
@@ -3028,6 +2989,35 @@
      "media_literacy_attitudes",
      "critical_thinking",
      "other"
+    ],
+    "controlled_values": [
+     "technique_recognition",
+     "credibility",
+     "sharing_intention",
+     "search_behavior",
+     "attitude_policy",
+     "trust",
+     "media_literacy_attitudes",
+     "critical_thinking",
+     "other"
+    ],
+    "legacy_options": [
+     {
+      "value": "engagement_behavior",
+      "label": "engagement_behavior"
+     },
+     {
+      "value": "confidence",
+      "label": "confidence"
+     },
+     {
+      "value": "affect",
+      "label": "affect"
+     },
+     {
+      "value": "belief_accuracy",
+      "label": "belief_accuracy"
+     }
     ],
     "columns": [],
     "role": "dv_domain",
@@ -3054,88 +3044,7 @@
     "scope": "metric",
     "type": "list",
     "editor": "multiselect",
-    "options": [
-     {
-      "value": "separate_true",
-      "label": "separate_true"
-     },
-     {
-      "value": "separate_false",
-      "label": "separate_false"
-     },
-     {
-      "value": "separate_manipulative",
-      "label": "separate_manipulative"
-     },
-     {
-      "value": "separate_nonmanipulative",
-      "label": "separate_nonmanipulative"
-     },
-     {
-      "value": "discernment_difference",
-      "label": "discernment_difference"
-     },
-     {
-      "value": "composite",
-      "label": "composite"
-     },
-     {
-      "value": "signal_detection_auc",
-      "label": "signal_detection_auc"
-     },
-     {
-      "value": "signal_detection_d_prime",
-      "label": "signal_detection_d_prime"
-     },
-     {
-      "value": "signal_detection_c",
-      "label": "signal_detection_c"
-     },
-     {
-      "value": "dichotomous_accuracy",
-      "label": "dichotomous_accuracy"
-     },
-     {
-      "value": "continuous_accuracy",
-      "label": "continuous_accuracy"
-     },
-     {
-      "value": "proportion",
-      "label": "proportion"
-     },
-     {
-      "value": "proportion_difference",
-      "label": "proportion_difference"
-     },
-     {
-      "value": "behavioral_choice",
-      "label": "behavioral_choice"
-     },
-     {
-      "value": "other",
-      "label": "other"
-     },
-     {
-      "value": "count",
-      "label": "count"
-     },
-     {
-      "value": "single_item",
-      "label": "single_item"
-     },
-     {
-      "value": "behavioral_intention",
-      "label": "behavioral_intention"
-     },
-     {
-      "value": "change_score",
-      "label": "change_score"
-     },
-     {
-      "value": "signal_detection_other",
-      "label": "signal_detection_other"
-     }
-    ],
+    "options": [],
     "vocab": [
      "separate_true",
      "separate_false",
@@ -3158,6 +3067,29 @@
      "change_score",
      "signal_detection_other"
     ],
+    "controlled_values": [
+     "separate_true",
+     "separate_false",
+     "separate_manipulative",
+     "separate_nonmanipulative",
+     "discernment_difference",
+     "composite",
+     "signal_detection_auc",
+     "signal_detection_d_prime",
+     "signal_detection_c",
+     "dichotomous_accuracy",
+     "continuous_accuracy",
+     "proportion",
+     "proportion_difference",
+     "behavioral_choice",
+     "other",
+     "count",
+     "single_item",
+     "behavioral_intention",
+     "change_score",
+     "signal_detection_other"
+    ],
+    "legacy_options": [],
     "columns": [],
     "role": "score_types",
     "required": false,
@@ -3185,6 +3117,8 @@
     "editor": "textarea",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "discernment",
     "required": false,
@@ -3221,6 +3155,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "polarity",
     "required": false,
@@ -3277,6 +3213,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "scale_type",
     "required": false,
@@ -3304,6 +3242,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "scale_points",
     "required": false,
@@ -3331,6 +3271,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "scale_min",
     "required": false,
@@ -3358,6 +3300,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "scale_max",
     "required": false,
@@ -3385,6 +3329,8 @@
     "editor": "textarea",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "comparison_label",
     "required": false,
@@ -3412,6 +3358,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "group1_label",
     "required": false,
@@ -3439,6 +3387,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "group2_label",
     "required": false,
@@ -3519,6 +3469,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "contrast_type",
     "required": false,
@@ -3555,6 +3507,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "eligible_primary",
     "required": false,
@@ -3582,6 +3536,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "timepoint_1",
     "required": false,
@@ -3609,6 +3565,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "timepoint_2",
     "required": false,
@@ -3657,6 +3615,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "posttest_type",
     "required": false,
@@ -3684,6 +3644,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "delay_weeks",
     "required": false,
@@ -3711,6 +3673,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n1_pre",
     "required": false,
@@ -3738,6 +3702,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m1_pre",
     "required": false,
@@ -3765,6 +3731,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd1_pre",
     "required": false,
@@ -3792,6 +3760,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n2_pre",
     "required": false,
@@ -3819,6 +3789,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m2_pre",
     "required": false,
@@ -3846,6 +3818,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd2_pre",
     "required": false,
@@ -3873,6 +3847,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n1_post",
     "required": false,
@@ -3900,6 +3876,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m1_post",
     "required": false,
@@ -3927,6 +3905,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd1_post",
     "required": false,
@@ -3954,6 +3934,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n2_post",
     "required": false,
@@ -3981,6 +3963,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m2_post",
     "required": false,
@@ -4008,6 +3992,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd2_post",
     "required": false,
@@ -4035,6 +4021,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n1",
     "required": false,
@@ -4062,6 +4050,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m1",
     "required": false,
@@ -4089,6 +4079,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd1",
     "required": false,
@@ -4116,6 +4108,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n2",
     "required": false,
@@ -4143,6 +4137,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "m2",
     "required": false,
@@ -4170,6 +4166,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sd2",
     "required": false,
@@ -4197,6 +4195,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "t",
     "required": false,
@@ -4224,6 +4224,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "F",
     "required": false,
@@ -4251,6 +4253,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "df_num",
     "required": false,
@@ -4278,6 +4282,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "df_den",
     "required": false,
@@ -4305,6 +4311,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "z",
     "required": false,
@@ -4332,6 +4340,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "chi2",
     "required": false,
@@ -4359,6 +4369,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "r",
     "required": false,
@@ -4386,6 +4398,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "n_total",
     "required": false,
@@ -4413,6 +4427,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "beta",
     "required": false,
@@ -4440,6 +4456,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "beta_se",
     "required": false,
@@ -4467,6 +4485,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "log_odds",
     "required": false,
@@ -4494,6 +4514,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "or",
     "required": false,
@@ -4521,6 +4543,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "or_ci_low",
     "required": false,
@@ -4548,6 +4572,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "or_ci_high",
     "required": false,
@@ -4575,6 +4601,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "rr",
     "required": false,
@@ -4602,6 +4630,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "p",
     "required": false,
@@ -4638,6 +4668,8 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "p_censored",
     "required": false,
@@ -4665,6 +4697,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "eta2p",
     "required": false,
@@ -4692,6 +4726,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "eta2p_ci_low",
     "required": false,
@@ -4719,6 +4755,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "eta2p_ci_high",
     "required": false,
@@ -4746,6 +4784,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "d",
     "required": false,
@@ -4773,6 +4813,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "g",
     "required": false,
@@ -4800,6 +4842,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "d_ci_low",
     "required": false,
@@ -4827,6 +4871,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "d_ci_high",
     "required": false,
@@ -4854,6 +4900,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "g_ci_low",
     "required": false,
@@ -4881,6 +4929,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "g_ci_high",
     "required": false,
@@ -4908,6 +4958,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "d_se",
     "required": false,
@@ -4935,6 +4987,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "g_se",
     "required": false,
@@ -4962,6 +5016,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "yi",
     "required": false,
@@ -4989,6 +5045,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "vi",
     "required": false,
@@ -5016,6 +5074,8 @@
     "editor": "number",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "sei",
     "required": false,
@@ -5088,6 +5148,53 @@
      }
     ],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [
+     {
+      "value": "t",
+      "label": "t"
+     },
+     {
+      "value": "F",
+      "label": "F"
+     },
+     {
+      "value": "chi2",
+      "label": "chi2"
+     },
+     {
+      "value": "log_odds",
+      "label": "log_odds"
+     },
+     {
+      "value": "means_sd",
+      "label": "means_sd"
+     },
+     {
+      "value": "cohen_d",
+      "label": "cohen_d"
+     },
+     {
+      "value": "cohens_d",
+      "label": "cohens_d"
+     },
+     {
+      "value": "hedges_g",
+      "label": "hedges_g"
+     },
+     {
+      "value": "smd",
+      "label": "smd"
+     },
+     {
+      "value": "d_val",
+      "label": "d_val"
+     },
+     {
+      "value": "g_val",
+      "label": "g_val"
+     }
+    ],
     "columns": [],
     "role": "effect_type_reported",
     "required": false,
@@ -5115,6 +5222,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "effect_favors",
     "required": false,
@@ -5142,6 +5251,8 @@
     "editor": "textarea",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "effect_direction_meaning",
     "required": false,
@@ -5169,6 +5280,8 @@
     "editor": "textarea",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "conversion_method",
     "required": false,
@@ -5196,6 +5309,8 @@
     "editor": "json",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "conversion_inputs",
     "required": false,
@@ -5223,6 +5338,8 @@
     "editor": "objectlist",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [
      {
       "name": "group",
@@ -5271,6 +5388,8 @@
     "editor": "textarea",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "missing_reason",
     "required": false,
@@ -5298,6 +5417,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "source_location",
     "required": false,
@@ -5325,6 +5446,8 @@
     "editor": "text",
     "options": [],
     "vocab": [],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "source_quote",
     "required": false,
@@ -5608,6 +5731,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5648,6 +5773,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5675,6 +5802,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5715,6 +5844,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5759,6 +5890,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5786,6 +5919,8 @@
      "editor": "number",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5811,68 +5946,7 @@
      "scope": "module",
      "type": "list",
      "editor": "multiselect",
-     "options": [
-      {
-       "value": "emotional_manipulation",
-       "label": "emotional_manipulation"
-      },
-      {
-       "value": "fake_experts",
-       "label": "fake_experts"
-      },
-      {
-       "value": "conspiracy",
-       "label": "conspiracy"
-      },
-      {
-       "value": "polarization",
-       "label": "polarization"
-      },
-      {
-       "value": "amplification",
-       "label": "amplification"
-      },
-      {
-       "value": "trolling",
-       "label": "trolling"
-      },
-      {
-       "value": "naturalistic_fallacy",
-       "label": "naturalistic_fallacy"
-      },
-      {
-       "value": "ad_hominem",
-       "label": "ad_hominem"
-      },
-      {
-       "value": "false_dichotomy",
-       "label": "false_dichotomy"
-      },
-      {
-       "value": "coherence_break",
-       "label": "coherence_break"
-      },
-      {
-       "value": "discrediting",
-       "label": "discrediting"
-      },
-      {
-       "value": "scapegoating",
-       "label": "scapegoating"
-      },
-      {
-       "value": "false_balance",
-       "label": "false_balance"
-      },
-      {
-       "value": "conjunction_fallacy",
-       "label": "conjunction_fallacy"
-      },
-      {
-       "value": "impersonation",
-       "label": "impersonation"
-      }
-     ],
+     "options": [],
      "vocab": [
       "emotional_manipulation",
       "fake_experts",
@@ -5890,6 +5964,8 @@
       "conjunction_fallacy",
       "impersonation"
      ],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5930,6 +6006,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5966,6 +6044,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -5993,6 +6073,8 @@
      "editor": "number",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6029,6 +6111,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6056,6 +6140,8 @@
      "editor": "textarea",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6083,6 +6169,8 @@
      "editor": "number",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6122,6 +6210,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6178,6 +6268,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6205,6 +6297,8 @@
      "editor": "number",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6249,6 +6343,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6325,6 +6421,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6373,6 +6471,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6413,6 +6513,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6455,6 +6557,8 @@
      "editor": "text",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6482,6 +6586,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6530,6 +6636,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6592,6 +6700,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6644,6 +6754,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6684,6 +6796,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6728,6 +6842,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6768,6 +6884,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6808,6 +6926,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6844,6 +6964,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6883,6 +7005,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6927,6 +7051,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -6979,6 +7105,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7006,6 +7134,8 @@
      "editor": "text",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7042,6 +7172,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7110,6 +7242,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7158,6 +7292,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7202,6 +7338,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7254,6 +7392,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7281,6 +7421,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7333,6 +7475,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7360,6 +7504,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7396,6 +7542,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7436,6 +7584,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7492,6 +7642,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7577,6 +7729,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7628,6 +7782,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7664,6 +7820,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7700,6 +7858,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7764,6 +7924,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7804,6 +7966,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7852,6 +8016,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7939,6 +8105,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -7979,6 +8147,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8027,6 +8197,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8063,6 +8235,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8099,6 +8273,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8147,6 +8323,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8199,6 +8377,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8239,6 +8419,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8279,6 +8461,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8319,6 +8503,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8355,6 +8541,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8399,6 +8587,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8443,6 +8633,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8503,6 +8695,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8547,6 +8741,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8587,6 +8783,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8627,6 +8825,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8667,6 +8867,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8694,6 +8896,8 @@
      "editor": "number",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8721,6 +8925,8 @@
      "editor": "chips",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8765,6 +8971,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8829,6 +9037,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8869,6 +9079,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8913,6 +9125,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8953,6 +9167,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -8997,6 +9213,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9033,6 +9251,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9089,6 +9309,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9125,6 +9347,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9173,6 +9397,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9217,6 +9443,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9261,6 +9489,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9301,6 +9531,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9365,6 +9597,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9392,6 +9626,8 @@
      "editor": "text",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9440,6 +9676,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9488,6 +9726,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9532,6 +9772,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9571,6 +9813,8 @@
      "editor": "textarea",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9615,6 +9859,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9674,6 +9920,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9718,6 +9966,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9743,64 +9993,7 @@
      "scope": "module",
      "type": "list",
      "editor": "multiselect",
-     "options": [
-      {
-       "value": "Corrective information",
-       "label": "Corrective information"
-      },
-      {
-       "value": "Threat/forewarning",
-       "label": "Threat/forewarning"
-      },
-      {
-       "value": "Refutation",
-       "label": "Refutation"
-      },
-      {
-       "value": "Technique exposure",
-       "label": "Technique exposure"
-      },
-      {
-       "value": "Narrative/storytelling",
-       "label": "Narrative/storytelling"
-      },
-      {
-       "value": "Discussion/interaction",
-       "label": "Discussion/interaction"
-      },
-      {
-       "value": "Emotion induction/regulation",
-       "label": "Emotion induction/regulation"
-      },
-      {
-       "value": "Source salience",
-       "label": "Source salience"
-      },
-      {
-       "value": "Instruction",
-       "label": "Instruction"
-      },
-      {
-       "value": "Nudge",
-       "label": "Nudge"
-      },
-      {
-       "value": "Feedback",
-       "label": "Feedback"
-      },
-      {
-       "value": "Community messaging",
-       "label": "Community messaging"
-      },
-      {
-       "value": "Platform/exposure reduction",
-       "label": "Platform/exposure reduction"
-      },
-      {
-       "value": "Other",
-       "label": "Other"
-      }
-     ],
+     "options": [],
      "vocab": [
       "Corrective information",
       "Threat/forewarning",
@@ -9817,6 +10010,8 @@
       "Platform/exposure reduction",
       "Other"
      ],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9856,6 +10051,8 @@
      "editor": "text",
      "options": [],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -9900,6 +10097,8 @@
       }
      ],
      "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
      "columns": [],
      "role": null,
      "required": false,
@@ -10394,6 +10593,120 @@
   "chi2"
  ],
  "kinds": [],
+ "structures": {
+  "Interventions": {
+   "key": "Interventions",
+   "label": "Intervention arms",
+   "kind": "list",
+   "description": "One entry per arm of the experiment; each arm carries its own type and may override the record's field values.",
+   "item_fields": [
+    {
+     "name": "Intervention_ID",
+     "label": "Arm id",
+     "group": "",
+     "scope": "structure",
+     "type": "string",
+     "editor": "text",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": "intervention_id",
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "Intervention_Type",
+     "label": "Arm type",
+     "group": "",
+     "scope": "structure",
+     "type": "list",
+     "editor": "multiselect",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": "intervention_type",
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "label",
+     "label": "Arm label",
+     "group": "",
+     "scope": "structure",
+     "type": "string",
+     "editor": "text",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": null,
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "overrides",
+     "label": "Field overrides",
+     "group": "",
+     "scope": "structure",
+     "type": "object",
+     "editor": "json",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": null,
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    }
+   ]
+  }
+ },
  "rules": {
   "omnibus_exclusions": {
    "contrast_type_codes": [
@@ -10431,7 +10744,10 @@
   "timepoint_values": [
    "pre",
    "post",
-   "followup"
+   "followup",
+   "change",
+   "post_assumed",
+   "other"
   ],
   "harmonization_slots": [
    {
