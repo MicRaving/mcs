@@ -6,8 +6,8 @@ import os
 import re
 import tempfile
 from datetime import datetime
-from studio_lib import APP_VERSION, PAGE_SCALE, _PAGE_NUM, _pdf_text, atomic_replace, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records
-from studio_state import FROZEN, S, SCHEMA, STATIC, config_path, configure, log, paper_keys, refresh_keys, save_config
+from studio_lib import APP_VERSION, PAGE_SCALE, _PAGE_NUM, _pdf_text, atomic_replace, legacy_schema_document, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records
+from studio_state import FROZEN, S, STATIC, config_path, configure, log, paper_keys, refresh_keys, save_config
 
 bp = Blueprint("core", __name__)
 
@@ -79,8 +79,20 @@ def static_files(path):
 
 @bp.get("/api/schema")
 def api_schema():
-    with open(SCHEMA, encoding="utf-8") as fh:
-        return jsonify(json.load(fh))
+    """The coding schema in the legacy v3.1 shape (deprecated).
+
+    The scheme itself is served by ``/api/scheme`` (the ``scheme`` blueprint);
+    this route stays because the agent routes and the manuscript report still
+    read the v3.1 shape.  A project that carries its own scheme is rendered
+    back into that shape, so the response shape never changes.
+    """
+    doc = legacy_schema_document()
+    resp = jsonify(doc)
+    resp.headers["Deprecation"] = "true"
+    resp.headers["X-Schema-Deprecated"] = (
+        "use /api/scheme for the coding scheme; /api/schema renders it in the "
+        "legacy v3.1 shape")
+    return resp
 
 @bp.get("/api/papers")
 def api_papers():

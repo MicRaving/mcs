@@ -67,6 +67,8 @@ hiddenimports += [
     # shared pipeline modules imported in-process by the app (D6 / interface §2-§4)
     "contract", "stat_core", "specs_api", "prisma", "prisma_report",
     "domain_restriction", "study_exclusions", "suite_common",
+    # the project layer: the active project, its scheme and its criteria
+    "project_context", "scheme_lib", "scheme_legacy", "criteria_lib",
 ]
 
 excludes = [
