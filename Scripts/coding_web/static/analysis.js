@@ -323,6 +323,8 @@
     document.dispatchEvent(new CustomEvent("cs:view", { detail: view }));
     if (view === "analysis" && !state.overview) refresh();
     if (view === "analysis") window.dispatchEvent(new Event("resize"));
+    // the tab in use keeps its label, so the strip has to be measured again
+    if (window.CS && typeof window.CS.fitTopbar === "function") window.CS.fitTopbar();
   }
 
   // The scheme editor is a view of its own, and it needs to come back to

@@ -97,24 +97,15 @@ a { color: var(--accent); }
 
 /* ------------------------------------------------------------ topbar */
 .topbar {
-  min-height: var(--topbar);
-  height: auto;
+  height: var(--topbar);
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  padding: 6px 16px;
+  gap: 14px;
+  padding: 0 16px;
   background: color-mix(in srgb, var(--panel) 86%, transparent);
   backdrop-filter: blur(10px) saturate(1.2);
   border-bottom: 1px solid var(--line);
   z-index: 40;
-}
-/* Wide enough for one row: the strip and the actions share it.  Below that
-   the actions wrap onto a second row, so the section tabs (and with them the
-   Scheme entry) and the app's own buttons are BOTH always reachable - they
-   used to run off the right edge of the window. */
-@media (min-width: 1560px) {
-  .topbar { flex-wrap: nowrap; height: var(--topbar); padding: 0 16px; }
 }
 
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }

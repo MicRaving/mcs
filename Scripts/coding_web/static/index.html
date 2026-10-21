@@ -50,44 +50,44 @@
 
 <header class="topbar">
   <nav class="toptabs" role="tablist" aria-label="Sections">
-    <button class="viewtab" data-view="summary" role="tab" aria-selected="false">
+    <button class="viewtab" data-view="summary" role="tab" aria-selected="false" title="Summary - what is coded, at a glance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-list"/></svg>
-      Summary
+      <span class="tab-label">Summary</span>
     </button>
-    <button class="viewtab" data-view="screening" role="tab" aria-selected="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-list"/></svg>
-      Screening
+    <button class="viewtab" data-view="screening" role="tab" aria-selected="false" title="Screening - the abstracts and the inclusion verdicts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-filter"/></svg>
+      <span class="tab-label">Screening</span>
     </button>
-    <button class="viewtab active" data-view="coding" role="tab" aria-selected="true">
+    <button class="viewtab active" data-view="coding" role="tab" aria-selected="true" title="Coding - the paper and its coding form">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-mark"/></svg>
-      Coding
+      <span class="tab-label">Coding</span>
     </button>
-    <button class="viewtab" data-view="agreement" role="tab" aria-selected="false">
+    <button class="viewtab" data-view="agreement" role="tab" aria-selected="false" title="Agreement - inter-rater reliability and conflicts">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>
-      Agreement
+      <span class="tab-label">Agreement</span>
     </button>
-    <button class="viewtab" data-view="coverage" role="tab" aria-selected="false">
+    <button class="viewtab" data-view="coverage" role="tab" aria-selected="false" title="Harmonization - coverage of the harmonised sidecars">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-target"/></svg>
+      <span class="tab-label">Harmonization</span>
+    </button>
+    <button class="viewtab" data-view="reproduction" role="tab" aria-selected="false" title="Reproduction - re-running a study's own results">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
+      <span class="tab-label">Reproduction</span>
+    </button>
+    <button class="viewtab" data-view="analysis" role="tab" aria-selected="false" title="Analysis - the pooled models and the figures">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
-      Harmonization
+      <span class="tab-label">Analysis</span>
     </button>
-    <button class="viewtab" data-view="reproduction" role="tab" aria-selected="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
-      Reproduction
-    </button>
-    <button class="viewtab" data-view="analysis" role="tab" aria-selected="false">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
-      Analysis
-    </button>
-    <button class="viewtab" data-view="scheme" role="tab" aria-selected="false">
+    <button class="viewtab" data-view="scheme" role="tab" aria-selected="false" title="Scheme - the coding scheme: blocks, fields, conditions, kinds">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-book"/></svg>
-      Scheme
+      <span class="tab-label">Scheme</span>
     </button>
   </nav>
 
   <div class="actions">
-    <button class="btn" id="coder-mode" aria-pressed="false" title="Coder mode — auto-advance between fields; in screening a verdict jumps to the next unfilled criterion and the last one loads the next abstract">
+    <button class="btn" id="coder-mode" data-compact="1" aria-pressed="false" title="Coder mode — auto-advance between fields; in screening a verdict jumps to the next unfilled criterion and the last one loads the next abstract">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
-      Coder mode
+      <span class="btn-label">Coder mode</span>
     </button>
     <div class="field-inline coder-field">
       <input class="input" id="coder-input" list="coder-options" placeholder="Coder" autocomplete="off" spellcheck="false" title="Your coder name — pick an existing one or type a new name to add yourself">
@@ -96,36 +96,36 @@
     <div class="field-inline master-top" id="master-field">
       <input class="input" id="ag-master" placeholder="Master" autocomplete="off" spellcheck="false">
     </div>
-    <button class="btn" id="ag-fast" aria-pressed="false" title="Fast resolve — auto-select the next conflict, follow it in the paper, press a coder's number to settle, auto-advance">
+    <button class="btn" id="ag-fast" data-compact="1" aria-pressed="false" title="Fast resolve — auto-select the next conflict, follow it in the paper, press a coder's number to settle, auto-advance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
-      Fast resolve
+      <span class="btn-label">Fast resolve</span>
     </button>
-    <button class="btn" id="blind-btn" aria-pressed="false" title="Blind coding — hide existing coding (Ctrl+B)">
+    <button class="btn" id="blind-btn" data-compact="1" aria-pressed="false" title="Blind coding — hide existing coding (Ctrl+B)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-eye" id="blind-icon"/></svg>
-      <span id="blind-label">Blind</span>
+      <span class="btn-label" id="blind-label">Blind</span>
     </button>
-    <button class="btn ghost danger" id="clear-btn" title="Clear the manual coding for this paper">
+    <button class="btn ghost danger" id="clear-btn" data-compact="1" title="Clear the manual coding for this paper">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-broom"/></svg>
-      <span id="clear-label">Clear</span>
+      <span class="btn-label" id="clear-label">Clear</span>
     </button>
     <button class="btn" id="save-btn" title="Save coding with coder suffix (Ctrl+S)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-save"/></svg>
-      Save
+      <span class="btn-label">Save</span>
     </button>
     <button class="btn" id="shuffle-btn" title="Shuffle — jump to a random study you have not coded yet">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-shuffle"/></svg>
     </button>
     <button class="btn primary" id="next-btn" title="Save and open the next paper (Ctrl+Enter or Insert)">
-      Next
+      <span class="btn-label">Next</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-next"/></svg>
     </button>
     <button class="btn" id="merge-btn" hidden title="Merge your abstract-screening decisions into master_dataset.xlsx">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
-      Merge
+      <span class="btn-label">Merge</span>
     </button>
     <button class="btn" id="an-full-top" title="Generate every diagram and table (full analysis)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-chart"/></svg>
-      Full analysis
+      <span class="btn-label">Full analysis</span>
     </button>
     <span class="pill" id="an-gen" title="Analysis results last updated">–</span>
     <button class="btn ghost icon" id="project-btn" aria-label="Project folder" title="Choose the project folder (Papers/, Text/, Extraction/)">

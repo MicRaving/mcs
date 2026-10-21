@@ -9,7 +9,7 @@
    Harmonization, Reproduction, Analysis, Scheme).  It takes the space the
    actions leave and scrolls when that is not enough, so the app's own
    buttons (Save, Next, the coder field) are never pushed off the window -
-   they used to be, and the Scheme entry was the one that got cut. */
+   they used to be. */
 .toptabs {
   display: inline-flex; align-items: center; gap: 2px;
   padding: 3px; margin-left: 4px;
@@ -26,9 +26,23 @@
   font-size: 12px; font-weight: 700; letter-spacing: .01em;
   padding: 5px 12px; border-radius: 99px; cursor: pointer; white-space: nowrap;
 }
-.viewtab svg { width: 14px; height: 14px; }
+.viewtab svg { width: 14px; height: 14px; flex: none; }
 .viewtab:hover { color: var(--ink); }
 .viewtab.active { background: var(--panel); color: var(--ink); box-shadow: var(--shadow-1); }
+
+/* Not enough room for the labels: the button keeps its icon (and its
+   tooltip) and drops the text.  The app measures the strip and adds the class
+   to the tabs that have to go, from the right, so the leftmost ones - and the
+   tab in use - keep their names for as long as possible. */
+.viewtab.is-icon { padding: 5px 9px; gap: 0; }
+.viewtab.is-icon .tab-label { display: none; }
+
+/* The same for the app's own buttons, when even the icon-only tabs do not
+   fit.  A button that has given up its label keeps its icon and its title. */
+.btn.is-icon .btn-label { display: none; }
+.btn.is-icon { padding-left: 9px; padding-right: 9px; }
+.actions.is-icon .btn-label { display: none; }
+.actions.is-icon .btn { padding-left: 9px; padding-right: 9px; }
 
 /* -------------------------------------------------- assignment workspace */
 .assign-ws {
