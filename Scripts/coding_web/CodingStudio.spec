@@ -23,7 +23,12 @@ Version stamp: ``Scripts/coding_web/studio_lib.APP_VERSION`` (also printed by
 still renders (the WebView2 viewer draws it) but live text extraction and page
 counts fall back to ``Text/<Key>.txt``.
 
-Build:  python Scripts/build_coding_exe.py [--lite] [--onefile]     (default: onedir)
+``CODINGSTUDIO_NAME`` sets the distribution's name (the executable, the
+``_internal/`` folder and the folder at the repo root).  It is how a branch
+builds beside an installed app instead of over it: ``--name CodingStudioUni``.
+
+Build:  python Scripts/build_coding_exe.py [--lite] [--onefile] [--name NAME]
+        (default: onedir)
 """
 
 import os
@@ -69,6 +74,8 @@ hiddenimports += [
     "domain_restriction", "study_exclusions", "suite_common",
     # the project layer: the active project, its scheme and its criteria
     "project_context", "scheme_lib", "scheme_legacy", "criteria_lib",
+    # the agent bundle (the JSON Schema, the prompt and the MCP config)
+    "scheme_export",
 ]
 
 excludes = [
@@ -100,7 +107,8 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
-NAME = "CodingStudioLite" if LITE else "CodingStudio"
+NAME = os.environ.get("CODINGSTUDIO_NAME") or (
+    "CodingStudioLite" if LITE else "CodingStudio")
 # Default = ONEDIR: no runtime self-extraction, so an antivirus scanner or a
 # cloud-synced folder can never corrupt the bootloader unpack (the onefile mode
 # failed with "decompression resulted in return code -3" on the AVIF binary).

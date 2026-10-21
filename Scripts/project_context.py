@@ -85,7 +85,22 @@ def _config_root():
 
 
 def default_root():
-    """The folder a project lives in when nothing says otherwise."""
+    """The project root: the folder that holds the data.
+
+    The code's own folder is the project when it is one (a source checkout, a
+    worktree).  A frozen build lives in ``<project>/CodingStudio/``, so the
+    project is found by walking up — the app sits beside ``Papers/``.
+    """
+    if _looks_like_a_project(REPO):
+        return REPO
+    cur = REPO
+    for _ in range(6):
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        cur = parent
+        if _looks_like_a_project(cur):
+            return cur
     return REPO
 
 
