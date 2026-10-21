@@ -32,10 +32,17 @@ import sys
 import tempfile
 from datetime import datetime
 
-import scheme_lib as SL
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+
+# The shared modules sit next to this file.  A caller that imports
+# ``project_context`` from elsewhere (the desktop app lives in
+# ``Scripts/coding_web/``) may not have ``Scripts/`` on ``sys.path`` yet, and
+# the sibling imports below would fail.
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import scheme_lib as SL  # noqa: E402
 
 #: The folder inside a project that holds its scheme and criteria.
 PROJECT_DIRNAME = "Project"
@@ -82,13 +89,36 @@ def default_root():
     return REPO
 
 
+def _looks_like_a_project(path):
+    """Whether ``path`` is a project folder (the campaign layout)."""
+    if not path:
+        return False
+    for marker in ("Papers", "Text", "Project", "Extraction"):
+        if os.path.isdir(os.path.join(path, marker)):
+            return True
+    return False
+
+
 def active_root():
-    """The active project root."""
+    """The active project root.
+
+    Order: an explicit override, the environment variable, **the code's own
+    root when that root is a project**, the app's saved folder, then the
+    code's own root.
+
+    The own-root rule comes before the saved folder on purpose: the saved
+    folder is a *desktop-app* preference, and a script that lives inside a
+    project must use that project, not whatever folder the app last had open.
+    Without it a stale saved folder silently points the whole pipeline at
+    another project.
+    """
     if _ROOT_OVERRIDE:
         return os.path.abspath(_ROOT_OVERRIDE)
     env = os.environ.get("CODING_STUDIO_ROOT")
     if env:
         return os.path.abspath(env)
+    if _looks_like_a_project(REPO):
+        return REPO
     cfg = _config_root()
     if cfg:
         return os.path.abspath(cfg)

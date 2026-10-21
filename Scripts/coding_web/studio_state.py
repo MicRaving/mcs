@@ -34,7 +34,33 @@ def _first_existing(*paths):
 
 
 STATIC = _first_existing(os.path.join(BUNDLE, "static"), os.path.join(HERE, "static"))
+#: The legacy (v3.1) schema shipped with the app.  It is the fallback for a
+#: project that has no scheme of its own; the project's own scheme is read
+#: through ``project_context`` (see :func:`schema_path`).
 SCHEMA = _first_existing(os.path.join(BUNDLE, "schema.json"), os.path.join(HERE, "schema.json"))
+
+# The shared project layer lives one level up (Scripts/): ``project_context``
+# answers "which project is active?".  The app points it at the data root, so
+# the scheme, the criteria and the manifest follow a re-root.
+try:
+    import project_context  # noqa: E402
+except Exception:  # pragma: no cover - source layout fallback
+    for _d in (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               os.path.join(HERE, "Scripts")):
+        if _d and _d not in sys.path:
+            sys.path.insert(0, _d)
+    import project_context  # noqa: E402
+
+
+def schema_path():
+    """The scheme document of the active project (the legacy file as fallback)."""
+    try:
+        path = project_context.project_paths()["scheme"]
+        if os.path.exists(path):
+            return path
+    except Exception:  # noqa: BLE001
+        pass
+    return SCHEMA
 
 
 def find_data_root(start, max_up=6):
@@ -115,7 +141,17 @@ class State:
 
     def configure(self, root=None):
         """Point the app at a data root (papers, text, extractions, codings)."""
-        explicit = root or os.environ.get("CODING_STUDIO_ROOT") or load_config().get("root")
+        # The project context resolves the root (an explicit override, the
+        # environment, the code's own root when that root is a project, then
+        # the app's saved folder).  The app asks it rather than resolving a
+        # root of its own, so the app and the analysis pipeline can never
+        # disagree about which project is active.
+        explicit = root or os.environ.get("CODING_STUDIO_ROOT")
+        if not explicit:
+            try:
+                explicit = project_context.active_root()
+            except Exception:  # pragma: no cover - the context is optional here
+                explicit = load_config().get("root")
         root = explicit or default_root()
         if not explicit and not has_data(root):
             up = find_data_root(root)  # tolerate being placed in a sub-folder
@@ -150,6 +186,13 @@ class State:
             self.PDFIMG = self.TEMP
         tempfile.tempdir = self.TEMP
         self.ROOT = root
+        # The project context follows the app: the scheme, the criteria and the
+        # manifest are read from the active root, so a re-root (POST /api/root)
+        # switches the scheme with the project.
+        try:
+            project_context.set_root(root)
+        except Exception:  # noqa: BLE001 - never fail a re-root over the context
+            pass
         return root
 
     def paper_keys(self):
