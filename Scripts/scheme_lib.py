@@ -409,17 +409,22 @@ def eval_condition(condition, values):
         return True
     raw = (values or {}).get(cond["field"])
     op = cond["op"]
-    if raw is None:
-        # The reference field carries no value: cannot decide -> show.
-        return True
     if op == "not_empty":
+        # Emptiness has a well-defined answer for a missing value: it is empty.
+        if raw is None:
+            return False
         if isinstance(raw, (list, tuple, set, dict)):
             return len(raw) > 0
         return _value_text(raw) != ""
     if op == "empty":
+        if raw is None:
+            return True
         if isinstance(raw, (list, tuple, set, dict)):
             return len(raw) == 0
         return _value_text(raw) == ""
+    if raw is None:
+        # The reference field carries no value: cannot decide -> show.
+        return True
     if op in ("gt", "gte", "lt", "lte"):
         left = _as_number(raw)
         right = _as_number(cond.get("value"))
@@ -729,6 +734,19 @@ def derive_blocks(scheme):
                                  for t in types}),
             },
             "fields": [f["name"] for f in (mod.get("fields") or [])],
+        })
+    metrics = scheme.get("metrics") or {}
+    if metrics.get("enabled") and metrics.get("fields"):
+        blocks.append({
+            "id": "metrics:" + (metrics.get("group") or DEFAULT_METRICS_GROUP),
+            "kind": "metrics",
+            "name": metrics.get("group") or DEFAULT_METRICS_GROUP,
+            "label": metrics.get("label") or "Effect sizes",
+            "description": "",
+            "show_if": None,
+            "activate_when": None,
+            "repeatable": True,
+            "fields": [f["name"] for f in (metrics.get("fields") or [])],
         })
     return blocks
 
