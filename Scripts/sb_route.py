@@ -33,6 +33,12 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+#: The agent bundle: the generated contract an agent reads instead of the
+#: legacy schema.json.  It is written by ``Scripts/convert_legacy_schema.py
+#: --bundle`` (and by ``GET /api/scheme/bundle``).
+# forward slashes: the path is read by an agent, not by the OS
+BUNDLE_DIR = "Project/bundles/misinformation"
 TMP = os.path.join(ROOT, "temp", "sb")
 STATE = os.path.join(TMP, "state.json")
 LOCK = os.path.join(TMP, "state.lock")
@@ -181,7 +187,11 @@ def prompt(key):
         "Study key: " + key,
         "",
         "Read first:",
-        "  Scripts/SB_ROUTE.md  and  Scripts/SB_CODING_INSTRUCTIONS.md  and  Scripts/coding_web/schema.json",
+        "  Scripts/SB_ROUTE.md  and  Scripts/SB_CODING_INSTRUCTIONS.md",
+        "  " + BUNDLE_DIR + "/prompt.md  and  " + BUNDLE_DIR + "/scheme.json",
+        "  " + BUNDLE_DIR + "/json-schema.json  and  " + BUNDLE_DIR + "/criteria.json",
+        "  (the bundle is the authoritative field list; it is generated from the",
+        "   project's scheme Project/scheme.json)",
         "Sources:  Papers/" + key + ".pdf   Text/" + key + ".txt   Datasets/" + key + "/ (raw deposit)",
         "",
         "Deliverables (ONLY for this study; never touch another study or a canonical artefact):",

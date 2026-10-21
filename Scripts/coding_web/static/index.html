@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="/static/screening.css">
 <link rel="stylesheet" href="/static/agreement.css">
 <link rel="stylesheet" href="/static/repro.css">
+<link rel="stylesheet" href="/static/schema.css">
 </head>
 <body>
 
@@ -123,6 +124,10 @@
       Full analysis
     </button>
     <span class="pill" id="an-gen" title="Analysis results last updated">–</span>
+    <button class="btn" id="schema-btn" aria-label="Schema" title="Open the coding-scheme editor — blocks, fields, conditions, kinds and the agent prompt">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-book"/></svg>
+      Schema
+    </button>
     <button class="btn ghost icon" id="project-btn" aria-label="Project folder" title="Choose the project folder (Papers/, Text/, Extraction/)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
     </button>
@@ -808,11 +813,36 @@
   </div>
 </dialog>
 
+<dialog class="sheet scheme-dialog" id="scheme-dialog">
+  <div class="scheme-layout">
+    <aside class="scheme-left" id="scheme-left"></aside>
+    <section class="scheme-right">
+      <div class="scheme-right-head">
+        <div class="seg" id="scheme-tabs" role="tablist" aria-label="Scheme editor panes">
+          <button class="active" data-spane="field" role="tab" aria-selected="true">Field details</button>
+          <button data-spane="prompt" role="tab" aria-selected="false">Prompt</button>
+        </div>
+        <span class="grow" style="flex:1"></span>
+        <span class="pill" id="scheme-state">–</span>
+      </div>
+      <div class="scheme-right-body" id="scheme-right-body"></div>
+    </section>
+  </div>
+  <div class="scheme-problems" id="scheme-problems" hidden></div>
+  <div class="scheme-foot">
+    <span class="scheme-foot-note" id="scheme-note"></span>
+    <span class="grow" style="flex:1"></span>
+    <button class="btn ghost" id="scheme-cancel">Cancel</button>
+    <button class="btn primary" id="scheme-save">Save scheme</button>
+  </div>
+</dialog>
+
 <div class="toasts" id="toasts"></div>
 
 <script src="/static/core.js"></script>
 <script src="/static/pdfsearch.js"></script>
 <script src="/static/app.js"></script>
+<script src="/static/schema.js"></script>
 <script src="/static/analysis.js"></script>
 <script src="/static/assignment.js"></script>
 <script src="/static/coverage.js"></script>
