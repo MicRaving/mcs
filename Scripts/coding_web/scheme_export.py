@@ -86,7 +86,9 @@ BUNDLE_FILES = (
     ("json-schema.json", "JSON Schema (draft 2020-12) for one coded record "
                          "and one metric row."),
     ("prompt.md", "The agent system prompt: the job, the output contract, "
-                  "every field, the metrics rules and the criteria."),
+                  "every field, the metrics rules and where to look."),
+    ("screening-prompt.md", "The screening prompt: the inclusion criteria, "
+                             "the verdict contract and the pass rule."),
     ("criteria.json", "The project's inclusion criteria: the abstract stage "
                       "and the full-text stage, with their pass values."),
     ("mcp.json", "The MCP server configuration for this project."),
@@ -445,6 +447,13 @@ def _field_line(field, with_role=True, max_description=None):
     options = _option_text(field)
     if options:
         parts.append(f" Options: {options}.")
+    # where to look in the paper: the scheme carries the PDF-search stems the
+    # coder mode uses, so the agent looks in the right place instead of
+    # guessing a section
+    source = field.get("source") if isinstance(field.get("source"), dict) else {}
+    locate = [str(x) for x in (source.get("locate") or []) if str(x).strip()]
+    if locate:
+        parts.append(f" Where to look: {', '.join(locate)}.")
     show_if = _condition_text(field.get("show_if"))
     if show_if:
         parts.append(f" Code only if {show_if}.")
@@ -512,13 +521,13 @@ def _criterion_value(criterion, *names, default=""):
     return default
 
 
-def _criteria_section(criteria):
-    """The criteria part of the prompt."""
+def _criteria_section(criteria, heading="## Inclusion criteria"):
+    """The criteria part of a prompt."""
     stages = _criteria_stages(criteria)
     if not stages:
         return []
     lines = [
-        "## Inclusion criteria",
+        heading,
         "",
         "Every **gating** criterion must pass. A study that fails a gating "
         "criterion is excluded, but it is still coded in full: record the "
@@ -536,6 +545,8 @@ def _criteria_section(criteria):
             gating = bool(_criterion_value(criterion, "gating", default=True))
             pass_values = _criterion_value(criterion, "pass_values", default=[])
             help_text = _text(_criterion_value(criterion, "help"))
+            options = _criterion_value(criterion, "options", default=[])
+            reason = _text(_criterion_value(criterion, "exclude_reason"))
             head = f"- **{key}**" if key else "-"
             if label:
                 head += f" — {label}"
@@ -546,10 +557,76 @@ def _criteria_section(criteria):
                 lines.append(f"  {prompt_text}")
             if help_text and help_text != prompt_text:
                 lines.append(f"  Help: {help_text}")
+            if isinstance(options, (list, tuple)) and options:
+                lines.append("  Options: " + ", ".join(_text(v) for v in options) + ".")
             if isinstance(pass_values, (list, tuple)) and pass_values:
                 lines.append(f"  Pass values: {', '.join(_text(v) for v in pass_values)}.")
+            if reason:
+                lines.append(f"  Exclusion reason: {reason}")
         lines.append("")
     return lines
+
+
+def scheme_to_screening_prompt(criteria, scheme=None):
+    """The screening prompt: the criteria, and nothing else.
+
+    Screening is a different job from coding.  A screening agent returns one
+    verdict per criterion; it never touches the coding fields.  The criteria
+    used to be a tail on the coding prompt, which meant a screening agent
+    read twelve thousand tokens of DV effect-size rules it must not apply -
+    and the part that decides inclusion arrived last.
+    """
+    stages = _criteria_stages(criteria)
+    if not stages:
+        return ""
+    lines = [
+        "# Screening prompt",
+        "",
+        "## Job",
+        "",
+        "You are screening a study for inclusion in a systematic review. Read "
+        "the abstract (or the paper, at the full-text stage) and decide every "
+        "criterion below.",
+        "",
+        "## Output contract",
+        "",
+        "Return **one JSON object** and nothing else - no prose, no markdown "
+        "fence:",
+        "",
+        "```json",
+        "{",
+        '  "<criterion key>": { "applies": "Yes | No | Unsure",',
+        '                     "certainty": "High | Medium | Low",',
+        '                     "rationale": "one sentence, citing the abstract" }',
+        "}",
+        "```",
+        "",
+        "- one entry per criterion, for every criterion listed below;",
+        "- `applies` is the answer to the criterion as it is worded;",
+        "- `Unsure` is a legitimate answer - say so when the abstract does not "
+        "settle it, and say why in the rationale;",
+        "- the rationale must point at the abstract, not at the paper in "
+        "general.",
+        "",
+        "## Rules",
+        "",
+        "- judge only what the text you are given says; never assume a study "
+        "design that is not stated;",
+        "- never guess a verdict to be helpful - an undecided abstract is "
+        "screened again by a human;",
+        "- keep the rationale to the sentence that decides it.",
+        "",
+    ]
+    lines.extend(_criteria_section(criteria, heading="## The criteria"))
+    lines.extend([
+        "## Deciding",
+        "",
+        "Every **gating** criterion must pass for the study to be included. "
+        "When one fails, it is the exclusion reason - so answer every "
+        "criterion, and do not stop at the first failure.",
+        "",
+    ])
+    return "\n".join(lines)
 
 
 def scheme_to_prompt(scheme, criteria=None, max_description=None):
@@ -716,7 +793,9 @@ def scheme_to_prompt(scheme, criteria=None, max_description=None):
         lines.append("")
 
     # -- the criteria ------------------------------------------------------ #
-    lines.extend(_criteria_section(criteria))
+    # The criteria are NOT part of the coding prompt: screening is a different
+    # job, and a screening agent must not read the coding fields.  They have
+    # their own prompt - see scheme_to_screening_prompt().
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -826,10 +905,11 @@ def openapi_document(scheme):
 def build_bundle(scheme, criteria=None, root=None, max_description=None):
     """The whole agent bundle as one dict.
 
-    Keys: ``scheme``, ``json-schema``, ``prompt``, ``criteria``, ``mcp`` and
-    ``openapi``.  When ``criteria`` is ``None`` the active project's criteria
-    are used (an empty list of criteria simply leaves the criteria section out
-    of the prompt).
+    Keys: ``scheme``, ``json-schema``, ``prompt``, ``screening-prompt``,
+    ``criteria``, ``mcp`` and ``openapi``.  When ``criteria`` is ``None`` the
+    active project's criteria are used.  The two prompts are separate because
+    the two jobs are: coding returns a coded record, screening returns one
+    verdict per criterion.
     """
     scheme = SL.normalise_scheme(scheme or {})
     if criteria is None:
@@ -838,6 +918,7 @@ def build_bundle(scheme, criteria=None, root=None, max_description=None):
         "scheme": scheme,
         "json-schema": scheme_to_json_schema(scheme),
         "prompt": scheme_to_prompt(scheme, criteria, max_description=max_description),
+        "screening-prompt": scheme_to_screening_prompt(criteria, scheme),
         "criteria": criteria or {},
         "mcp": mcp_config(scheme, root),
         "openapi": openapi_document(scheme),
@@ -896,9 +977,9 @@ def write_bundle(scheme, criteria=None, out_dir=None, root=None,
                  max_description=None):
     """Write the agent bundle to disk; returns the written paths.
 
-    The five files (``scheme.json``, ``json-schema.json``, ``prompt.md``,
-    ``mcp.json``, ``openapi.json``) are written atomically and are identical
-    on every run.
+    The files (``scheme.json``, ``json-schema.json``, ``prompt.md``,
+    ``screening-prompt.md``, ``criteria.json``, ``mcp.json``, ``openapi.json``)
+    are written atomically and are identical on every run.
     """
     scheme = SL.normalise_scheme(scheme or {})
     bundle = build_bundle(scheme, criteria, root=root,
@@ -909,6 +990,8 @@ def write_bundle(scheme, criteria=None, out_dir=None, root=None,
     for name, _description in BUNDLE_FILES:
         if name == "prompt.md":
             text = bundle["prompt"]
+        elif name == "screening-prompt.md":
+            text = bundle.get("screening-prompt") or ""
         elif name == "criteria.json":
             text = _dump_json(bundle.get("criteria") or {})
         elif name == "mcp.json":

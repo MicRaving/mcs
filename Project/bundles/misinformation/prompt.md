@@ -51,19 +51,19 @@ Return a **JSON array** with one object per experiment, and nothing else - no pr
 
 ### Sample
 
-* **N_Recruited** — N Recruited: Number of participants recruited before exclusions, or null. [role: n_recruited]
-* **N_Analyzed** — N Analyzed: Final analyzed sample size, or null. [role: sample_n]
-* **Age_Mean** — Mean Age: Numeric mean age, or null (leave null when only a median/range/category is reported). [role: age_mean]
-* **Age_Group** — Age Group: 1=Children, 2=Adolescents, 3=Adults, 4=Mixed. Null if cannot be determined. Options: 1, 2, 3, 4. [role: age_group]
-* **Gender_Ratio** — Gender Ratio: Object mapping gender labels to percentages or counts, e.g. {"female": 59, "male": 40, "non-binary": 1}; null if not reported. [role: gender_ratio]
-* **Country** — Countries: Array of country strings, e.g. ["USA", "UK"]. Empty array if not reported. [role: country]
+* **N_Recruited** — N Recruited: Number of participants recruited before exclusions, or null. Where to look: recruit, enrolled, sampled. [role: n_recruited]
+* **N_Analyzed** — N Analyzed: Final analyzed sample size, or null. Where to look: analy, final sample, excluded. [role: sample_n]
+* **Age_Mean** — Mean Age: Numeric mean age, or null (leave null when only a median/range/category is reported). Where to look: mean age, years old, age. [role: age_mean]
+* **Age_Group** — Age Group: 1=Children, 2=Adolescents, 3=Adults, 4=Mixed. Null if cannot be determined. Options: 1, 2, 3, 4. Where to look: students, adults, age. [role: age_group]
+* **Gender_Ratio** — Gender Ratio: Object mapping gender labels to percentages or counts, e.g. {"female": 59, "male": 40, "non-binary": 1}; null if not reported. Where to look: female, male, gender. [role: gender_ratio]
+* **Country** — Countries: Array of country strings, e.g. ["USA", "UK"]. Empty array if not reported. Where to look: country, nationwide. [role: country]
 * **International_Sample** — International Sample: 1=sample spans multiple countries, 0=single country, null=unclear. Options: 0, 1. [role: international_sample]
 * **WEIRD_Western** — WEIRD - Western: 1=Western, 0=not, null=unclear. Options: 0, 1. [role: weird_western]
 * **WEIRD_Educated** — WEIRD - Educated: 1=Educated/high-education, 0=not, null=unclear. Options: 0, 1. [role: weird_educated]
 * **WEIRD_Industrialized** — WEIRD - Industrialized: 1=Industrialized, 0=not, null=unclear. Options: 0, 1. [role: weird_industrialized]
 * **WEIRD_Rich** — WEIRD - Rich: 1=Rich/high-income, 0=not, null=unclear. Options: 0, 1. [role: weird_rich]
 * **WEIRD_Democratic** — WEIRD - Democratic: 1=Democratic, 0=not, null=unclear. Options: 0, 1. [role: weird_democratic]
-* **Setting**: 1=Lab, 2=Field, 3=Classroom, 4=Online panel survey, 5=Online experiment, 6=Simulated field, 7=Other. Options: 1, 2, 3, 4, 5, 6, 7. [role: setting]
+* **Setting**: 1=Lab, 2=Field, 3=Classroom, 4=Online panel survey, 5=Online experiment, 6=Simulated field, 7=Other. Options: 1, 2, 3, 4, 5, 6, 7. Where to look: online, laboratory, classroom, field. [role: setting]
 
 ### Sample detail
 
@@ -89,21 +89,21 @@ Return a **JSON array** with one object per experiment, and nothing else - no pr
 * **n_arms** — Number of Arms: Number of independent experimental groups/conditions. [role: n_arms]
 * **design_factors** — Design Factors: Array of manipulated factors, e.g. ["inoculation", "misinformation"] or ["credibility_badge", "social_norm"]. [role: design_factors]
 * **factor_levels** — Factor Levels: Array of objects, [{"factor": string, "levels": [string]}]. [role: factor_levels]
-* **within_between** — Within/Between: 1=Between-subjects, 2=Within-subjects, 3=Mixed. Options: 1, 2, 3. [role: design]
-* **unit_of_analysis** — Unit of Analysis: 1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other. Options: 1, 2, 3, 4. [role: unit_of_analysis]
+* **within_between** — Within/Between: 1=Between-subjects, 2=Within-subjects, 3=Mixed. Options: 1, 2, 3. Where to look: between-subjects, within-subjects. [role: design]
+* **unit_of_analysis** — Unit of Analysis: 1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other. Options: 1, 2, 3, 4. Where to look: participants, items. [role: unit_of_analysis]
 * **clustering** — Clustering: Clustering/random effects structure, e.g. "standard errors clustered by post", or null. [role: clustering]
-* **control_group_type** — Control Group Type: 1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other. Options: 1, 2, 3, 4, 5, 6. [role: control_group_type]
+* **control_group_type** — Control Group Type: 1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other. Options: 1, 2, 3, 4, 5, 6. Where to look: control group, placebo, comparison. [role: control_group_type]
 * **Fully_Within** — Fully within (single arm): True when the experiment has no control arm, so it is excluded from every pooled product by default. [role: fully_within]
 
 ### Intervention
 
-* **Intervention_Type** — Intervention Type: Multi-label list of intervention types from the merged vocabulary: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Multi-type experiments are allowed (e.g. ["inoculation", "friction"]). The former intervention_module field was removed on 2026-09-17; the module-specific coding fields are now implied by these types. [role: intervention_type]
+* **Intervention_Type** — Intervention Type: Multi-label list of intervention types from the merged vocabulary: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Multi-type experiments are allowed (e.g. ["inoculation", "friction"]). The former intervention_module field was removed on 2026-09-17; the module-specific coding fields are now implied by these types. Where to look: intervention, training, treatment. [role: intervention_type]
 * **Intervention_Type_Detail** — Intervention Type Detail: REQUIRED when Intervention_Type includes "other"; specify the combined/specific approach. Otherwise null. [role: intervention_detail]
 * **Intervention_Topic** — Intervention Topic: Topic or domain of the intervention (e.g. vaccines, climate change), or null. [role: intervention_topic]
-* **Intervention_Duration** — Intervention Duration (minutes): Numeric duration of the intervention in minutes, or null. [role: intervention_duration]
-* **Modality**: 1=Text, 2=Video, 3=Game/Gamified, 4=Mixed, 5=Other (specify in detail/notes), 6=Personal training. Options: 1, 2, 3, 4, 5, 6. [role: modality]
+* **Intervention_Duration** — Intervention Duration (minutes): Numeric duration of the intervention in minutes, or null. Where to look: minutes, duration, session. [role: intervention_duration]
+* **Modality**: 1=Text, 2=Video, 3=Game/Gamified, 4=Mixed, 5=Other (specify in detail/notes), 6=Personal training. Options: 1, 2, 3, 4, 5, 6. Where to look: video, game. [role: modality]
 * **Exposure_Schedule** — Exposure Schedule: 1=Single massed session, 2=Spaced (multiple continuous sessions), 3=Boosted (delayed follow-up session). Options: 1, 2, 3. [role: exposure_schedule]
-* **Attention_Cues** — Attention Cues: Array of applicable strings: ["Visual Signaling/Highlighting", "Explicit Ignore Instructions", "Physiological/Emotional Focus"]. [role: attention_cues]
+* **Attention_Cues** — Attention Cues: Array of applicable strings: ["Visual Signaling/Highlighting", "Explicit Ignore Instructions", "Physiological/Emotional Focus"]. Where to look: attention, warning. [role: attention_cues]
 
 ### Instruction & Learning
 
@@ -124,8 +124,8 @@ Return a **JSON array** with one object per experiment, and nothing else - no pr
 
 ### Stimuli
 
-* **Synthetic** — Synthetic Stimuli: 1=Synthetic, 2=Real, 3=Mixed. Options: 1, 2, 3. [role: synthetic]
-* **Stimuli** — Stimuli Type: 1=Headlines, 2=Claims, 3=Source, 4=Headline+Claim, 5=Claim+Source, 6=Headline+Source, 7=Video, 8=Images, 9=Other. Options: 1, 2, 3, 4, 5, 6, 7, 8, 9. [role: stimuli]
+* **Synthetic** — Synthetic Stimuli: 1=Synthetic, 2=Real, 3=Mixed. Options: 1, 2, 3. Where to look: synthet, real. [role: synthetic]
+* **Stimuli** — Stimuli Type: 1=Headlines, 2=Claims, 3=Source, 4=Headline+Claim, 5=Claim+Source, 6=Headline+Source, 7=Video, 8=Images, 9=Other. Options: 1, 2, 3, 4, 5, 6, 7, 8, 9. Where to look: headlines, claims, stimuli. [role: stimuli]
 * **Stimuli_Topic** — Stimuli Topic: Topic or domain of the stimuli, or null. [role: stimuli_topic]
 
 ## Intervention modules
@@ -400,45 +400,3 @@ A complete effect is one of these role bundles (field names in brackets):
 - d or g with n1i and n2i
 
 Never leave a contrast without a complete effect set. Leave a numeric field `null` when the paper does not report it and record why in `missing_metrics_reason` (a non-empty sentence that names the table, figure or paragraph you searched).
-
-## Inclusion criteria
-
-Every **gating** criterion must pass. A study that fails a gating criterion is excluded, but it is still coded in full: record the failing criterion and keep the data you read.
-
-### Abstract screening
-
-- **C1** — Misinformation intervention
-  Does the study feature an intervention aimed at reducing susceptibility to misinformation (inoculation/prebunking, debunking, media literacy, source-credibility or lateral-reading training, accuracy nudges, social norms, platform exposure reduction)?
-  Pass values: Yes.
-- **C2** — Control group
-  Does the study include a control, placebo, or comparison group that does NOT receive the misinformation intervention?
-  Pass values: Yes.
-- **C3** — Language (English)
-  Is the paper in English?
-  Pass values: Yes.
-- **C4** — Experimental (primary quantitative study)
-  Is this a primary empirical study with a quantitative experimental or quasi-experimental design?
-  Pass values: Yes.
-
-### Full-text exclusion
-
-- **C1** — No misinformation intervention (C1) (not gating)
-  No misinformation intervention (C1)
-- **C2** — No control/comparison group (C2) (not gating)
-  No control/comparison group (C2)
-- **C3** — Not English (C3) (not gating)
-  Not English (C3)
-- **C4** — Not a primary experimental study (C4) (not gating)
-  Not a primary experimental study (C4)
-- **irretrievable** — Fulltext irretrievable (not gating)
-  Fulltext irretrievable
-- **no_contrast** — No eligible contrast reported (not gating)
-  No eligible contrast reported
-- **duplicate** — Duplicate/non-independent report of an included study (not gating)
-  Duplicate/non-independent report of an included study
-- **observational** — No experimental intervention (observational) (not gating)
-  No experimental intervention (observational)
-- **domain_mismatch** — Outcome/intervention outside misinformation susceptibility (not gating)
-  Outcome/intervention outside misinformation susceptibility
-- **other** — Other (specify) (not gating)
-  Other (specify)
