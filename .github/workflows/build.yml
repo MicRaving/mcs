@@ -15,7 +15,6 @@ on:
   push:
     branches: [main, "feature/**"]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -72,7 +71,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-13
+          - runner: macos-15-intel
             arch: x86_64
           - runner: macos-14
             arch: arm64
