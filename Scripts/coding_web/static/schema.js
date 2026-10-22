@@ -138,6 +138,11 @@
     /* which left-bar sections are folded away.  The left bar is rebuilt on
        every change, so the fold has to live in the state, not in the DOM. */
     collapsed: {},       // section id -> true when the section is closed
+    /* which workspace the editor shows: the scheme's fields, or its abstract
+       screening criteria.  The criteria need the whole main window - their
+       editors are wide - so they get their own mode, reached from the toggle
+       at the top of the left bar. */
+    mode: "fields",     // "fields" | "screening"
   };
 
   /* fields whose name was typed by hand (or that carry a legacy name the
@@ -820,6 +825,11 @@
     const host = $("#scheme-left");
     if (!host) return;
     host.textContent = "";
+    host.appendChild(modeToggle());
+    if (state.mode === "screening") {
+      host.appendChild(screeningSummary());
+      return;
+    }
     host.appendChild(section("scheme", "Scheme", (body) => {
       body.appendChild(metaSection());
     }));
@@ -832,9 +842,55 @@
     host.appendChild(section("kinds", "Kinds", (body) => {
       body.appendChild(kindsSection());
     }));
-    host.appendChild(section("criteria", "Abstract screening", (body) => {
-      body.appendChild(criteriaSection());
-    }));
+  }
+
+  /* The toggle at the top of the left bar: the scheme's fields, or its
+     abstract screening criteria.  The criteria have their own editors, and
+     they need the whole main window, so they are a mode of their own rather
+     than another narrow section in the left bar. */
+  function modeToggle() {
+    const wrap = el("div", "scheme-mode");
+    const seg = el("div", "seg scheme-mode-seg");
+    seg.setAttribute("role", "tablist");
+    seg.setAttribute("aria-label", "What the editor shows");
+    const modes = [["fields", "Fields"], ["screening", "Screening"]];
+    for (const [id, label] of modes) {
+      const b = el("button", state.mode === id ? "active" : "", label);
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(state.mode === id));
+      b.addEventListener("click", () => {
+        if (state.mode === id) return;
+        state.mode = id;
+        renderAll();
+      });
+      seg.appendChild(b);
+    }
+    wrap.appendChild(seg);
+    return wrap;
+  }
+
+  /* In screening mode the left bar holds the toggle and a short summary; the
+     criteria themselves live in the main window. */
+  function screeningSummary() {
+    const box = el("div", "scheme-stack");
+    if (state.criteriaError) {
+      box.appendChild(el("div", "scheme-empty",
+        "The criteria could not be loaded: " + state.criteriaError));
+      return box;
+    }
+    for (const stage of CRITERION_STAGES) {
+      const items = critList(stage.id);
+      const rules = items.reduce((n, c) => n + Object.keys(c.auto_approve || {}).length, 0);
+      const line = el("div", "scheme-mode-note");
+      line.appendChild(el("b", "", stage.label));
+      line.appendChild(el("span", "", " " + items.length + " criteria"
+        + (rules ? ", " + rules + " auto-approval rules" : "")));
+      box.appendChild(line);
+    }
+    box.appendChild(el("div", "scheme-mode-hint",
+      "The criteria are edited in the main window."));
+    return box;
   }
 
   function metaSection() {
@@ -1455,6 +1511,13 @@
   function criteriaSection() {
     const box = el("div");
 
+    /* In the main window the block needs its own heading - it used to be a
+       left-bar section, which carried the title itself. */
+    const head = el("div", "scheme-criteria-head");
+    head.appendChild(el("h4", "", "Inclusion criteria"));
+    head.appendChild(el("span", "grow"));
+    box.appendChild(head);
+
     if (state.criteriaError) {
       box.appendChild(el("div", "scheme-empty",
         "The criteria could not be loaded: " + state.criteriaError));
@@ -1781,10 +1844,24 @@
   /* ---------------------------------------------------------- right pane */
   function renderRight() {
     const tabs = $$("#scheme-tabs button");
-    tabs.forEach((b) => b.classList.toggle("active", b.dataset.spane === state.pane));
     const host = $("#scheme-right-body");
     if (!host) return;
     host.textContent = "";
+
+    /* In screening mode the main window IS the screening block: the criteria
+       have their own editors and they need the width.  The pane's own tab
+       strip (Field details | Prompt) is hidden while it is on. */
+    const head = $(".scheme-right-head");
+    if (head) head.classList.toggle("hidden", state.mode === "screening");
+    const view = $("#view-scheme");
+    if (view) view.classList.toggle("screening-mode", state.mode === "screening");
+
+    if (state.mode === "screening") {
+      host.appendChild(criteriaSection());
+      return;
+    }
+
+    tabs.forEach((b) => b.classList.toggle("active", b.dataset.pane === state.pane));
     if (state.pane === "prompt") {
       host.appendChild(promptSection());
       return;
