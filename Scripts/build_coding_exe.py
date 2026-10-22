@@ -120,7 +120,15 @@ def main():
         shutil.copy2(built, dest)
     else:
         dest_dir = os.path.join(ROOT, name)
-        _remove(dest_dir)
+        # A running copy of the app locks its own files, and shutil.rmtree then
+        # half-deletes the folder before failing - the copy that follows dies
+        # with a bare FileExistsError and leaves a broken distribution behind.
+        # Say what to do instead.
+        if os.path.isdir(dest_dir) and not _remove(dest_dir):
+            print(f"\n! cannot replace {dest_dir}")
+            print("  a copy of the app is probably still running - close "
+                  f"{name}.exe and build again")
+            return 1
         shutil.copytree(os.path.join(DIST, name), dest_dir)
         # the schemes travel NEXT TO the exe, not only inside _internal/, so a
         # user can open and edit them in the app's own folder.  The revision
