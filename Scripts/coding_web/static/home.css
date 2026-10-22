@@ -1,0 +1,161 @@
+/* ============================================================
+   Coding Studio — Home tab
+   The landing view: open a project, create one, and read the
+   tutorial.
+
+   Only the `.home-*` namespace is added here; every colour,
+   radius and font comes from the app's own tokens (styles.css),
+   the way schema.css does for the scheme editor.
+   ============================================================ */
+
+/* The view is one full-width column: the app's left/mid/right grid must not
+   apply to it. */
+.workspace.home {
+  display: block;
+  overflow: auto;
+  padding: 0;
+}
+#view-home[hidden] { display: none !important; }
+.workspace.home p { color: inherit; }
+
+/* The coding-only actions in the top bar are meaningless on the landing
+   view; the coder field stays, because it is a setting, not an action. */
+body.view-home #blind-btn,
+body.view-home #clear-btn,
+body.view-home #save-btn,
+body.view-home #next-btn,
+body.view-home #shuffle-btn,
+body.view-home #merge-btn,
+body.view-home #an-full-top,
+body.view-home #master-field { display: none !important; }
+
+/* ------------------------------------------------------------ page shell */
+.home-page { max-width: 1560px; margin: 0 auto; padding: 16px 18px 44px; }
+
+.home-head {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.home-title h1 {
+  margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 600;
+  letter-spacing: -.01em;
+}
+.home-title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; max-width: 660px; }
+.home-head-current {
+  margin-left: auto; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; min-width: 0;
+}
+.home-cur-path {
+  font: 500 11.5px var(--mono); color: var(--muted);
+  max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.home-flash {
+  margin: 0 0 12px; padding: 8px 11px; border-radius: var(--r-sm);
+  background: var(--ok-soft); color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+  font-size: 12px;
+}
+.home-flash[hidden] { display: none !important; }
+
+/* ------------------------------------------------------------ grid + cards */
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+.home-card {
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1); overflow: hidden;
+}
+.home-card-head {
+  padding: 11px 13px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+.home-card-head h2 {
+  margin: 0; font-family: var(--serif); font-size: 15px; font-weight: 600;
+}
+.home-card-head p { margin: 3px 0 0; font-size: 11.5px; color: var(--muted); }
+.home-card-head code {
+  font: 500 11px var(--mono); background: var(--panel-3);
+  border-radius: 4px; padding: 1px 4px;
+}
+.home-card-body { padding: 12px 13px 14px; }
+
+/* ------------------------------------------------------------ recent list */
+.home-actions { display: flex; align-items: center; gap: 8px; }
+.home-actions .grow { flex: 1; }
+
+.home-projects { display: flex; flex-direction: column; gap: 5px; margin-top: 11px; }
+.home-proj {
+  display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel-2); color: inherit; font: inherit; cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.home-proj:hover { border-color: var(--accent); background: var(--panel); }
+.home-proj.current {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.home-proj[disabled] { opacity: .55; cursor: not-allowed; }
+.home-proj-name {
+  font-size: 12.5px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-proj-path {
+  font: 500 11px var(--mono); color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-proj-tags {
+  display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px;
+}
+.home-proj-tags .pill { height: 22px; font-size: 10.5px; padding: 0 8px; }
+
+/* ------------------------------------------------------------ new project */
+.home-form { display: flex; flex-direction: column; gap: 3px; }
+.home-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); margin-top: 7px;
+}
+.home-error {
+  margin: 9px 0 0; padding: 6px 9px; border-radius: var(--r-sm);
+  font-size: 11.5px; color: var(--danger); background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  line-height: 1.45;
+}
+.home-error[hidden] { display: none !important; }
+.home-ok { margin: 9px 0 0; font-size: 11.5px; color: var(--ok); }
+.home-ok[hidden] { display: none !important; }
+.home-note { margin: 8px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.home-note code {
+  font: 500 11px var(--mono); background: var(--panel-3);
+  border-radius: 4px; padding: 1px 4px;
+}
+.home-form + .home-actions { margin-top: 12px; }
+
+/* ------------------------------------------------------------ tutorial */
+.home-tut { display: flex; flex-direction: column; max-height: calc(100vh - 170px); }
+.home-tut-list { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
+.home-tut-sec { margin-bottom: 8px; }
+.home-tut-sec:last-child { margin-bottom: 0; }
+.home-tut-sec > summary { flex-wrap: wrap; gap: 3px 9px; }
+.home-tut-num { font: 700 10.5px var(--mono); color: var(--faint); }
+.home-tut-title { font-weight: 700; }
+.home-tut-sum {
+  flex-basis: 100%; font-weight: 400; font-size: 11.5px; color: var(--muted);
+  line-height: 1.45;
+}
+.home-tut-body { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+
+/* ------------------------------------------------------------ narrow */
+@media (max-width: 900px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-tut { max-height: none; }
+  .home-tut-list { overflow: visible; padding: 10px 12px 12px; }
+  .home-head-current { margin-left: 0; width: 100%; }
+  .home-cur-path { max-width: 100%; }
+}

@@ -14,7 +14,7 @@
 (() => {
   "use strict";
 
-  const { $, $$, api, toast } = window.CS;
+  const { $, $$, api, toast, optionText, optionTextOf } = window.CS;
   const icon = window.CS.svgEl;
 
   function el(tag, cls, text) {
@@ -144,14 +144,20 @@
     return /^[0-9]/.test(slug) ? "f_" + slug : slug;
   }
 
+  /* The scheme's option list is a list of {value, label} pairs; a plain
+     string is a level that has no name of its own.  The VALUE keeps its
+     type: a level whose value is the number 1 stays the number 1, so an
+     integer field's levels stay integers when the scheme is written back. */
   function optList(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
     for (const o of raw) {
       if (o && typeof o === "object") {
-        const value = o.value === null || o.value === undefined ? "" : String(o.value);
-        const label = o.label === null || o.label === undefined ? value : String(o.label);
-        if (!value && !label) continue;
+        const value = o.value === null || o.value === undefined ? "" : o.value;
+        const label = o.label === null || o.label === undefined
+          ? (o.value === null || o.value === undefined ? "" : String(o.value))
+          : String(o.label);
+        if (value === "" && !label) continue;
         out.push({ value, label });
       } else if (o === null || o === undefined || o === "") {
         continue;
@@ -173,6 +179,11 @@
       group: String(f.group || ""),
       scope: f.scope || scope,
       type,
+      // A nullable field keeps its nullability: the coding form stores null
+      // rather than an empty string, and this flag is what says so.  It has to
+      // survive a round trip through the editor, or saving the scheme would
+      // silently change how every blank value is stored.
+      nullable: f.nullable === undefined ? false : !!f.nullable,
       editor: EDITORS.indexOf(f.editor) >= 0 ? f.editor : "text",
       options: optList(f.options),
       vocab: Array.isArray(f.vocab) ? f.vocab.map(String) : [],
@@ -562,6 +573,10 @@
       return null;
     };
 
+    /* the level values behind the option control: a <select> only keeps
+       strings, but the condition wants the level's own value (the number) */
+    let levelValues = new Map();
+
     const readValue = () => {
       const ref = refField();
       const op = opSel.value;
@@ -570,18 +585,21 @@
       if (!ctrl) return "";
       if (ctrl.multiple) {
         const picked = Array.from(ctrl.selectedOptions).map((x) => x.value);
-        return LIST_OPS.indexOf(op) >= 0 ? picked : (picked[0] || "");
+        const values = picked.map((x) => (levelValues.has(x) ? levelValues.get(x) : x));
+        return LIST_OPS.indexOf(op) >= 0 ? values : (values[0] || "");
       }
       const raw = ctrl.value;
       if (ctrl.type === "number") {
         const n = Number(raw);
         return raw === "" ? null : (Number.isFinite(n) ? n : raw);
       }
-      return LIST_OPS.indexOf(op) >= 0 ? (raw === "" ? [] : [raw]) : raw;
+      const value = levelValues.has(raw) ? levelValues.get(raw) : raw;
+      return LIST_OPS.indexOf(op) >= 0 ? (raw === "" ? [] : [value]) : value;
     };
 
     const renderValue = () => {
       valueHost.textContent = "";
+      levelValues = new Map();
       const op = opSel.value;
       const ref = refField();
       const kind = valueControlKind(ref, op);
@@ -592,8 +610,10 @@
         sel.multiple = kind === "options-multi";
         sel.size = kind === "options-multi" ? 4 : 1;
         for (const o of opts) {
-          const opt = el("option", "", o.label || o.value);
+          /* the level is shown merged ("1 - Lab") and stores its value */
+          const opt = el("option", "", optionText(o.value, o.label));
           opt.value = o.value;
+          levelValues.set(String(o.value), o.value);
           sel.appendChild(opt);
         }
         const wanted = Array.isArray(work.value) ? work.value.map(String)
@@ -671,6 +691,55 @@
     if (onInput) i.addEventListener("input", () => onInput(i.value, i));
     return i;
   }
+
+  /* One level of a controlled list, edited as a NUMBER and a NAME.
+     The number comes first, so the row reads "1  Lab": the value the field
+     stores, then the name the author reads.  The two are edited apart -
+     renaming a level leaves its number alone, renumbering a level leaves a
+     name the author gave it alone - and a level that has no name of its own
+     keeps the two in step. */
+  function levelRow(level, fieldType, onChange, removeBtn) {
+    const row = el("div", "scheme-editrow");
+    /* a level whose value is a number gets a number box; a level whose
+       value is a plain string keeps a text box (it is not a number, so it
+       is not forced to become one) */
+    const numeric = typeof level.value === "number"
+      || (level.value === "" && isNumericType(fieldType));
+
+    const num = el("input", "input");
+    num.type = numeric ? "number" : "text";
+    if (numeric) num.step = fieldType === "integer" ? "1" : "any";
+    num.value = level.value == null ? "" : level.value;
+    num.style.width = "74px";
+    num.style.flex = "none";
+    num.setAttribute("aria-label", "Level number");
+    num.addEventListener("input", () => {
+      const raw = num.value;
+      const old = level.value;
+      level.value = numeric ? (raw === "" ? "" : Number(raw)) : raw;
+      /* a level that was nothing but its own value keeps the two in step */
+      if (String(level.label) === String(old)) level.label = String(level.value);
+      onChange();
+    });
+    row.appendChild(num);
+
+    const name = el("input", "input");
+    name.type = "text";
+    name.value = level.label == null ? "" : level.label;
+    name.spellcheck = false;
+    name.setAttribute("aria-label", "Level name");
+    name.addEventListener("input", () => {
+      level.label = name.value;
+      onChange();
+    });
+    row.appendChild(name);
+
+    row.appendChild(removeBtn);
+    return row;
+  }
+
+  /* a field or a kind whose levels are numbers */
+  const isNumericType = (type) => type === "integer" || type === "number";
 
   function selectBox(options, value, onChange) {
     const s = el("select", "select");
@@ -1079,19 +1148,12 @@
     wrap.appendChild(el("div", "scheme-card-sub", "Options"));
     const list = el("div", "scheme-editlist");
     k.options.forEach((o, i) => {
-      const row = el("div", "scheme-editrow");
-      row.appendChild(textInput(o.value, (v) => {
-        const old = o.value;
-        o.value = v;
-        if (o.label === old) o.label = v;
-        changed();
-      }, { "aria-label": "Option" }));
-      row.appendChild(iconBtn("btn ghost icon", "Remove option", "i-trash", () => {
+      const remove = iconBtn("btn ghost icon", "Remove option", "i-trash", () => {
         k.options.splice(i, 1);
         changed();
         renderLeft();
-      }));
-      list.appendChild(row);
+      });
+      list.appendChild(levelRow(o, k.base_type, () => changed(), remove));
     });
     const addOpt = el("button", "btn", "Add option");
     addOpt.type = "button";
@@ -1410,19 +1472,12 @@
   function optionsEditor(f) {
     const list = el("div", "scheme-editlist");
     f.options.forEach((o, i) => {
-      const row = el("div", "scheme-editrow");
-      row.appendChild(textInput(o.value, (v) => {
-        const old = o.value;
-        o.value = v;
-        if (o.label === old) o.label = v;
-        changed();
-      }, { "aria-label": "Option value" }));
-      row.appendChild(iconBtn("btn ghost icon", "Remove option", "i-trash", () => {
+      const remove = iconBtn("btn ghost icon", "Remove option", "i-trash", () => {
         f.options.splice(i, 1);
         changed();
         renderRight();
-      }));
-      list.appendChild(row);
+      });
+      list.appendChild(levelRow(o, f.type, () => changed(), remove));
     });
     const add = el("button", "btn", "Add option");
     add.type = "button";
@@ -1523,7 +1578,9 @@
     parts.push(`: ${f.description || ""}`);
     if (f.instruction) parts.push(` ${f.instruction}`);
     if (f.show_if) parts.push(` Code only if ${condText(f.show_if)}.`);
-    const opts = (f.options || []).map((o) => o.label || o.value).filter(Boolean);
+    /* the levels are listed with their numbers: an agent has to know that
+       Setting is the NUMBER 1, not the word "Lab" */
+    const opts = (f.options || []).map(optionTextOf).filter(Boolean);
     if (opts.length) parts.push(` Options: ${opts.join(", ")}.`);
     return parts.join("");
   }

@@ -74,6 +74,30 @@
   const safeStore = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
   const safeGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
+  /* ---------------------------------------------------------- option text */
+  /* A scheme level carries a number AND a name: "1" and "Lab".  Wherever a
+     level is shown the two are merged ("1 - Lab"), so a reader never has to
+     guess whether the field wants the number or the word.  The rule lives
+     here, once: the scheme editor and the coding form read the same helper,
+     so the two can never disagree about what a level looks like.
+
+       optionText(value, label)   - the merged text of one level
+       optionTextOf(option)        - the same, for a scheme option
+                                      ({value, label}) or a plain string */
+  function optionText(value, label) {
+    const v = value === null || value === undefined ? "" : String(value);
+    const l = label === null || label === undefined ? "" : String(label);
+    if (!v) return l;          // a level without a number is just its name
+    if (v === l) return l;      // a plain string level is just its name
+    return `${v} - ${l}`;
+  }
+
+  function optionTextOf(option) {
+    if (option === null || option === undefined) return "";
+    if (typeof option !== "object") return optionText(option, option);
+    return optionText(option.value, option.label);
+  }
+
   /* the active section tab ("coding" has no body class) */
   function currentView() {
     const active = document.querySelector(".toptabs .viewtab.active");
@@ -98,6 +122,7 @@
      So the section tabs keep their names for as long as the window allows,
      and the Scheme entry is never the first thing to lose its label. */
   let fitTimer = null;
+  let lastFitWidth = -1;
   function doFitTopbar() {
     const bar = $(".topbar");
     const strip = $(".toptabs");
@@ -170,5 +195,5 @@
     } catch { /* the layout still works without it */ }
   }
 
-  window.CS = { $, $$, esc, svg, svgEl, api, toast, safeStore, safeGet, currentView, fitTopbar };
+  window.CS = { $, $$, esc, svg, svgEl, api, toast, safeStore, safeGet, currentView, fitTopbar, optionText, optionTextOf };
 })();

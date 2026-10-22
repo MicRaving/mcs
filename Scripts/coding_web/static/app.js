@@ -6,7 +6,7 @@
 (() => {
   "use strict";
 
-  const { $, $$, esc, api } = window.CS;
+  const { $, $$, esc, api, optionText } = window.CS;
   const icon = window.CS.svgEl;
 
   function el(tag, cls, text) {
@@ -657,7 +657,7 @@
     if (fname) {
       const f = state.schema.common_fields.find((x) => x.name === fname);
       const opt = f && (f.options || []).find((o) => String(o.value) === String(value));
-      if (opt) return opt.label;
+      if (opt) return CS.optionText(opt.value, opt.label);
     }
     return String(value);
   }
@@ -1114,7 +1114,8 @@
     cb.type = "checkbox";
     cb.checked = !blank && String(value) === String(on.value);
     cb.indeterminate = blank;
-    cb.title = `${on.label} (checked) / ${off.label} (unchecked)`;
+    cb.title = `${CS.optionText(on.value, on.label)} (checked) / `
+      + `${CS.optionText(off.value, off.label)} (unchecked)`;
     cb.addEventListener("change", () => {
       cb.indeterminate = false;
       const v = cb.checked ? on.value : off.value;
@@ -1134,7 +1135,9 @@
     sel.appendChild(new Option("— not set —", "__none__"));
     let matched = false;
     options.forEach((o) => {
-      const text = String(o.value) === String(o.label) ? o.label : `${o.value} — ${o.label}`;
+      /* a level shows its number and its name ("1 - Lab") - the same rule
+         the scheme editor uses, so the two can never disagree */
+      const text = optionText(o.value, o.label);
       const opt = new Option(text, String(o.value));
       if (value !== null && value !== undefined && String(value) === String(o.value)) {
         opt.selected = true;
@@ -1237,11 +1240,14 @@
 
   function objectListControl(def, value, commit) {
     const arr = Array.isArray(value) ? value : [];
+    // a field with the objectlist editor but no columns yet (the scheme
+    // editor can leave it empty) must not throw
+    const columns = Array.isArray(def.columns) ? def.columns : [];
     const wrap = el("div", "objlist");
     const table = el("table");
     const thead = el("thead");
     const hr = el("tr");
-    def.columns.forEach((c) => hr.appendChild(el("th", null, c.name)));
+    columns.forEach((c) => hr.appendChild(el("th", null, c.name)));
     hr.appendChild(el("th"));
     thead.appendChild(hr);
     table.appendChild(thead);
@@ -1252,7 +1258,7 @@
       arr.forEach((rowObj, i) => {
         const tr = el("tr");
         if (!rowObj) arr[i] = rowObj = {};
-        def.columns.forEach((c) => {
+        columns.forEach((c) => {
           const td = el("td");
           const cur = rowObj[c.name];
           if (c.type === "list") {
@@ -1300,7 +1306,7 @@
     add.appendChild(el("span", null, "Add row"));
     add.addEventListener("click", () => {
       const rowObj = {};
-      def.columns.forEach((c) => { rowObj[c.name] = c.type === "list" ? [] : null; });
+      columns.forEach((c) => { rowObj[c.name] = c.type === "list" ? [] : null; });
       arr.push(rowObj);
       commit(arr.slice());
       paint();
@@ -3814,7 +3820,7 @@
       const b = el("button", "num-opt");
       b.type = "button";
       b.appendChild(el("span", "k", String(i + 1)));
-      b.appendChild(el("span", null, o.label));
+      b.appendChild(el("span", null, CS.optionText(o.value, o.label)));
       const cur = sel ? String(sel.value) : (cb ? (cb.checked ? String(o.value) : "") : "");
       if (cur === String(o.value)) b.classList.add("active");
       b.addEventListener("click", (e) => {

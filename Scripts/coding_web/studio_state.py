@@ -114,6 +114,80 @@ def save_config(updates):
         return False
 
 
+#: The app config key that holds the recently opened project folders.
+RECENT_PROJECTS_KEY = "recent_projects"
+#: The app config key that holds the opening time of every recent project.
+RECENT_OPENED_KEY = "recent_projects_opened"
+#: How many projects the recent list keeps.
+RECENT_PROJECTS_LIMIT = 12
+
+
+def recent_projects():
+    """The recently opened project folders, most recent first.
+
+    The list lives in the app config (``codingstudio.config.json``) under
+    ``recent_projects``: absolute paths, most recent first, at most
+    :data:`RECENT_PROJECTS_LIMIT` entries.  The opening time of each folder
+    lives beside it under ``recent_projects_opened`` (an ISO stamp), so the
+    Home page can show when a project was last used.
+
+    Windows paths are compared case-insensitively, so the same folder never
+    appears twice under two spellings.
+    """
+    raw = load_config().get(RECENT_PROJECTS_KEY)
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        path = os.path.abspath(entry.strip())
+        if not any(os.path.normcase(path) == os.path.normcase(known)
+                   for known in out):
+            out.append(path)
+    return out
+
+
+def recent_project_opened(path):
+    """The ISO stamp of the last opening of ``path`` (``""`` when unknown)."""
+    if not path:
+        return ""
+    stamps = load_config().get(RECENT_OPENED_KEY)
+    if not isinstance(stamps, dict):
+        return ""
+    target = os.path.normcase(os.path.abspath(path))
+    for key, value in stamps.items():
+        if (isinstance(key, str) and isinstance(value, str)
+                and os.path.normcase(key) == target):
+            return value
+    return ""
+
+
+def record_recent_project(path):
+    """Record ``path`` as recently opened; returns the new recent list.
+
+    The folder moves to the front, duplicates are dropped and the list keeps
+    at most :data:`RECENT_PROJECTS_LIMIT` entries.
+    """
+    if not path:
+        return recent_projects()
+    path = os.path.abspath(path)
+    target = os.path.normcase(path)
+    paths = [p for p in recent_projects() if os.path.normcase(p) != target]
+    paths.insert(0, path)
+    paths = paths[:RECENT_PROJECTS_LIMIT]
+    stamps = {}
+    raw_stamps = load_config().get(RECENT_OPENED_KEY)
+    kept = {os.path.normcase(p) for p in paths}
+    if isinstance(raw_stamps, dict):
+        stamps = {k: v for k, v in raw_stamps.items()
+                  if isinstance(k, str) and isinstance(v, str)
+                  and os.path.normcase(k) in kept}
+    stamps[path] = datetime.now().isoformat(timespec="seconds")
+    save_config({RECENT_PROJECTS_KEY: paths, RECENT_OPENED_KEY: stamps})
+    return paths
+
+
 def default_root():
     """Packaged: the folder the executable sits in. Source: the repo root above Scripts/coding_web."""
     return EXE_DIR if FROZEN else REPO
@@ -192,6 +266,12 @@ class State:
         try:
             project_context.set_root(root)
         except Exception:  # noqa: BLE001 - never fail a re-root over the context
+            pass
+        # Opening a project is what makes it "recent": the Home page lists the
+        # folders that were opened lately, most recent first.
+        try:
+            record_recent_project(root)
+        except Exception:  # noqa: BLE001 - the recent list is a convenience
             pass
         return root
 

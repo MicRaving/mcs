@@ -164,6 +164,26 @@ def test_legacy_conversion():
     check("the roles are unique", len(roles) == len(set(roles.values())))
 
 
+def test_nullable_survives():
+    section("nullability survives a round trip")
+    scheme = LEG.convert_to_normalised(_load_legacy())
+    nullable = [f["name"] for f in SL.all_fields(scheme) if f.get("nullable")]
+    check("the legacy schema has nullable fields", len(nullable) > 50,
+          "only %d" % len(nullable))
+    again = SL.normalise_scheme(scheme)
+    again_nullable = [f["name"] for f in SL.all_fields(again) if f.get("nullable")]
+    check("normalising keeps the nullable flags",
+          set(nullable) == set(again_nullable))
+    # a field that arrives WITHOUT the flag but with a legacy "|null" type must
+    # pick it up: the marker is the other spelling of the same fact
+    field = SL.normalise_field({"name": "X", "type": "integer|null"})
+    check("the |null marker is read as nullable", field.get("nullable") is True)
+    field = SL.normalise_field({"name": "X", "type": "integer", "nullable": True})
+    check("an explicit flag is kept", field.get("nullable") is True)
+    field = SL.normalise_field({"name": "X", "type": "integer"})
+    check("a plain type is not nullable", field.get("nullable") is False)
+
+
 def test_field_aliases():
     section("field aliases")
     scheme = LEG.convert_to_normalised(_load_legacy())
@@ -282,7 +302,7 @@ def main():
     print("scheme module self-test")
     for test in (test_slugify, test_conditions, test_options, test_roles,
                  test_normalise_is_idempotent, test_legacy_conversion,
-                 test_field_aliases, test_blocks,
+                 test_nullable_survives, test_field_aliases, test_blocks,
                  test_validator_catches_defects, test_visibility, test_effective_values):
         test()
     print()

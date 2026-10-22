@@ -19,6 +19,9 @@
   background: var(--panel);
   color: var(--ink);
 }
+/* The author display rule above beats the [hidden] attribute, so the view has
+   to be told to hide - the same note the other views carry. */
+#view-scheme[hidden] { display: none !important; }
 .workspace.scheme p { color: inherit; }
 .workspace.scheme h4 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
 

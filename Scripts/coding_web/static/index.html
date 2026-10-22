@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/static/agreement.css">
 <link rel="stylesheet" href="/static/repro.css">
 <link rel="stylesheet" href="/static/schema.css">
+<link rel="stylesheet" href="/static/home.css">
 </head>
 <body>
 
@@ -50,6 +51,10 @@
 
 <header class="topbar">
   <nav class="toptabs" role="tablist" aria-label="Sections">
+    <button class="viewtab" data-view="home" role="tab" aria-selected="false" title="Home - open or create a project, and read the tutorial">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+      <span class="tab-label">Home</span>
+    </button>
     <button class="viewtab" data-view="summary" role="tab" aria-selected="false" title="Summary - what is coded, at a glance">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-list"/></svg>
       <span class="tab-label">Summary</span>
@@ -136,6 +141,78 @@
     </button>
   </div>
 </header>
+<main class="workspace home" id="view-home" hidden>
+  <div class="home-page">
+
+    <div class="home-head">
+      <div class="home-title">
+        <h1>Coding Studio</h1>
+        <p>Open the project you want to work in, or create a new one. The tutorial on the right walks through the whole workflow.</p>
+      </div>
+      <div class="home-head-current" id="home-current"></div>
+    </div>
+
+    <p class="home-flash" id="home-flash" hidden></p>
+
+    <div class="home-grid">
+      <div class="home-col">
+
+        <section class="home-card">
+          <header class="home-card-head">
+            <h2>Open a project</h2>
+            <p>A project is the folder that holds <code>Papers/</code>, <code>Text/</code>, <code>Extraction/</code> and <code>Codings/</code>.</p>
+          </header>
+          <div class="home-card-body">
+            <div class="home-actions">
+              <button class="btn primary" id="home-open-btn" title="Choose the project folder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+                Choose a folder…
+              </button>
+              <span class="grow" style="flex:1"></span>
+              <button class="btn" id="home-refresh" title="Reload the project list">Refresh</button>
+            </div>
+            <div class="home-projects" id="home-projects"></div>
+          </div>
+        </section>
+
+        <section class="home-card">
+          <header class="home-card-head">
+            <h2>New project</h2>
+            <p>Create a new project folder next to the current one.</p>
+          </header>
+          <div class="home-card-body">
+            <form class="home-form" id="home-new-form" autocomplete="off">
+              <label class="home-label" for="home-new-name">Name</label>
+              <input class="input" id="home-new-name" placeholder="My study" spellcheck="false">
+              <label class="home-label" for="home-new-parent">Parent folder</label>
+              <input class="input mono-val" id="home-new-parent" placeholder="C:\path\to\projects" spellcheck="false">
+              <label class="home-label" for="home-new-template">Template</label>
+              <select class="select" id="home-new-template">
+                <option value="blank">Blank scheme</option>
+                <option value="copy">Copy the current scheme</option>
+              </select>
+              <p class="home-error" id="home-new-error" hidden></p>
+              <p class="home-ok" id="home-new-ok" hidden></p>
+              <div class="home-actions">
+                <button class="btn primary" type="submit" id="home-new-create">Create project</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+      </div>
+
+      <section class="home-card home-tut">
+        <header class="home-card-head">
+          <h2>Learn CodingStudio</h2>
+          <p>Ten short sections, in the order you meet them. The text is a placeholder — the structure is what matters for now.</p>
+        </header>
+        <div class="home-tut-list" id="home-tutorial"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
 <main class="workspace" id="view-coding">
   <aside class="pane left" id="left-pane">
     <button class="rail rail-left" id="rail-left" title="Show the paper list" tabindex="-1">
@@ -850,5 +927,6 @@
 <script src="/static/screening.js"></script>
 <script src="/static/agreement.js"></script>
 <script src="/static/repro.js"></script>
+<script src="/static/home.js"></script>
 </body>
 </html>
