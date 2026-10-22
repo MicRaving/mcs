@@ -94,7 +94,7 @@
 }
 .scheme-block-head:hover { background: var(--panel); border-color: var(--line); }
 .scheme-block-head .grow { flex: 1; }
-.scheme-block-head .scheme-bucket-name { max-width: 150px; }
+.scheme-block-head .scheme-bucket-name { max-width: 200px; }
 .scheme-block-head .btn.icon { width: 22px; height: 22px; padding: 0; justify-content: center; flex: none; }
 .scheme-block-head .btn.icon svg { width: 12px; height: 12px; }
 .scheme-block-head .btn[disabled] { opacity: .35; cursor: not-allowed; }
@@ -126,7 +126,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
 }
 .scheme-rename {
-  flex: 1; min-width: 0; max-width: 170px;
+  flex: 1; min-width: 0; max-width: 200px;
   font-size: 11px; min-height: 22px; padding: 1px 5px;
   text-transform: none; letter-spacing: 0;
 }

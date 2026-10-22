@@ -1041,6 +1041,7 @@
     /* the whole header is the drag source, but only when the press did not
        start on a button - a button press is a click, not a drag */
     head.addEventListener("mousedown", (e) => {
+      head.draggable = false;
       if (e.target.closest("button")) return;
       head.draggable = true;
     });
