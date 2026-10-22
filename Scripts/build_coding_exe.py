@@ -122,6 +122,15 @@ def main():
         dest_dir = os.path.join(ROOT, name)
         _remove(dest_dir)
         shutil.copytree(os.path.join(DIST, name), dest_dir)
+        # the schemes travel NEXT TO the exe, not only inside _internal/, so a
+        # user can open and edit them in the app's own folder.  The revision
+        # history stays out of the distribution - it is local bookkeeping.
+        src_schemes = os.path.join(APP_DIR, "Schemes")
+        if os.path.isdir(src_schemes):
+            dst_schemes = os.path.join(dest_dir, "Schemes")
+            _remove(dst_schemes)
+            shutil.copytree(src_schemes, dst_schemes,
+                            ignore=shutil.ignore_patterns("history"))
         dest = os.path.join(dest_dir, name + ".exe" if os.name == "nt" else name)
         # A bare CodingStudio.exe at the repo root is a stray copy of the onedir
         # launcher: it looks for <root>/_internal and dies with "Failed to load

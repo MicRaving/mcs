@@ -176,8 +176,21 @@ def app_dir():
 
 
 def schemes_dir():
-    """The folder that holds every scheme: ``<app dir>/Schemes``."""
-    return os.path.join(app_dir(), SCHEMES_DIRNAME)
+    """The folder that holds every scheme.
+
+    **Beside the app** (``<app dir>/Schemes``) first - that is where a user
+    keeps their own schemes, and where the build puts them - and the app's
+    own bundled folder as the fallback for a frozen build.
+    """
+    beside = os.path.join(app_dir(), SCHEMES_DIRNAME)
+    if os.path.isdir(beside):
+        return beside
+    bundle = getattr(sys, "_MEIPASS", "")
+    if bundle:
+        bundled = os.path.join(bundle, SCHEMES_DIRNAME)
+        if os.path.isdir(bundled):
+            return bundled
+    return beside
 
 
 def scheme_dir(scheme_id):
