@@ -4363,6 +4363,10 @@
     }
   }
 
+  /* The app's confirm sheet is shared with the other views (the Settings page
+     asks before it replaces a file or restarts into a new version). */
+  window.CS.confirmDialog = confirmDialog;
+
   /* ================================================================ boot */
   async function boot() {
     const savedTheme = localStorage.getItem("cs.theme") || "dark";

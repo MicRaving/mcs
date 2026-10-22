@@ -67,3 +67,15 @@ box or leaves the viewport.  Open it from a running app:
 python Scripts/coding_web/app.py --root <project folder>
 # then browse to /static/dev/overflow-audit.html
 ```
+
+## Settings
+
+Every project carries an `AGENTS.md` beside its folders: what the project is,
+which scheme it codes against, and the rules that keep the corpus valid.  It is
+written when the project is created, and the **Settings** view edits it (with
+*Restore template* to start again from a fresh one for this project).
+
+The same view holds **Updates**: the app asks GitHub for the latest release of
+this repository, offers the build for the current platform and installs it on
+restart.  A Flatpak is updated by the system (`flatpak update`), and a source
+run only links to the release page - neither can replace itself.

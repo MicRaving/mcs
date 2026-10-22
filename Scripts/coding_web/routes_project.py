@@ -52,6 +52,15 @@ except Exception:  # pragma: no cover - source layout fallback
 
 bp = Blueprint("project", __name__)
 
+# the AGENTS.md a new project carries (the Settings view edits it later)
+try:
+    import project_doc
+except Exception:  # pragma: no cover - source layout fallback
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import project_doc  # noqa: E402
+
 #: The folders a new project starts with (besides ``Project/``).
 SKELETON_DIRS = (
     "Papers",
@@ -299,6 +308,13 @@ def _create_project(root, name, template):
     project_context.write_scheme(normalised, root)
     project_context.write_criteria(criteria_lib.default_criteria(), root)
     project_context.write_manifest(_manifest(name), root)
+    # the project's own AGENTS.md: what an agent (or a new colleague) reads
+    # before touching the folder.  It is a normal file the Settings view
+    # edits afterwards - created once, never rewritten behind the user.
+    try:
+        project_doc.ensure(root, name)
+    except OSError as exc:  # a read-only parent must not fail the project
+        log(f"the project's AGENTS.md could not be written: {exc}")
     return normalised
 
 

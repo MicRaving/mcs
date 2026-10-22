@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/static/repro.css">
 <link rel="stylesheet" href="/static/schema.css">
 <link rel="stylesheet" href="/static/home.css">
+<link rel="stylesheet" href="/static/settings.css">
 </head>
 <body>
 
@@ -49,6 +50,7 @@
     <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1v-9.5Z"/></symbol>
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16v4Z"/><path d="M13 7l4 4"/></symbol>
     <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></symbol>
   </defs>
 </svg>
 
@@ -89,6 +91,10 @@
     <button class="viewtab" data-view="scheme" role="tab" aria-selected="false" title="Scheme - the coding scheme: blocks, fields, conditions, kinds">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-book"/></svg>
       <span class="tab-label">Scheme</span>
+    </button>
+    <button class="viewtab" data-view="settings" role="tab" aria-selected="false" title="Settings - the project's AGENTS.md, and the application's updates">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-gear"/></svg>
+      <span class="tab-label">Settings</span>
     </button>
   </nav>
 
@@ -932,6 +938,65 @@
 
 <div class="toasts" id="toasts"></div>
 
+<main class="workspace settings" id="view-settings" hidden>
+  <div class="st-page">
+    <aside class="st-nav">
+      <h1>Settings</h1>
+      <div class="st-nav-list" id="st-nav">
+        <button class="st-nav-item active" data-section="project" aria-pressed="true">
+          <span class="st-nav-title">Project documentation</span>
+          <span class="st-nav-sub">The AGENTS.md of the open project</span>
+        </button>
+        <button class="st-nav-item" data-section="updates" aria-pressed="false">
+          <span class="st-nav-title">Updates</span>
+          <span class="st-nav-sub">Check for, and install, a new version</span>
+        </button>
+      </div>
+    </aside>
+
+    <section class="st-body">
+      <div class="st-panel" id="st-panel-project">
+        <header class="st-head">
+          <h2>Project documentation</h2>
+          <p>Every project carries an <code>AGENTS.md</code> next to its folders: what
+            the project is, which scheme it codes against, and the rules that keep the
+            corpus valid. A colleague - or an agent - reads it before touching the folder.</p>
+          <p class="st-path" id="st-doc-path"></p>
+        </header>
+        <textarea class="textarea st-doc" id="st-doc" spellcheck="false" aria-label="The project's AGENTS.md"></textarea>
+        <div class="st-actions">
+          <button class="btn primary" id="st-doc-save">Save</button>
+          <button class="btn" id="st-doc-reset" title="Replace the file with a fresh template for this project">Restore template</button>
+          <span class="st-grow"></span>
+          <span class="st-status" id="st-doc-status"></span>
+        </div>
+      </div>
+
+      <div class="st-panel" id="st-panel-updates" hidden>
+        <header class="st-head">
+          <h2>Updates</h2>
+          <p>CodingStudio checks the releases of this project on GitHub. A new version
+            downloads next to the app and installs itself when you restart.</p>
+        </header>
+        <div class="st-versions">
+          <div class="st-version"><span>This version</span><b id="st-current">-</b></div>
+          <div class="st-version"><span>Latest release</span><b id="st-latest">-</b></div>
+        </div>
+        <p class="st-note" id="st-update-note" hidden></p>
+        <div class="st-actions">
+          <button class="btn" id="st-check">Check for updates</button>
+          <button class="btn primary" id="st-install" hidden>Download and install</button>
+          <a class="btn ghost" id="st-release-page" target="_blank" rel="noopener" hidden>Release notes</a>
+          <span class="st-grow"></span>
+          <span class="st-status" id="st-update-status"></span>
+        </div>
+        <div class="st-progress" id="st-progress" hidden><i id="st-progress-bar"></i></div>
+        <div class="md st-notes" id="st-notes" hidden></div>
+      </div>
+    </section>
+  </div>
+</main>
+
 <script src="/static/core.js"></script>
 <script src="/static/pdfsearch.js"></script>
 <script src="/static/app.js"></script>
@@ -944,5 +1009,6 @@
 <script src="/static/agreement.js"></script>
 <script src="/static/repro.js"></script>
 <script src="/static/home.js"></script>
+<script src="/static/settings.js"></script>
 </body>
 </html>

@@ -306,7 +306,7 @@
                     coverage: $("#view-coverage"),
                     summary: $("#view-summary"), analysis: $("#view-analysis"),
                     reproduction: $("#view-reproduction"),
-                    scheme: $("#view-scheme") };
+                    scheme: $("#view-scheme"), settings: $("#view-settings") };
     Object.entries(views).forEach(([name, el]) => { if (el) el.hidden = name !== view; });
     $$(".viewtab").forEach((b) => {
       const active = b.dataset.view === view;
@@ -320,6 +320,7 @@
     document.body.classList.toggle("view-summary", view === "summary");
     document.body.classList.toggle("view-reproduction", view === "reproduction");
     document.body.classList.toggle("view-scheme", view === "scheme");
+    document.body.classList.toggle("view-settings", view === "settings");
     document.dispatchEvent(new CustomEvent("cs:view", { detail: view }));
     if (view === "analysis" && !state.overview) refresh();
     if (view === "analysis") window.dispatchEvent(new Event("resize"));
