@@ -19,6 +19,30 @@
   grid-template-areas: "left mid right";
 }
 
+/* The screening view has its own three columns, so it also needs its own
+   narrowing: the abstract list first moves above the form, then the abstract
+   pane drops below it.  Without this the fixed first column squeezed the list
+   to a scrollbar on a small window. */
+@media (max-width: 1340px) {
+  .workspace.screening {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "left left" "mid right";
+  }
+  .workspace.screening .pane.left { flex-direction: row; align-items: stretch; }
+  .workspace.screening .pane.left .side-search { flex: 0 1 300px; min-width: 0; }
+  .workspace.screening .pane.left .paper-list { flex: 1 1 0; min-width: 0; max-height: 212px; }
+}
+
+@media (max-width: 1024px) {
+  .workspace.screening {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(240px, 1fr) minmax(200px, 38vh);
+    grid-template-areas: "left" "mid" "right";
+  }
+  .workspace.screening .pane.left .side-search { flex: 0 1 260px; }
+}
+
 /* the shared top bar is coding-specific; screening has its own controls */
 body.view-screening #clear-btn,
 body.view-screening #next-btn { display: none !important; }

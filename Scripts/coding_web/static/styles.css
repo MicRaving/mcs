@@ -71,6 +71,79 @@
 
 * { box-sizing: border-box; }
 
+/* ------------------------------------------------------------ motion */
+/* One vocabulary for the whole app, so a tab change, a dialog and a menu
+   feel like the same interface.  Short (120-200 ms), small (2-6 px), and
+   only on things that appear, open or are pressed - nothing loops, nothing
+   moves text the reader is looking at. */
+:root {
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur: 140ms;
+  --dur-slow: 200ms;
+}
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(6px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.99); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* A view fades in as it is revealed: `hidden` removes it from the layout, so
+   the animation restarts by itself every time the tab changes. */
+main.workspace:not([hidden]) { animation: view-in var(--dur-slow) var(--ease-out) both; }
+
+/* Dialogs and their backdrop */
+dialog.sheet[open] { animation: sheet-in var(--dur-slow) var(--ease-out) both; }
+dialog.sheet[open]::backdrop { animation: backdrop-in var(--dur) var(--ease) both; }
+
+/* Buttons: the press is felt, the hover is calm. */
+.btn { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+                    color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                    transform 90ms var(--ease); }
+
+/* Rows, chips and small controls that respond to the pointer. */
+.chip, .paper, .pill, .tab, .viewtab { transition: background var(--dur) var(--ease),
+                    border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+
+/* Inputs: the focus ring arrives instead of snapping on. */
+.input, .select, .textarea { transition: border-color var(--dur) var(--ease),
+                    box-shadow var(--dur) var(--ease), background var(--dur) var(--ease); }
+
+/* Card surfaces in the tabs answer the pointer the same way. */
+.an-card, .kpi, .scheme-kind, .home-card, .home-metric, .ag-raters {
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+/* Menus that drop out of the top bar. */
+.coder-menu { animation: menu-in var(--dur) var(--ease-out) both; }
+
+/* Respect the reader who asked the system for less motion: the interface
+   still works, it just arrives. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
 html, body { height: 100%; margin: 0; }
 
 body {
@@ -226,6 +299,22 @@ a { color: var(--accent); }
 }
 .pane-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
 .pane-body { flex: 1; min-height: 0; overflow: auto; }
+/* A toolbar may shrink: its own buttons must not be pushed out of the pane. */
+.pane-head, .pane-head > .seg { min-width: 0; }
+
+/* A pane may never force its content out of its own box: every part of it
+   can shrink, and the parts that scroll say so themselves. */
+.pane, .pane > *, .paper-list, .side-search { min-width: 0; }
+
+/* Narrow windows: the paper needs room to be readable, so the list and the
+   form give some of theirs back before it is squeezed to a strip.  The
+   gutters still let a reader overrule this by hand. */
+@media (max-width: 1180px) {
+  :root { --w-left: 264px; --w-mid: 44%; }
+}
+@media (max-width: 1000px) {
+  :root { --w-left: 232px; --w-mid: 42%; }
+}
 .pane-body.pad { padding: 12px; }
 
 /* narrow-layout minimise buttons (wide layout uses the draggable gutters) */
@@ -678,7 +767,7 @@ body.coder-mode .dv-card.coder-open .dv-body { display: block; }
 .dv-reason.blank { color: var(--faint); font-style: italic; }
 
 /* pdf toolbar */
-.pdf-controls { display: flex; align-items: center; gap: 7px; }
+.pdf-controls { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .pdf-controls[hidden] { display: none; }
 .pagebox { display: flex; align-items: center; gap: 5px; }
 .pagebox .input { width: 62px; text-align: center; padding: 6px 4px; }
