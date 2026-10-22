@@ -44,12 +44,16 @@ if HERE not in sys.path:
 
 import scheme_lib as SL  # noqa: E402
 
-#: The folder inside a project that holds its scheme and criteria.
+#: The folder inside a project that holds its manifest.
 PROJECT_DIRNAME = "Project"
 MANIFEST_FILENAME = "project.json"
 SCHEME_FILENAME = "scheme.json"
 CRITERIA_FILENAME = "criteria.json"
 BUNDLES_DIRNAME = "bundles"
+#: The folder beside the CodingStudio app that holds every scheme.
+SCHEMES_DIRNAME = "Schemes"
+#: The manifest of one scheme (the project's own manifest is "project.json").
+SCHEME_MANIFEST_FILENAME = "manifest.json"
 
 #: The app's saved-folder config (same file the desktop app uses).
 CONFIG_NAME = "codingstudio.config.json"
@@ -153,17 +157,105 @@ def project_dir(root=None):
     return os.path.join(root or active_root(), PROJECT_DIRNAME)
 
 
+def app_dir():
+    """The folder the CodingStudio app itself lives in.
+
+    A frozen build sits in its own folder (``<project>/CodingStudio/``); the
+    source run sits in ``Scripts/coding_web/``.  The schemes live beside the
+    app, in a ``Schemes/`` subfolder - the app carries its vocabulary, the
+    project carries the data.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    # the source run: the app is Scripts/coding_web/app.py, a subfolder of
+    # this module's own folder
+    candidate = os.path.join(HERE, "coding_web")
+    if os.path.exists(os.path.join(candidate, "app.py")):
+        return candidate
+    return HERE
+
+
+def schemes_dir():
+    """The folder that holds every scheme: ``<app dir>/Schemes``."""
+    return os.path.join(app_dir(), SCHEMES_DIRNAME)
+
+
+def scheme_dir(scheme_id):
+    """The folder of one scheme."""
+    return os.path.join(schemes_dir(), str(scheme_id))
+
+
+def scheme_path(scheme_id):
+    """The scheme document of one scheme."""
+    return os.path.join(scheme_dir(scheme_id), SCHEME_FILENAME)
+
+
+def criteria_path(scheme_id):
+    """The criteria document of one scheme."""
+    return os.path.join(scheme_dir(scheme_id), CRITERIA_FILENAME)
+
+
+def scheme_manifest_path(scheme_id):
+    """The manifest of one scheme."""
+    return os.path.join(scheme_dir(scheme_id), SCHEME_MANIFEST_FILENAME)
+
+
+def schemes():
+    """Every scheme the app carries.
+
+    Each entry: ``{id, name, label, description, path, default, exists}``.
+    """
+    out = []
+    root = schemes_dir()
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        return out
+    for name in names:
+        folder = os.path.join(root, name)
+        if not os.path.isdir(folder):
+            continue
+        info = _read_json(os.path.join(folder, MANIFEST_FILENAME)) or {}
+        out.append({
+            "id": name,
+            "name": info.get("name") or name,
+            "label": info.get("label") or info.get("name") or name,
+            "description": info.get("description") or "",
+            "path": folder,
+            "default": bool(info.get("default")),
+            "exists": os.path.exists(os.path.join(folder, SCHEME_FILENAME)),
+        })
+    return out
+
+
+def active_scheme_id(root=None):
+    """Which scheme the active project uses.
+
+    The project names one; otherwise the app's default scheme; otherwise
+    nothing (the legacy fallback takes over).
+    """
+    named = (manifest(root) or {}).get("scheme")
+    if named:
+        return str(named)
+    for entry in schemes():
+        if entry.get("default") and entry.get("exists"):
+            return entry["id"]
+    return ""
+
+
 def project_paths(root=None):
-    """Every path the project layer owns."""
+    """Every path the project layer owns.
+
+    The scheme and the criteria do NOT live in the project: they live beside
+    the app, in ``<app dir>/Schemes/<id>/``.  The project keeps its manifest,
+    which names the scheme it uses.
+    """
     base = root or active_root()
     pdir = os.path.join(base, PROJECT_DIRNAME)
     return {
         "root": base,
         "project_dir": pdir,
         "manifest": os.path.join(pdir, MANIFEST_FILENAME),
-        "scheme": os.path.join(pdir, SCHEME_FILENAME),
-        "criteria": os.path.join(pdir, CRITERIA_FILENAME),
-        "bundles": os.path.join(pdir, BUNDLES_DIRNAME),
         "history": os.path.join(pdir, "history"),
     }
 
@@ -206,22 +298,28 @@ def manifest(root=None):
                    lambda p: _read_json(p) or {}) or {}
 
 
-def raw_scheme(root=None):
+def raw_scheme(root=None, scheme_id=None):
     """The scheme document as stored, without normalisation."""
-    paths = project_paths(root)
-    return _cached("scheme", paths["scheme"], lambda p: _read_json(p)) or {}
+    sid = scheme_id or active_scheme_id(root)
+    if not sid:
+        return {}
+    path = scheme_path(sid)
+    return _cached("scheme", path, lambda p: _read_json(p)) or {}
 
 
-def scheme(root=None):
-    """The active project scheme, normalised.
+def scheme(root=None, scheme_id=None):
+    """The active scheme, normalised.
 
-    Falls back to the legacy v3.1 ``schema.json`` (converted on the fly) when
-    the project has no ``Project/scheme.json`` yet.
+    The scheme lives beside the app, in ``Schemes/<id>/``.  The project names
+    the one it uses; otherwise the app's default scheme is used.  When neither
+    exists the legacy v3.1 ``schema.json`` is converted on the fly, so a
+    project that has not been converted keeps working unchanged.
     """
-    paths = project_paths(root)
-    raw = _cached("scheme", paths["scheme"], lambda p: _read_json(p))
-    if isinstance(raw, dict) and raw:
-        return SL.normalise_scheme(raw)
+    sid = scheme_id or active_scheme_id(root)
+    if sid:
+        raw = _cached("scheme", scheme_path(sid), lambda p: _read_json(p))
+        if isinstance(raw, dict) and raw:
+            return SL.normalise_scheme(raw)
     legacy = _read_json(legacy_schema_path(root))
     if isinstance(legacy, dict) and legacy:
         import scheme_legacy
@@ -229,10 +327,12 @@ def scheme(root=None):
     return SL.normalise_scheme({})
 
 
-def criteria(root=None):
-    """The active project's criteria, normalised (see ``criteria_lib``)."""
-    paths = project_paths(root)
-    raw = _cached("criteria", paths["criteria"], lambda p: _read_json(p))
+def criteria(root=None, scheme_id=None):
+    """The active scheme's criteria, normalised (see ``criteria_lib``)."""
+    sid = scheme_id or active_scheme_id(root)
+    raw = {}
+    if sid:
+        raw = _cached("criteria", criteria_path(sid), lambda p: _read_json(p))
     try:
         import criteria_lib
     except Exception:  # pragma: no cover - criteria_lib is optional
@@ -327,29 +427,43 @@ def write_manifest(doc, root=None):
     return _atomic_write(project_paths(root)["manifest"], doc)
 
 
-def write_scheme(doc, root=None):
-    """Write ``Project/scheme.json`` after validating it.
+def write_scheme(doc, scheme_id=None, root=None):
+    """Write a scheme (after validating it) into ``Schemes/<id>/scheme.json``.
 
-    The previous version is kept under ``Project/history/`` so a scheme edit
-    can be undone and so the history records how a scheme evolved.
+    The previous version is kept under the scheme's ``history/`` so a scheme
+    edit can be undone and the history records how the scheme evolved.
     """
+    sid = str(scheme_id or active_scheme_id(root) or "")
+    if not sid:
+        raise ValueError("no scheme to write: name one")
     normalised = SL.normalise_scheme(doc)
     problems = [p for p in SL.validate_scheme(normalised) if p["level"] == "error"]
     if problems:
         raise ValueError("the scheme has structural errors: " +
                          "; ".join(p["message"] for p in problems))
-    paths = project_paths(root)
-    _snapshot(paths["scheme"], paths["history"])
-    return _atomic_write(paths["scheme"], normalised)
+    path = scheme_path(sid)
+    _snapshot(path, os.path.join(scheme_dir(sid), "history"))
+    return _atomic_write(path, normalised)
 
 
-def write_criteria(doc, root=None):
-    """Write ``Project/criteria.json`` after normalising it."""
+def write_scheme_manifest(doc, scheme_id=None):
+    """Write ``Schemes/<id>/manifest.json``."""
+    sid = str(scheme_id or "")
+    if not sid:
+        raise ValueError("no scheme to write: name one")
+    return _atomic_write(scheme_manifest_path(sid), doc)
+
+
+def write_criteria(doc, scheme_id=None, root=None):
+    """Write a scheme's criteria (after normalising them)."""
     import criteria_lib
+    sid = str(scheme_id or active_scheme_id(root) or "")
+    if not sid:
+        raise ValueError("no criteria to write: name a scheme")
     normalised = criteria_lib.normalise_criteria(doc)
-    paths = project_paths(root)
-    _snapshot(paths["criteria"], paths["history"])
-    return _atomic_write(paths["criteria"], normalised)
+    path = criteria_path(sid)
+    _snapshot(path, os.path.join(scheme_dir(sid), "history"))
+    return _atomic_write(path, normalised)
 
 
 def invalidate():

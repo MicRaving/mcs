@@ -154,7 +154,7 @@ def check_c1(root):
     project has no usable scheme at all.
     """
     paths = PC.project_paths(root)
-    scheme_file = paths["scheme"]
+    scheme_file = PC.scheme_path(PC.active_scheme_id(root) or "")
     legacy_file = PC.legacy_schema_path(root)
 
     if os.path.isfile(scheme_file):
@@ -429,7 +429,7 @@ def check_c5(root, scheme):
                      "the fallback would change the coding form:\n  "
                      + "\n  ".join(dropped))]
 
-    project_file = PC.project_paths(root)["scheme"]
+    project_file = PC.scheme_path(PC.active_scheme_id(root) or "")
     project_names = {f["name"] for f in SL.all_fields(scheme)}
     if not os.path.isfile(project_file):
         return [_row("C5", PASS,
@@ -566,7 +566,7 @@ def scan_screening(root):
 
 def check_c6(root):
     """C6: every criterion key in the corpus is declared by the criteria file."""
-    criteria_file = PC.project_paths(root)["criteria"]
+    criteria_file = PC.criteria_path(PC.active_scheme_id(root) or "")
     if not os.path.isfile(criteria_file):
         return [_row("C6", INFO,
                      "skipped: the project has no Project/criteria.json",

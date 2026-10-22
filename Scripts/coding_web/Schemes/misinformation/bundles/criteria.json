@@ -52,7 +52,8 @@
     "credibility",
     "headline"
    ],
-   "order": 0
+   "order": 0,
+   "auto_approve": {}
   },
   {
    "key": "C2",
@@ -92,7 +93,8 @@
     "intervention group",
     "experimental group"
    ],
-   "order": 1
+   "order": 1,
+   "auto_approve": {}
   },
   {
    "key": "C3",
@@ -131,7 +133,8 @@
     "we recruited",
     "sample size"
    ],
-   "order": 2
+   "order": 2,
+   "auto_approve": {}
   },
   {
    "key": "C4",
@@ -173,7 +176,8 @@
     "we conducted",
     "we ran"
    ],
-   "order": 3
+   "order": 3,
+   "auto_approve": {}
   }
  ],
  "fulltext": [
@@ -199,7 +203,8 @@
    "help": "No misinformation intervention (C1)",
    "prompt_text": "No misinformation intervention (C1)",
    "keywords": [],
-   "order": 0
+   "order": 0,
+   "auto_approve": {}
   },
   {
    "key": "C2",
@@ -223,7 +228,8 @@
    "help": "No control/comparison group (C2)",
    "prompt_text": "No control/comparison group (C2)",
    "keywords": [],
-   "order": 1
+   "order": 1,
+   "auto_approve": {}
   },
   {
    "key": "C3",
@@ -247,7 +253,8 @@
    "help": "Not English (C3)",
    "prompt_text": "Not English (C3)",
    "keywords": [],
-   "order": 2
+   "order": 2,
+   "auto_approve": {}
   },
   {
    "key": "C4",
@@ -271,7 +278,8 @@
    "help": "Not a primary experimental study (C4)",
    "prompt_text": "Not a primary experimental study (C4)",
    "keywords": [],
-   "order": 3
+   "order": 3,
+   "auto_approve": {}
   },
   {
    "key": "irretrievable",
@@ -295,7 +303,8 @@
    "help": "Fulltext irretrievable",
    "prompt_text": "Fulltext irretrievable",
    "keywords": [],
-   "order": 4
+   "order": 4,
+   "auto_approve": {}
   },
   {
    "key": "no_contrast",
@@ -319,7 +328,8 @@
    "help": "No eligible contrast reported",
    "prompt_text": "No eligible contrast reported",
    "keywords": [],
-   "order": 5
+   "order": 5,
+   "auto_approve": {}
   },
   {
    "key": "duplicate",
@@ -343,7 +353,8 @@
    "help": "Duplicate/non-independent report of an included study",
    "prompt_text": "Duplicate/non-independent report of an included study",
    "keywords": [],
-   "order": 6
+   "order": 6,
+   "auto_approve": {}
   },
   {
    "key": "observational",
@@ -367,7 +378,8 @@
    "help": "No experimental intervention (observational)",
    "prompt_text": "No experimental intervention (observational)",
    "keywords": [],
-   "order": 7
+   "order": 7,
+   "auto_approve": {}
   },
   {
    "key": "domain_mismatch",
@@ -391,7 +403,8 @@
    "help": "Outcome/intervention outside misinformation susceptibility",
    "prompt_text": "Outcome/intervention outside misinformation susceptibility",
    "keywords": [],
-   "order": 8
+   "order": 8,
+   "auto_approve": {}
   },
   {
    "key": "other",
@@ -415,7 +428,8 @@
    "help": "Other (specify)",
    "prompt_text": "Other (specify)",
    "keywords": [],
-   "order": 9
+   "order": 9,
+   "auto_approve": {}
   }
  ]
 }

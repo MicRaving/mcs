@@ -59,6 +59,10 @@ TEMP_OWNER = "convert_legacy_schema"
 MANIFEST_KEYS = ("id", "name", "label", "description", "created",
                  "scheme", "criteria")
 
+#: The id of the scheme this converter writes.  A scheme lives beside the
+#: CodingStudio app, in ``Schemes/<id>/``.
+SCHEME_ID = "misinformation"
+
 
 # --------------------------------------------------------------------------- #
 # Small helpers
@@ -149,23 +153,32 @@ def scheme_name_is_shadowed(scheme):
 # Writing
 # --------------------------------------------------------------------------- #
 
-def write_scheme_document(document, root, target):
+def write_scheme_document(document, root, target, scheme_id=None):
     """Write the scheme to ``target``.
 
-    The project path goes through :func:`project_context.write_scheme`, which
-    normalises the document, refuses a scheme with structural errors and
-    writes it atomically.  A caller-supplied target gets the same treatment
-    through the local atomic writer.
+    A scheme lives beside the CodingStudio app, in ``Schemes/<id>/`` - the app
+    carries its vocabulary, the project carries the data.  The project's own
+    path goes through :func:`project_context.write_scheme`, which normalises
+    the document, refuses a scheme with structural errors and writes it
+    atomically.  A caller-supplied target gets the same treatment through the
+    local atomic writer.
     """
-    default = pc.project_paths(root)["scheme"]
+    sid = str(scheme_id or SCHEME_ID)
+    default = pc.scheme_path(sid)
     if os.path.abspath(target) == os.path.abspath(default):
-        return pc.write_scheme(document, root)
+        return pc.write_scheme(document, sid, root)
     normalised = SL.normalise_scheme(document)
     problems = [p for p in SL.validate_scheme(normalised) if p["level"] == "error"]
     if problems:
         raise ValueError("the scheme has structural errors: " +
                          "; ".join(p["message"] for p in problems))
     return atomic_write_json(target, normalised)
+
+
+def write_scheme_manifest_document(document, scheme_id=None):
+    """Write ``Schemes/<id>/manifest.json``."""
+    sid = str(scheme_id or SCHEME_ID)
+    return atomic_write_json(pc.scheme_manifest_path(sid), document)
 
 
 def write_manifest_document(document, root, target):
@@ -192,8 +205,10 @@ def existing_created(manifest_path):
 def build_manifest(scheme, legacy, legacy_path, root, created):
     """The project manifest for a converted scheme.
 
-    ``created`` is the stamp the manifest keeps across runs, so a second
-    conversion does not rewrite the project's history.
+    The manifest names the SCHEME the project uses; the scheme itself lives
+    beside the CodingStudio app, in ``Schemes/<id>/``.  ``created`` is the
+    stamp the manifest keeps across runs, so a second conversion does not
+    rewrite the project's history.
     """
     manifest = {
         "id": scheme.get("id") or "",
@@ -201,8 +216,8 @@ def build_manifest(scheme, legacy, legacy_path, root, created):
         "label": scheme.get("label") or "",
         "description": scheme.get("description") or "",
         "created": created,
-        "scheme": pc.SCHEME_FILENAME,
-        "criteria": pc.CRITERIA_FILENAME,
+        "scheme": str(scheme.get("id") or SCHEME_ID),
+        "criteria": str(scheme.get("id") or SCHEME_ID),
         "source_schema": {
             "path": relative_or_absolute(legacy_path, root),
             "schema_version": str(legacy.get("schema_version") or ""),
@@ -462,11 +477,16 @@ def build_parser():
 
 
 def resolve_paths(args):
-    """The four paths the converter works with."""
+    """The paths the converter works with.
+
+    The scheme goes to ``Schemes/<id>/scheme.json`` - beside the CodingStudio
+    app, not inside the project.  The project's manifest is written too, and
+    it names the scheme.
+    """
     root = os.path.abspath(args.project_root) if args.project_root else REPO
     paths = pc.project_paths(root)
     schema = os.path.abspath(args.schema) if args.schema else pc.legacy_schema_path(root)
-    out = os.path.abspath(args.out) if args.out else paths["scheme"]
+    out = os.path.abspath(args.out) if args.out else pc.scheme_path(SCHEME_ID)
     manifest_out = (os.path.abspath(args.manifest_out) if args.manifest_out
                     else paths["manifest"])
     return root, schema, out, manifest_out
@@ -538,8 +558,25 @@ def main(argv=None):
     created = existing_created(manifest_target) or pc.now()
     manifest = build_manifest(scheme, legacy, schema_path, root, created)
 
-    write_scheme_document(scheme, root, scheme_target)
+    write_scheme_document(scheme, root, scheme_target, SCHEME_ID)
+    write_scheme_manifest_document({
+        "id": SCHEME_ID,
+        "name": scheme.get("name") or SCHEME_ID,
+        "label": scheme.get("label") or "",
+        "description": scheme.get("description") or "",
+        "created": created,
+        "default": True,
+    }, SCHEME_ID)
     write_manifest_document(manifest, root, manifest_target)
+
+    # the criteria live with the scheme
+    criteria_target = pc.criteria_path(SCHEME_ID)
+    if not os.path.exists(criteria_target):
+        try:
+            import criteria_lib
+            pc.write_criteria(criteria_lib.default_criteria(), SCHEME_ID, root)
+        except Exception as exc:  # pragma: no cover - criteria_lib is optional
+            print("could not write the seeded criteria: %r" % (exc,), file=sys.stderr)
 
     bundle_paths = []
     if args.bundle:

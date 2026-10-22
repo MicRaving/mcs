@@ -592,7 +592,7 @@ def api_scheme_bundle():
 
 def _criteria_file():
     """The raw ``Project/criteria.json`` of the active project."""
-    path = project_context.project_paths()["criteria"]
+    path = project_context.criteria_path(project_context.active_scheme_id() or "")
     try:
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
@@ -663,7 +663,7 @@ def api_put_criteria():
     except ImportError:
         # ``criteria_lib`` is not available yet: normalise and write it here.
         criteria = _normalise_criteria(doc)
-        path = project_context.project_paths()["criteria"]
+        path = project_context.criteria_path(project_context.active_scheme_id() or "")
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
             fd, tmp = tempfile.mkstemp(suffix=".json",

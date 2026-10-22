@@ -20,6 +20,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import project_context as PC  # noqa: E402
+import scheme_instructions as SI  # noqa: E402
 import scheme_legacy as LEG  # noqa: E402
 import scheme_lib as SL  # noqa: E402
 
@@ -164,6 +165,49 @@ def test_legacy_conversion():
     check("the roles are unique", len(roles) == len(set(roles.values())))
 
 
+def test_field_instructions():
+    section("field instructions")
+    legacy = _load_legacy()
+    scheme = LEG.convert_to_normalised(legacy)
+    fields = SL.all_fields(scheme)
+    names = {f["name"] for f in fields}
+    instructed = [f for f in fields if (f.get("instruction") or "").strip()]
+
+    check("the conversion lands the instructions", len(instructed) > 0,
+          "no field carries an instruction")
+    check("every field carries an instruction",
+          len(instructed) == len(fields),
+          "%d of %d" % (len(instructed), len(fields)))
+    check("every name in INSTRUCTIONS is a real field of the scheme",
+          not (set(SI.INSTRUCTIONS) - names),
+          str(sorted(set(SI.INSTRUCTIONS) - names)[:5]))
+    check("no instruction is empty",
+          all((text or "").strip() for text in SI.INSTRUCTIONS.values()))
+    check("no instruction repeats its description",
+          not [f["name"] for f in fields
+               if (f.get("instruction") or "").strip()
+               == (f.get("description") or "").strip()],
+          str([f["name"] for f in fields
+               if (f.get("instruction") or "").strip()
+               == (f.get("description") or "").strip()][:5]))
+    check("every instruction names its source passage",
+          not [name for name in SI.INSTRUCTIONS if not SI.SOURCE_OF.get(name)],
+          str([name for name in SI.INSTRUCTIONS if not SI.SOURCE_OF.get(name)][:5]))
+    check("every source passage is described",
+          not [key for key in SI.SOURCE_OF.values() if key not in SI.SOURCES],
+          str(sorted({key for key in SI.SOURCE_OF.values()
+                      if key not in SI.SOURCES})))
+    # the stored scheme (wherever it lives now) carries them too
+    stored = PC.scheme()
+    stored_instructed = [f for f in SL.all_fields(stored)
+                         if (f.get("instruction") or "").strip()]
+    check("the active scheme carries the instructions",
+          len(stored_instructed) == len(SL.all_fields(stored)),
+          "%d of %d" % (len(stored_instructed), len(SL.all_fields(stored))))
+    print("  info  %d of %d fields carry an instruction"
+          % (len(instructed), len(fields)))
+
+
 def test_nullable_survives():
     section("nullability survives a round trip")
     scheme = LEG.convert_to_normalised(_load_legacy())
@@ -302,6 +346,7 @@ def main():
     print("scheme module self-test")
     for test in (test_slugify, test_conditions, test_options, test_roles,
                  test_normalise_is_idempotent, test_legacy_conversion,
+                 test_field_instructions,
                  test_nullable_survives, test_field_aliases, test_blocks,
                  test_validator_catches_defects, test_visibility, test_effective_values):
         test()

@@ -589,7 +589,7 @@ def _scheme_stamp():
     """A cheap fingerprint of the scheme source, so a rewrite is noticed."""
     paths = []
     try:
-        paths.append(project_context.project_paths()["scheme"])
+        paths.append(project_context.scheme_path(project_context.active_scheme_id() or ""))
         paths.append(project_context.legacy_schema_path())
     except Exception:  # noqa: BLE001
         pass

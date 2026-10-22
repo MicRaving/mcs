@@ -25,10 +25,13 @@ Supplements/              supplementary material, one canonical home per study:
 Reproduction/<Study Key>.md   reproduction report (exclusions, discrepancies, results)
 Extraction/<Study Key>.json   schema-v3 coding of the paper (one object per experiment)
 Extraction/<Study Key>.md     coding decisions / notes
-Project/                  the project's own configuration — one scheme per project:
-                          project.json (the manifest), scheme.json (the coding scheme),
-                          criteria.json (abstract + full-text exclusion criteria),
-                          bundles/ (generated agent bundles), history/ (scheme revisions)
+Project/                  the project's own manifest (which scheme it uses):
+                          project.json
+Scripts/coding_web/Schemes/   the SCHEMES, next to the CodingStudio app itself:
+                          Schemes/<id>/{manifest.json, scheme.json,
+                          criteria.json, bundles/, history/}
+                          (the app carries its vocabulary; a project carries
+                          the data)
 Scripts/                  essential Python used by the campaign
 Scripts/analysis/         the analysis pipeline (metaanalysis.py, reanalysis.py, state.py,
                           run_harmonizers.py, run_reproducers.py)
@@ -62,11 +65,17 @@ The one exception is the `Project/` folder, which holds the project's own config
 
 ## The coding scheme (project = folder, one scheme per project)
 
-A **project** is a folder with the layout above plus a `Project/` folder.  The project
-carries exactly one scheme, so a second corpus is a second folder that the app can open
-(`POST /api/root`, the "project folder" button).  The scheme is read through
-`Scripts/project_context.py`, which is the single place that answers "which project is
-active?" — the desktop app, the analysis pipeline and the agent tooling all go through it,
+A **project** is a folder with the layout above plus a `Project/` folder, which
+holds the project's **manifest** — and the manifest *names* the scheme the
+project uses.  A second corpus is a second folder that the app can open
+(`POST /api/root`, the "project folder" button).
+
+The **schemes live next to the CodingStudio app**, in `<app dir>/Schemes/<id>/`
+(the app carries its vocabulary; a project carries the data).  A scheme folder
+holds `manifest.json`, `scheme.json`, `criteria.json`, `bundles/` and `history/`.
+The scheme is read through `Scripts/project_context.py`, which is the single
+place that answers "which project is active?" and "which scheme does it use?" -
+the desktop app, the analysis pipeline and the agent tooling all go through it,
 so they can never disagree.
 
 * `Scripts/scheme_lib.py` — the scheme library: what a scheme *is* (blocks, fields, roles,

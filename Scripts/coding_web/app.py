@@ -29,6 +29,7 @@ app.config["JSON_SORT_KEYS"] = False
 # import graph stays acyclic (route modules never import app.py back).
 from routes_core import bp as core_bp            # noqa: E402
 from routes_scheme import bp as scheme_bp        # noqa: E402
+from routes_criteria import bp as criteria_bp    # noqa: E402
 from routes_project import bp as project_bp      # noqa: E402
 from routes_harmonizer import bp as harmonizer_bp  # noqa: E402
 from routes_coverage import bp as coverage_bp    # noqa: E402
@@ -41,9 +42,9 @@ from routes_apa import bp as apa_bp              # noqa: E402
 from routes_fulltext import bp as fulltext_bp    # noqa: E402
 from routes_repro import bp as repro_bp          # noqa: E402
 
-for _bp in (core_bp, scheme_bp, project_bp, harmonizer_bp, coverage_bp,
-            summary_bp, screening_bp, agreement_bp, harm_agreement_bp,
-            analysis_bp, apa_bp, fulltext_bp, repro_bp):
+for _bp in (core_bp, scheme_bp, criteria_bp, project_bp, harmonizer_bp,
+            coverage_bp, summary_bp, screening_bp, agreement_bp,
+            harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, repro_bp):
     app.register_blueprint(_bp)
 
 

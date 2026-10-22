@@ -22,9 +22,18 @@ mapping with a fixed set of keys::
   reported but never blocks inclusion.
 * ``help`` / ``prompt_text`` - the instruction shown to the coder and handed
   to the agent.
-* ``keywords`` - optional per-criterion keyword hints used by the screening
-  UI's auto-prefill (today hardcoded in ``static/screening.js``).
+* ``keywords`` - optional per-criterion keyword hints (the free-text hint
+  list the seeded criteria carry).
 * ``order`` - the position of the criterion inside its list.
+* ``auto_approve`` - the criterion's **auto-approval rule set**: a plain
+  dictionary of named regular expressions.  A rule approves the criterion
+  when its expression matches the abstract text; the screening UI then
+  pre-fills the criterion's first pass value and says which rule matched.
+  The rule set is a dictionary on purpose - the order is the insertion
+  order and the names are free text.  An empty or missing rule set means
+  "no auto-approval".  A rule whose expression does not compile never
+  approves anything; it is reported by :func:`validate_criteria` and
+  ignored at match time, so a broken rule can never break the criteria.
 
 The **inclusion rule** lives here and nowhere else
 (:func:`evaluate_criteria`): every *gating* criterion must pass, an absent
@@ -44,6 +53,8 @@ when the document carries none (the plan's M3 fallback).
 
 from __future__ import annotations
 
+import re
+
 #: The kinds a criterion may have.
 CRITERION_KINDS = ("verdict", "classify", "number")
 
@@ -53,11 +64,15 @@ VERDICT_OPTIONS = ("Yes", "No", "Unsure")
 #: The keys of a criterion, in their canonical order.
 CRITERION_FIELDS = (
     "key", "label", "kind", "options", "pass_values", "exclude_reason",
-    "gating", "help", "prompt_text", "keywords", "order",
+    "gating", "help", "prompt_text", "keywords", "order", "auto_approve",
 )
 
 #: The stages a project carries criteria for.
 CRITERION_STAGES = ("abstract", "fulltext")
+
+#: A rule expression that starts with this prefix is matched case-SENSITIVELY.
+#: Every other expression is matched case-insensitively.
+CASE_SENSITIVE_PREFIX = "(?-i)"
 
 
 # --------------------------------------------------------------------------- #
@@ -163,6 +178,30 @@ def _entry_value(entry):
     return _value_text(entry)
 
 
+def _as_rule_set(value):
+    """The auto-approval rule set of a criterion: ``{name: expression}``.
+
+    The rule set is a plain dictionary: the order is the insertion order
+    and the names are free text.  A value that is not a mapping yields an
+    empty rule set - :func:`validate_criteria` reports the problem, the
+    criteria themselves stay usable.
+    """
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for name, pattern in value.items():
+        key = _value_text(name)
+        if not key:
+            continue
+        if isinstance(pattern, str):
+            out[key] = pattern
+        elif pattern is None:
+            out[key] = ""
+        else:
+            out[key] = _value_text(pattern)
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Normalisation
 # --------------------------------------------------------------------------- #
@@ -239,6 +278,7 @@ def normalise_criterion(raw, default_order=0):
         "prompt_text": prompt_text,
         "keywords": _as_str_list(raw.get("keywords")),
         "order": _as_int(raw.get("order"), default_order),
+        "auto_approve": _as_rule_set(raw.get("auto_approve")),
     }
 
 
@@ -378,6 +418,186 @@ def verdict_levels(criterion):
     return _as_str_list(criterion.get("options"))
 
 
+# --------------------------------------------------------------------------- #
+# The auto-approval rules
+# --------------------------------------------------------------------------- #
+
+def compile_rule(pattern):
+    """Compile one rule's expression.
+
+    Returns ``(regex, error)``: the compiled pattern (``None`` when the
+    expression does not compile) and the error message (``""`` when it
+    does).  The matching is **case-insensitive** unless the expression
+    starts with ``(?-i)``, which asks for a case-sensitive match.
+
+    An empty expression is an error: it would match every text and approve
+    the criterion everywhere.
+    """
+    text = "" if pattern is None else str(pattern)
+    flags = re.IGNORECASE
+    if text.startswith(CASE_SENSITIVE_PREFIX):
+        text = text[len(CASE_SENSITIVE_PREFIX):]
+        flags = 0
+    if not text.strip():
+        return None, "the expression is empty"
+    try:
+        return re.compile(text, flags), ""
+    except re.error as exc:
+        return None, str(exc)
+
+
+def compile_rule_set(rules):
+    """Compile a whole rule set **once**.
+
+    Returns a list of ``(name, expression, regex, error)`` - one entry per
+    rule, in the rule set's own order.  A rule that does not compile
+    carries its error and no regex: it is ignored at match time.
+    """
+    out = []
+    if not isinstance(rules, dict):
+        return out
+    for name, pattern in rules.items():
+        expression = "" if pattern is None else str(pattern)
+        regex, error = compile_rule(expression)
+        out.append((str(name), expression, regex, error))
+    return out
+
+
+def auto_approved(criterion, text):
+    """Whether the criterion's auto-approval rules approve ``text``.
+
+    Returns ``(approved, matched_rule_names)``.  ``approved`` is ``True``
+    when **any** rule's expression matches anywhere in ``text``; the names
+    are the rules that matched, in the rule set's own order.
+
+    A rule whose expression does not compile is ignored (it approves
+    nothing) - a broken rule never breaks the criteria.  A criterion
+    without a rule set is never approved.
+    """
+    criterion = criterion if isinstance(criterion, dict) else {}
+    rules = criterion.get("auto_approve")
+    if not isinstance(rules, dict) or not rules:
+        return False, []
+    haystack = "" if text is None else str(text)
+    matched = []
+    for name, _expression, regex, _error in compile_rule_set(rules):
+        if regex is None:
+            continue
+        if regex.search(haystack):
+            matched.append(name)
+    return bool(matched), matched
+
+
+def auto_approve_matches(criteria, text):
+    """``{key: (approved, [rule names])}`` for a whole criterion list.
+
+    The rule sets of the list are compiled **once** for the call, so
+    screening a thousand abstracts compiles them once, not a thousand
+    times.  A criterion without rules is reported as not approved.
+    """
+    entries = _stage_list(criteria)
+    haystack = "" if text is None else str(text)
+    out = {}
+    for criterion in entries:
+        key = criterion.get("key") if isinstance(criterion, dict) else None
+        compiled = compile_rule_set(
+            criterion.get("auto_approve") if isinstance(criterion, dict) else {})
+        names = [name for name, _expr, regex, _err in compiled
+                 if regex is not None and regex.search(haystack)]
+        out[key] = (bool(names), names)
+    return out
+
+
+def first_pass_value(criterion):
+    """The value a criterion passes with - its first pass value.
+
+    An empty ``pass_values`` means ``["Yes"]``, exactly as the inclusion
+    rule reads it.
+    """
+    criterion = criterion if isinstance(criterion, dict) else {}
+    values = _as_str_list(criterion.get("pass_values")) or ["Yes"]
+    return values[0]
+
+
+def validate_criteria(criteria, stage=None):
+    """The problems of a criteria document.
+
+    Every problem is a mapping ``{level, code, message, where}``:
+
+    * ``level`` - ``"error"`` for a structural problem (the document
+      cannot be used as it is) and ``"warning"`` for a rule that does not
+      compile.  A broken rule is a **warning** on purpose: the criteria
+      stay usable, the rule is simply ignored at match time, and the
+      editor shows the error next to the rule.
+    * ``code`` - a stable machine-readable id.
+    * ``where`` - the path of the offending item, e.g.
+      ``abstract[C1].auto_approve.has rct``.
+    """
+    problems = []
+
+    def add(level, code, message, where=""):
+        problems.append({"level": level, "code": code, "message": message,
+                         "where": where})
+
+    if isinstance(criteria, list):
+        doc = {"abstract": criteria}
+    elif isinstance(criteria, dict):
+        doc = criteria
+    else:
+        add("error", "not_a_document",
+            "the criteria must be a mapping with the stages "
+            "'abstract' and 'fulltext'")
+        return problems
+
+    stages = [stage] if stage else list(CRITERION_STAGES)
+    for name in stages:
+        entries = doc.get(name)
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            add("error", "stage_not_a_list",
+                f"the '{name}' criteria must be a list", name)
+            continue
+        seen = {}
+        for index, entry in enumerate(entries):
+            where = f"{name}[{index}]"
+            if not isinstance(entry, dict):
+                add("error", "criterion_not_a_mapping",
+                    "a criterion must be a mapping", where)
+                continue
+            key = _value_text(entry.get("key"))
+            if not key:
+                add("error", "criterion_without_key",
+                    "a criterion needs a key", where)
+            else:
+                where = f"{name}[{key}]"
+                if key in seen:
+                    add("error", "duplicate_key",
+                        f"the key '{key}' is used twice in the '{name}' stage",
+                        where)
+                seen[key] = index
+            rules = entry.get("auto_approve")
+            if rules is None:
+                continue
+            if not isinstance(rules, dict):
+                add("error", "auto_approve_not_a_mapping",
+                    "the auto-approval rule set must be a mapping of "
+                    "name -> expression", f"{where}.auto_approve")
+                continue
+            for rule_name, expression in rules.items():
+                rule_where = f"{where}.auto_approve.{rule_name}"
+                if not isinstance(expression, str):
+                    add("error", "auto_approve_rule_not_text",
+                        "a rule's expression must be text", rule_where)
+                    continue
+                regex, error = compile_rule(expression)
+                if regex is None:
+                    add("warning", "auto_approve_rule_invalid",
+                        f"the rule '{rule_name}' does not compile ({error}); "
+                        "it is ignored until it is fixed", rule_where)
+    return problems
+
+
 def criteria_by_key(criteria, stage="abstract"):
     """``{key: criterion}`` for one stage of a criteria document."""
     out = {}
@@ -500,6 +720,32 @@ _FULLTEXT_VALUES = [
 ]
 
 
+#: The abstract criteria that carry **no** auto-approval rules.  C3 is the
+#: language check: the screening tab decides it with its English detector,
+#: so a keyword rule would approve a non-English paper.
+_NO_AUTO_APPROVE = ("C3",)
+
+
+def _rules_from_keywords(keywords):
+    """The auto-approval rules a keyword list becomes.
+
+    The seeded criteria carry the keyword hints the screening tab used to
+    hardcode (``CRIT_KEYWORDS`` in ``static/screening.js``).  Each keyword
+    becomes a rule of its own: the name is the keyword, the expression is
+    the keyword read as a regular expression.  The matching is
+    case-insensitive, so a rule matches exactly the text the old substring
+    check matched - the seeded rules keep the old behaviour, and the
+    criteria editor is where they are tightened.
+    """
+    out = {}
+    for word in keywords or []:
+        name = str(word).strip()
+        if not name or name in out:
+            continue
+        out[name] = name
+    return out
+
+
 def default_abstract_criteria():
     """The seeded abstract-screening criteria (the four inclusion criteria).
 
@@ -511,11 +757,17 @@ def default_abstract_criteria():
     ``Scripts/prisma_report.py`` (``CRITERION_REASON``).
 
     The keyword hints are the ``CRIT_KEYWORDS`` of
-    ``Scripts/coding_web/static/screening.js``; the screening UI uses them
-    for the auto-prefill and the highlighting.
+    ``Scripts/coding_web/static/screening.js``; each of them also becomes
+    an auto-approval rule, so the screening tab's pre-fill is driven by
+    the scheme's criteria and not by a hardcoded table any more.
     """
-    return [normalise_criterion(entry, index)
-            for index, entry in enumerate(_ABSTRACT_SEED)]
+    out = []
+    for index, entry in enumerate(_ABSTRACT_SEED):
+        criterion = normalise_criterion(entry, index)
+        if criterion["key"] not in _NO_AUTO_APPROVE:
+            criterion["auto_approve"] = _rules_from_keywords(criterion["keywords"])
+        out.append(criterion)
+    return out
 
 
 def default_fulltext_criteria():
@@ -533,6 +785,9 @@ def default_fulltext_criteria():
     of them gates inclusion on its own (``gating`` is ``False``).  The
     PRISMA label of the reason the coder picked is that criterion's
     ``exclude_reason``.
+
+    The full-text stage has no auto-approval rules: the abstract text is
+    not what the full-text decision is made on.
     """
     codes = [value for value, _label in _FULLTEXT_VALUES]
     out = []

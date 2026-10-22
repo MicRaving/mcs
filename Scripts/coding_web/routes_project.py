@@ -294,7 +294,6 @@ def _create_project(root, name, template):
         os.makedirs(os.path.join(root, folder), exist_ok=True)
     paths = project_context.project_paths(root)
     os.makedirs(paths["project_dir"], exist_ok=True)
-    os.makedirs(paths["bundles"], exist_ok=True)
     os.makedirs(paths["history"], exist_ok=True)
 
     project_context.write_scheme(normalised, root)

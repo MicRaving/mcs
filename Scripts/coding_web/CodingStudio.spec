@@ -65,6 +65,8 @@ binaries = [b for b in binaries if "avif" not in (b[0] or "").lower()]
 datas = [d for d in datas if "avif" not in (d[0] or "").lower()]
 
 datas += [("static", "static"), ("schema.json", ".")]
+# the schemes travel with the app: Schemes/<id>/{scheme,criteria}.json
+datas += [("Schemes", "Schemes")]
 hiddenimports += [
     "flask", "clr", "webview.platforms.winforms", "webview.platforms.edgechromium",
     "openpyxl", "et_xmlfile", "pptx", "lxml", "lxml.etree", "PIL", "PIL.Image",

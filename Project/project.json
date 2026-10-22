@@ -4,8 +4,8 @@
  "label": "Misinformation Interventions (v3.1)",
  "description": "Coding scheme for the misinformation-intervention meta-analysis: study metadata, sample, open-science and design, the intervention modules, and the per-contrast effect sizes.",
  "created": "2026-10-21T14:43:20",
- "scheme": "scheme.json",
- "criteria": "criteria.json",
+ "scheme": "misinformation",
+ "criteria": "misinformation",
  "source_schema": {
   "path": "Scripts/coding_web/schema.json",
   "schema_version": "3.1",

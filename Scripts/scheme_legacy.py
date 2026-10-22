@@ -9,8 +9,9 @@ The conversion is **name-preserving on purpose**.  Every field keeps its v3.1
 ``name``, because the name is the key a coded record is stored under - the
 792 ``Extraction/<Key>.json`` and the 3 148 ``Codings/<Key> - <Coder>.json``
 files stay valid byte-for-byte.  What the conversion adds is the *role* of each
-field, the block it belongs to, the conditions it may carry, and the policy
-rules that used to be hardcoded in the pipeline.
+field, the block it belongs to, the conditions it may carry, the *instruction*
+(the campaign's own per-field coding rule, see :mod:`scheme_instructions`) and
+the policy rules that used to be hardcoded in the pipeline.
 
 The tables below transcribe the hardcoded lookups that today live in
 ``Scripts/coding_web/static/app.js`` so that the scheme carries them as data.
@@ -19,6 +20,7 @@ The tables below transcribe the hardcoded lookups that today live in
 from __future__ import annotations
 
 import scheme_lib as SL
+import scheme_instructions as SI
 
 #: Per-field PDF-search hints used by coder mode to find a field's evidence in
 #: the paper.  Transcribed from ``CODER_LOCATE`` in ``static/app.js``.
@@ -317,6 +319,12 @@ def _rules(legacy):
 def _decorate(field, scope):
     """Attach the coder-mode flags, the PDF-search hints and the legacy values."""
     name = field.get("name")
+    # The campaign's own per-field coding rules (the coding prompt the agents
+    # were given) become the field's ``instruction``: what to code and where
+    # to look in the paper.  A field with no rule keeps an empty instruction.
+    instruction = SI.INSTRUCTIONS.get(name)
+    if instruction:
+        field["instruction"] = instruction
     if scope == "metric":
         field["coder"] = {"auto": True, "hidden": name in CODER_DV_HIDE}
     else:

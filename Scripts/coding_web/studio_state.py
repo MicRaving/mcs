@@ -55,7 +55,7 @@ except Exception:  # pragma: no cover - source layout fallback
 def schema_path():
     """The scheme document of the active project (the legacy file as fallback)."""
     try:
-        path = project_context.project_paths()["scheme"]
+        path = project_context.scheme_path(project_context.active_scheme_id() or "")
         if os.path.exists(path):
             return path
     except Exception:  # noqa: BLE001

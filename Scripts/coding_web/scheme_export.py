@@ -938,16 +938,19 @@ def bundle_manifest(scheme):
 
 
 def default_bundle_dir(scheme, root=None):
-    """``<project root>/Project/bundles/<scheme id>/``."""
+    """``<app dir>/Schemes/<scheme id>/bundles/``.
+
+    The bundle belongs to the scheme, and the scheme lives beside the
+    CodingStudio app - so the bundle is next to the app too.
+    """
     scheme = SL.normalise_scheme(scheme or {})
     scheme_id = _uri_slug(scheme.get("id") or scheme.get("name") or "scheme")
-    base = _project_root(root)
     try:
         import project_context  # noqa: PLC0415 - optional
-        bundles = project_context.project_paths(base).get("bundles")
+        base = project_context.scheme_dir(scheme_id)
     except Exception:  # pragma: no cover - the fallback is the same layout
-        bundles = os.path.join(base, "Project", "bundles")
-    return os.path.join(bundles, scheme_id)
+        base = os.path.join(_project_root(root), "Schemes", scheme_id)
+    return os.path.join(base, "bundles")
 
 
 def _atomic_write(path, text):

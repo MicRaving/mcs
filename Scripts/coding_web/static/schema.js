@@ -130,6 +130,11 @@
     problems: [],
     loaded: false,
     previousView: "",    // the view the editor returns to when it closes
+    /* the inclusion criteria: their own document, their own route */
+    criteria: null,      // the criteria draft ({version, abstract, fulltext})
+    criteriaError: "",   // why the criteria could not be loaded
+    criteriaDirty: false,
+    criteriaOpen: {},    // "stage:key" -> the criterion is expanded
   };
 
   /* fields whose name was typed by hand (or that carry a legacy name the
