@@ -1,6 +1,6 @@
 # AGENTS.md — Misinformation-intervention meta-analysis
 
-Workspace root: `C:\Users\marvi\Nextcloud\Studium\Studies\Inoculation_Meta\meta`
+Workspace root: the project folder that holds this file (the checkout of this repository, with the research data beside it)
 
 ## What this project is
 A meta-analysis and re-analysis of experiments that test **misinformation interventions**

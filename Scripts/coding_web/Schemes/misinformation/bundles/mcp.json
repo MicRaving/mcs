@@ -6,7 +6,7 @@
     "-m",
     "Scripts.coding_web.mcp_server",
     "--root",
-    "C:\\Users\\marvi\\.local\\share\\opencode\\worktree\\664ef5105ac046e2196a062c01d617909e82a325\\schema-module"
+    "<the project folder>"
    ]
   }
  }
