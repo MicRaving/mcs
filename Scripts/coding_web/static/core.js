@@ -130,8 +130,14 @@
     if (!bar || !strip || !actions) return;
     const tabs = $$(".viewtab", strip);
     const toggles = $$("[data-compact]", actions);
+    // Home is always an icon: it is the "go to the start" affordance, like the
+    // project and theme buttons, and its label would eat the space the other
+    // tabs need.
+    const alwaysIcon = (t) => t.dataset.view === "home";
     const reset = () => {
-      tabs.forEach((t) => t.classList.remove("is-icon"));
+      tabs.forEach((t) => {
+        if (!alwaysIcon(t)) t.classList.remove("is-icon");
+      });
       actions.classList.remove("is-icon");
       toggles.forEach((t) => t.classList.remove("is-icon"));
     };
@@ -139,24 +145,20 @@
     // action buttons as they are right now
     const room = () => bar.clientWidth - 32 - 14 - actions.offsetWidth;
     const fits = () => strip.scrollWidth <= room() + 1;
-    const compactTabs = () => {
-      for (let i = tabs.length - 1; i >= 0; i--) {
-        if (fits()) return;
-        const tab = tabs[i];
-        if (tab.classList.contains("active")) continue;  // the tab in use keeps its name
-        tab.classList.add("is-icon");
-      }
-    };
 
     reset();
     // 1. the view-specific toggles give up their labels
     toggles.forEach((t) => t.classList.add("is-icon"));
-    // 2. the tabs
-    compactTabs();
+    // 2. the tab labels: ALL of them or NONE of them.  A strip with one tab
+    //    labelled and the rest as icons reads as broken, so the strip either
+    //    shows every name or it shows icons only.
+    if (!fits()) {
+      tabs.forEach((t) => t.classList.add("is-icon"));
+    }
     // 3. Save, Next and the rest
     if (!fits()) {
       actions.classList.add("is-icon");
-      compactTabs();
+      tabs.forEach((t) => t.classList.add("is-icon"));
     }
     // the tab in use must be visible, even when the strip has to scroll
     const active = tabs.find((t) => t.classList.contains("active"));
