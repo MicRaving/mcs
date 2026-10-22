@@ -351,6 +351,149 @@ def api_project_new():
 
 
 # --------------------------------------------------------------------------- #
+# the Home view's project metrics
+# --------------------------------------------------------------------------- #
+
+def _files_in(folder, *suffixes):
+    """The file names in ``folder`` that end with one of ``suffixes``."""
+    out = []
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if not entry.is_file():
+                    continue
+                low = entry.name.lower()
+                if any(low.endswith(s) for s in suffixes):
+                    out.append(entry.name)
+    except OSError:
+        return []
+    return out
+
+
+def _coder_names(names):
+    """The coder initials from ``Codings/<Key> - <Coder>.json``."""
+    coders = set()
+    for name in names:
+        stem = name[:-5] if name.lower().endswith(".json") else name
+        head, sep, tail = stem.rpartition(" - ")
+        if sep and tail:
+            coders.add(tail.strip())
+    return coders
+
+
+def _harmonized_datasets(folder):
+    """Datasets that hold a ``<Key> - harmonized.csv`` (cheap: names only)."""
+    count = 0
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if not entry.is_dir():
+                    continue
+                if _files_in(entry.path, "- harmonized.csv"):
+                    count += 1
+    except OSError:
+        return 0
+    return count
+
+
+# The screening files are the only ones that must be read; a 24 MB decisions
+# file would otherwise be parsed on every visit to the Home view.
+_SCREEN_CACHE = {"stamp": None, "ids": 0}
+
+
+def _screened_abstracts(folder):
+    """How many abstracts carry at least one verdict, across every screener."""
+    names = _files_in(folder, ".json")
+    stamp = []
+    for name in sorted(names):
+        path = os.path.join(folder, name)
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        stamp.append((name, st.st_size, int(st.st_mtime)))
+    stamp = tuple(stamp)
+    if _SCREEN_CACHE["stamp"] == stamp and _SCREEN_CACHE["stamp"] is not None:
+        return _SCREEN_CACHE["ids"]
+
+    ids = set()
+    for name, _size, _mtime in stamp:
+        path = os.path.join(folder, name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            ids.update(str(k) for k in data.keys())
+    _SCREEN_CACHE["stamp"] = stamp
+    _SCREEN_CACHE["ids"] = len(ids)
+    return len(ids)
+
+
+def _reproduction_reports(folder):
+    """Reproduction reports, without the parallel SB/MM reliability routes."""
+    names = _files_in(folder, ".md")
+    return sum(1 for n in names if not n[:-3].endswith((" - SB", " - MM")))
+
+
+@bp.get("/api/project/summary")
+def api_project_summary():
+    """The Home view's metrics for the active project.
+
+    Every number is a file count, so the answer arrives in milliseconds even
+    while the paper list is still being read.  No project open means zeros,
+    which the view shows as a dash.
+    """
+    root = _current_root()
+    metrics = {
+        "papers": 0, "texts": 0, "extractions": 0, "codings": 0, "coders": 0,
+        "screened": 0, "datasets": 0, "harmonized": 0, "reproductions": 0,
+    }
+    if root and os.path.isdir(root):
+        papers_dir = os.path.join(root, "Papers")
+        text_dir = os.path.join(root, "Text")
+        extraction_dir = os.path.join(root, "Extraction")
+        codings_dir = os.path.join(root, "Codings")
+        datasets_dir = os.path.join(root, "Datasets")
+        repro_dir = os.path.join(root, "Reproduction")
+        screening_dir = os.path.join(root, "Screening")
+
+        coding_names = _files_in(codings_dir, ".json")
+        metrics["papers"] = len(_files_in(papers_dir, ".pdf"))
+        metrics["texts"] = len(_files_in(text_dir, ".txt"))
+        metrics["extractions"] = len(_files_in(extraction_dir, ".json"))
+        metrics["codings"] = len(coding_names)
+        metrics["coders"] = len(_coder_names(coding_names))
+        metrics["screened"] = _screened_abstracts(screening_dir)
+        metrics["datasets"] = len(_dataset_dirs(datasets_dir))
+        metrics["harmonized"] = _harmonized_datasets(datasets_dir)
+        metrics["reproductions"] = _reproduction_reports(repro_dir)
+
+    # A folder that holds no Papers/ is not a project yet (a fresh folder, or
+    # the app started somewhere else): the Home view shows a dash, not zeroes.
+    is_project = bool(root) and os.path.isdir(os.path.join(root, "Papers"))
+    return jsonify({
+        "ok": True,
+        "project": {"path": root or "", "name": os.path.basename(root) if root else "",
+                    "is_project": is_project},
+        "metrics": metrics,
+    })
+
+
+def _dataset_dirs(folder):
+    """The per-study folders in Datasets/ (``temp`` and ``_``-prefixed
+    bookkeeping folders are not studies)."""
+    try:
+        with os.scandir(folder) as it:
+            return [e.name for e in it
+                    if e.is_dir() and e.name.lower() != "temp"
+                    and not e.name.startswith("_")]
+    except OSError:
+        return []
+
+
+# --------------------------------------------------------------------------- #
 # errors: always JSON, never an HTML traceback
 # --------------------------------------------------------------------------- #
 

@@ -2040,82 +2040,9 @@
   }
 
   /* ================================================================ markdown */
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-
-  function inlineMd(s) {
-    return s
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-      .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-      .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  }
-
-  function renderMarkdown(src) {
-    const lines = escapeHtml(String(src).replace(/\r\n?/g, "\n")).split("\n");
-    const out = [];
-    let i = 0;
-    const isSep = (t) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(t) && t.includes("-");
-    const cells = (t) => t.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
-    const isList = (t) => /^\s*([-*+]|\d+\.)\s+/.test(t);
-    const isSpecial = (t) => /^(#{1,6})\s+/.test(t) || isList(t) || t.trimStart().startsWith(">") || t.trimStart().startsWith("|");
-
-    while (i < lines.length) {
-      const line = lines[i];
-      if (!line.trim()) { i += 1; continue; }
-      let m;
-      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-        const n = m[1].length;
-        out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`);
-        i += 1;
-        continue;
-      }
-      if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { out.push("<hr>"); i += 1; continue; }
-      if (line.trimStart().startsWith(">")) {
-        const buf = [];
-        while (i < lines.length && lines[i].trimStart().startsWith(">")) {
-          buf.push(lines[i].replace(/^\s*>\s?/, ""));
-          i += 1;
-        }
-        out.push(`<blockquote>${inlineMd(buf.join(" "))}</blockquote>`);
-        continue;
-      }
-      if (line.trimStart().startsWith("|")) {
-        const tbl = [];
-        while (i < lines.length && lines[i].trimStart().startsWith("|")) { tbl.push(lines[i]); i += 1; }
-        if (tbl.length > 1 && isSep(tbl[1])) {
-          const head = cells(tbl[0]);
-          const rows = tbl.slice(2).map(cells).filter((r) => r.some((c) => c !== ""));
-          out.push(
-            "<table><thead><tr>" + head.map((h) => `<th>${inlineMd(h)}</th>`).join("") + "</tr></thead><tbody>" +
-            rows.map((r) => "<tr>" + r.map((c) => `<td>${inlineMd(c)}</td>`).join("") + "</tr>").join("") +
-            "</tbody></table>"
-          );
-        } else {
-          out.push(`<p>${inlineMd(tbl.join(" "))}</p>`);
-        }
-        continue;
-      }
-      if (isList(line)) {
-        const ordered = /^\s*\d+\./.test(line);
-        const items = [];
-        while (i < lines.length && isList(lines[i])) {
-          items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ""));
-          i += 1;
-        }
-        out.push(`<${ordered ? "ol" : "ul"}>` + items.map((t) => `<li>${inlineMd(t)}</li>`).join("") + `</${ordered ? "ol" : "ul"}>`);
-        continue;
-      }
-      const buf = [];
-      while (i < lines.length && lines[i].trim() && !isSpecial(lines[i])) { buf.push(lines[i]); i += 1; }
-      out.push(`<p>${inlineMd(buf.join(" "))}</p>`);
-    }
-    return out.join("\n");
-  }
-
+  /* The renderer lives in core.js, so the Home instructions and the paper's
+     coder notes are rendered by the same code. */
+  const renderMarkdown = window.CS.markdown;
   /* ================================================================ rationale */
   function syncRationale() {
     const rec = state.records[state.current];

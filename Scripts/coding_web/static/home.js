@@ -1,10 +1,10 @@
 /* ============================================================
-   Coding Studio — Home tab
-   The landing view: open a project, create a new one, and read
-   the tutorial.
+   CodingStudio — Home tab
+   The landing view: what the app is, one box with the projects, the
+   numbers of the open project, and the instructions.
 
-   The back end is built in parallel; this file codes against
-   exactly this contract:
+   The back end is built in parallel; this file codes against exactly
+   this contract:
 
      GET  /api/projects
           -> { "current": "<the active project root>",
@@ -13,6 +13,13 @@
                                "label": "<scheme label or ''>",
                                "papers": 0, "last_opened": "<ISO or ''>",
                                "exists": true } ] }
+
+     GET  /api/project/summary
+          -> { "ok": true, "project": { "path": "...", "name": "..." },
+               "metrics": { "papers": 0, "texts": 0, "extractions": 0,
+                            "codings": 0, "coders": 0, "screened": 0,
+                            "datasets": 0, "harmonized": 0,
+                            "reproductions": 0 } }
 
      POST /api/project/recent   { "path": "<abs path>" }
           -> { "ok": true, "projects": [ ...same shape... ] }
@@ -23,6 +30,10 @@
                "project": { ...same shape as an entry... } }
           -> 400 { "ok": false, "error": "<why>" }
 
+     GET  /static/docs/index.json   -> { "docs": [ { "id": "...",
+                                       "title": "...", "summary": "..." } ] }
+     GET  /static/docs/<id>.md      -> the markdown of that instruction
+
    Switching the open project uses POST /api/root (routes_core.py);
    the "choose a folder" dialog that already exists does the same.
    ============================================================ */
@@ -32,61 +43,62 @@
   const { $, $$, esc, api, toast, safeGet } = window.CS;
   const icon = window.CS.svg;
 
-  /* ------------------------------------------------------------ tutorial */
-  /* The prose is a PLACEHOLDER: the section list and its order are the
-     contract, the text is written later. */
-  const TUTORIAL = [
-    {
-      title: "What a project is",
-      summary: "The folder that holds the papers, the codings, the scheme and the results.",
-      body: "To be written — what a project folder contains (Papers/, Text/, Extraction/, Codings/, Project/) and how the app finds it.",
-    },
-    {
-      title: "Opening and creating a project",
-      summary: "Open a project you already have, or start a new one from a blank or a copied scheme.",
-      body: "To be written — how to open a folder, what a new project is made of, and what the two templates do.",
-    },
-    {
-      title: "The paper list",
-      summary: "The studies in the project, their coding status, and the filters above the list.",
-      body: "To be written — the filters, the status dots, the search, and what a missing file looks like.",
-    },
-    {
-      title: "Coding a paper",
-      summary: "The coding form on the left, the paper on the right, and what gets saved when you press Save.",
-      body: "To be written — the form, the experiments, the DV metrics, the source locations, and the save cycle.",
-    },
-    {
-      title: "Coder mode and blind mode",
-      summary: "Coding without seeing the other coders' answers, and moving through the form faster.",
-      body: "To be written — what coder mode does, what blind mode hides, and the keyboard shortcuts behind both.",
-    },
-    {
-      title: "Screening an abstract",
-      summary: "The inclusion verdicts on the abstracts, one criterion at a time.",
-      body: "To be written — the criteria, the verdict keys, and how an abstract moves from to-screen to included.",
-    },
-    {
-      title: "The coding scheme",
-      summary: "The blocks, fields, conditions and kinds the coding form is built from.",
-      body: "To be written — the structure of a scheme, how a field is defined, and how the form follows it.",
-    },
-    {
-      title: "Agreement between coders",
-      summary: "How far two coders agree, and how a conflict is settled.",
-      body: "To be written — the reliability numbers, the conflict list, and who settles what.",
-    },
-    {
-      title: "Harmonisation and reproduction",
-      summary: "Bringing the datasets into one shape, and re-running the studies' own analyses.",
-      body: "To be written — the harmonizer, the mapping, the reproduction report, and what counts as a pass.",
-    },
-    {
-      title: "The analysis",
-      summary: "The pooled models, the figures, and the report that comes out of them.",
-      body: "To be written — the meta-analysis, the re-analysis, the moderator models, and the export.",
-    },
+  /* ------------------------------------------------------------ the tagline */
+  /* One pun per visit, drawn at random, never the same one twice in a row. */
+  const TAGLINES = [
+    "Because one study is an anecdote in a trench coat.",
+    "Pooling evidence, not vibes.",
+    "All your effect sizes in a row. Finally.",
+    "We put the meta in meticulous.",
+    "Where k is never just one.",
+    "Small effects, big picture.",
+    "Turning PDFs into forest plots, one variable at a time.",
+    "Heterogeneity is temporary; coding is forever.",
+    "Ten studies walk into a random-effects model.",
+    "Your forest plot's favourite forest.",
+    "Making sure the evidence actually adds up.",
+    "Because science is a group project.",
+    "So many papers, so few degrees of freedom.",
+    "The funnel plot is mightier than the pen.",
+    "Every paper deserves its fifteen minutes of coding.",
+    "Pulling studies together so you don't have to pull your hair out.",
+    "Double-coded, double-checked, single spreadsheet.",
+    "Strictly significant since the first screening.",
   ];
+
+  function pickTagline() {
+    let last = -1;
+    try { last = Number(localStorage.getItem("cs.home.tagline") ?? -1); } catch { /* ignore */ }
+    let i = Math.floor(Math.random() * TAGLINES.length);
+    if (TAGLINES.length > 1 && i === last) i = (i + 1) % TAGLINES.length;
+    try { localStorage.setItem("cs.home.tagline", String(i)); } catch { /* ignore */ }
+    return TAGLINES[i];
+  }
+
+  /* ------------------------------------------------------------ metrics */
+  /* The numbers of the project, as cards.  An empty project, or no project at
+     all, shows a dash rather than a zero: "0" reads as a measured nothing,
+     "-" reads as "nothing to measure yet". */
+  const METRICS = [
+    { key: "papers", label: "Papers",
+      sub: (m) => `${num(m.texts)} with text extracted` },
+    { key: "extractions", label: "Reference codings",
+      sub: () => "the canonical coding" },
+    { key: "codings", label: "Coder files",
+      sub: (m) => `from ${num(m.coders)} coder${m.coders === 1 ? "" : "s"}` },
+    { key: "screened", label: "Abstracts screened",
+      sub: () => "with at least one verdict" },
+    { key: "harmonized", label: "Harmonized datasets",
+      sub: (m) => `of ${num(m.datasets)} with public data` },
+    { key: "reproductions", label: "Reproduction reports",
+      sub: () => "one per study checked" },
+  ];
+
+  function num(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "-";
+    return v.toLocaleString();
+  }
 
   const state = {
     projects: [],   // the recent projects, as the back end reports them
@@ -95,6 +107,13 @@
     loading: false,  // a request is in flight (the buttons wait)
     fetching: false, // the project list is being fetched
     dialogIsMine: false,  // the app opened no dialog, so this view owns it
+    metrics: null,   // /api/project/summary's metrics, null until loaded
+    metricsFor: "",  // the root the metrics belong to
+    metricsProject: false,  // whether that root is a project (has Papers/)
+    docs: [],        // the instruction index
+    docsError: "",
+    docId: "",       // the instruction on screen
+    docText: {},     // id -> rendered markdown
   };
 
   /* ------------------------------------------------------------ helpers */
@@ -180,8 +199,8 @@
     state.loading = !!on;
     const page = $(".home-page");
     if (page) page.classList.toggle("home-busy", !!on);
-    ["#home-open-btn", "#home-refresh", "#home-new-create", "#home-new-name",
-     "#home-new-parent", "#home-new-template"].forEach((sel) => {
+    ["#home-open-btn", "#home-refresh", "#home-new-toggle", "#home-new-create",
+     "#home-new-name", "#home-new-parent", "#home-new-template"].forEach((sel) => {
       const el = $(sel);
       if (el) el.disabled = !!on;
     });
@@ -195,7 +214,7 @@
     const v = homeView();
     if (v) v.hidden = !on;
     document.body.classList.toggle("view-home", !!on);
-    if (on) { ensureStarted(); renderTiles(); }
+    if (on) ensureStarted();
   }
 
   /* the app opens the last used view; the Home view only has to appear when
@@ -225,6 +244,12 @@
 
   /* ------------------------------------------------------------ rendering */
 
+  function renderTagline() {
+    const el = $("#home-tagline");
+    if (!el) return;
+    if (!el.textContent.trim()) el.textContent = pickTagline();
+  }
+
   function projectRow(p) {
     const path = p.path || "";
     const name = p.name || nameOf(path);
@@ -233,7 +258,7 @@
     const missing = p.exists === false;
     const isCurrent = samePath(path, state.current);
     const tags = [];
-    if (isCurrent) tags.push(`<span class="pill accent">current</span>`);
+    if (isCurrent) tags.push(`<span class="pill accent">open</span>`);
     if (label) tags.push(`<span class="pill">${esc(label)}</span>`);
     tags.push(`<span class="pill">${papers} paper${papers === 1 ? "" : "s"}</span>`);
     if (p.last_opened) tags.push(`<span class="pill">${esc(formatWhen(p.last_opened))}</span>`);
@@ -252,79 +277,110 @@
     if (!list) return;
     if (!state.available) {
       list.innerHTML = `<p class="home-note">The project list is not available — `
-        + `<code>GET /api/projects</code> did not answer, so the recent projects are unknown. `
-        + `You can still open a folder with “Choose a folder…”, or create a project below.</p>`;
+        + `<code>GET /api/projects</code> did not answer. You can still open a folder.</p>`;
       return;
     }
     if (!state.projects.length) {
       list.innerHTML = `<p class="home-note">No project has been opened yet. `
-        + `Choose a folder…, or create a project below.</p>`;
+        + `Open a folder, or create a project.</p>`;
       return;
     }
     list.innerHTML = state.projects.map(projectRow).join("");
   }
 
-  function renderCurrent() {
-    const host = $("#home-current");
-    if (!host) return;
-    const root = state.current || "";
-    if (!root) {
-      host.innerHTML = `<span class="pill">no project open</span>`;
-      return;
-    }
-    host.innerHTML = `<span class="pill accent">${esc(nameOf(root))}</span>`
-      + `<span class="home-cur-path" title="${esc(root)}">${esc(root)}</span>`;
+  function metricCard(m, value, sub) {
+    const empty = value === null || value === undefined;
+    return `<div class="home-metric${empty ? " is-empty" : ""}">`
+      + `<span class="home-metric-label">${esc(m.label)}</span>`
+      + `<span class="home-metric-value">${empty ? "-" : num(value)}</span>`
+      + `<span class="home-metric-sub">${empty ? "-" : esc(sub)}</span>`
+      + `</div>`;
   }
 
-  /* ------------------------------------------------------------ sections */
-  /* The eight sections of the app, as the hero's "Go to" tiles.  Each one
-     presses its own tab, so the tiles can never point somewhere the tab strip
-     does not go. */
-  const SECTIONS = [
-    { view: "summary", icon: "i-list", title: "Summary",
-      text: "What is coded, at a glance." },
-    { view: "screening", icon: "i-filter", title: "Screening",
-      text: "The abstracts and their inclusion verdicts." },
-    { view: "coding", icon: "i-mark", title: "Coding",
-      text: "The paper and its coding form." },
-    { view: "agreement", icon: "i-users", title: "Agreement",
-      text: "Reliability between coders, and the conflicts." },
-    { view: "coverage", icon: "i-target", title: "Harmonization",
-      text: "How far the harmonised sidecars reach." },
-    { view: "reproduction", icon: "i-play", title: "Reproduction",
-      text: "Re-running a study's own results." },
-    { view: "analysis", icon: "i-chart", title: "Analysis",
-      text: "The pooled models and the figures." },
-    { view: "scheme", icon: "i-book", title: "Scheme",
-      text: "The blocks, fields, conditions and kinds." },
-  ];
+  function renderMetrics() {
+    const grid = $("#home-metric-grid");
+    const title = $("#home-metrics-title");
+    const note = $("#home-metrics-note");
+    if (!grid) return;
 
-  function renderTiles() {
-    const host = $("#home-tiles");
-    if (!host) return;
-    const open = !!state.current;
-    host.innerHTML = SECTIONS.map((s) => {
-      const off = open ? "" : " is-off";
-      const tip = open ? esc(s.title) : "Open a project first";
-      return `<button class="home-tile${off}" data-view="${esc(s.view)}"`
-        + ` title="${tip}"${open ? "" : " disabled"}>`
-        + `<span class="home-tile-ico">${icon(s.icon)}</span>`
-        + `<span class="home-tile-title">${esc(s.title)}</span>`
-        + `<span class="home-tile-text">${esc(s.text)}</span>`
-        + `</button>`;
+    const root = state.current || "";
+    const usable = state.metricsFor && samePath(state.metricsFor, root) && state.metricsProject;
+    const m = usable ? state.metrics : null;
+    if (title) title.textContent = root ? "This project" : "No project open";
+    if (note) note.textContent = root ? root : "-";
+
+    grid.innerHTML = METRICS.map((spec) => {
+      if (!m) return metricCard(spec, null, "");
+      return metricCard(spec, m[spec.key], spec.sub ? spec.sub(m) : "");
     }).join("");
   }
 
-  function renderTutorial() {
-    const host = $("#home-tutorial");
+  /* ------------------------------------------------------------ instructions */
+
+  function renderDocsNav() {
+    const host = $("#home-docs-list");
     if (!host) return;
-    host.innerHTML = TUTORIAL.map((t, i) => `
-      <article class="home-tut-card">
-        <span class="home-tut-num">${String(i + 1).padStart(2, "0")}</span>
-        <h3 class="home-tut-title">${esc(t.title)}</h3>
-        <p class="home-tut-sum">${esc(t.summary)}</p>
-        <p class="home-tut-body"><em>${esc(t.body)}</em></p>
-      </article>`).join("");
+    if (state.docsError) {
+      host.innerHTML = `<p class="home-note">${esc(state.docsError)}</p>`;
+      return;
+    }
+    host.innerHTML = state.docs.map((d) => `
+      <button class="home-doc${d.id === state.docId ? " active" : ""}"
+              data-doc="${esc(d.id)}" aria-pressed="${d.id === state.docId}">
+        <span class="home-doc-title">${esc(d.title)}</span>
+        <span class="home-doc-sum">${esc(d.summary || "")}</span>
+      </button>`).join("");
+  }
+
+  function renderDoc() {
+    const host = $("#home-docs-text");
+    if (!host) return;
+    host.innerHTML = state.docText[state.docId] || "";
+  }
+
+  async function openDoc(id) {
+    if (!id || id === state.docId) return;
+    state.docId = id;
+    try { localStorage.setItem("cs.home.doc", id); } catch { /* ignore */ }
+    renderDocsNav();
+    const host = $("#home-docs-text");
+    if (!state.docText[id]) {
+      if (host) host.innerHTML = `<p class="home-note">Loading…</p>`;
+      try {
+        const r = await fetch(`/static/docs/${encodeURIComponent(id)}.md`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        state.docText[id] = window.CS.markdown(await r.text());
+      } catch (err) {
+        state.docText[id] = `<p class="home-note">This instruction could not be `
+          + `loaded (${esc(String(err && err.message || err))}).</p>`;
+      }
+    }
+    renderDoc();
+    const body = $(".home-docs-body");
+    if (body) body.scrollTop = 0;
+  }
+
+  async function loadDocs() {
+    if (state.docs.length) return;
+    try {
+      const r = await fetch("/static/docs/index.json");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      state.docs = Array.isArray(data.docs) ? data.docs : [];
+    } catch (err) {
+      state.docsError = "The instructions could not be loaded.";
+      renderDocsNav();
+      return;
+    }
+    const wanted = (() => {
+      try { return localStorage.getItem("cs.home.doc") || ""; } catch { return ""; }
+    })();
+    const id = state.docs.some((d) => d.id === wanted)
+      ? wanted
+      : (state.docs[0] ? state.docs[0].id : "");
+    state.docId = "";
+    renderDocsNav();
+    if (id) openDoc(id);
   }
 
   /* ------------------------------------------------------------ loading */
@@ -350,8 +406,25 @@
       state.fetching = false;
     }
     renderProjects();
-    renderCurrent();
-    renderTiles();
+    renderMetrics();
+    loadMetrics();
+  }
+
+  /* The numbers come from their own endpoint: the Home view must not wait for
+     the paper list, which takes a while on a large project. */
+  async function loadMetrics() {
+    const root = state.current || "";
+    try {
+      const data = await api("/api/project/summary");
+      state.metrics = data.metrics || null;
+      state.metricsFor = (data.project && data.project.path) || root;
+      state.metricsProject = !!(data.project && data.project.is_project);
+    } catch {
+      state.metrics = null;
+      state.metricsFor = "";
+      state.metricsProject = false;
+    }
+    renderMetrics();
   }
 
   /* the parent folder of the new project: the folder the current project
@@ -374,9 +447,28 @@
   function ensureStarted() {
     loadProjects();
     prefillParent();
+    loadDocs();
   }
 
   /* ------------------------------------------------------------ actions */
+
+  function showNewProject(on) {
+    const form = $("#home-new-form");
+    const btn = $("#home-new-toggle");
+    const open = !!on;
+    if (form) form.hidden = !open;
+    if (btn) {
+      btn.setAttribute("aria-pressed", String(open));
+      btn.classList.toggle("active", open);
+    }
+    if (open) {
+      prefillParent();
+      setTimeout(() => $("#home-new-name")?.focus({ preventScroll: true }), 0);
+    } else {
+      setError("");
+      setOk("");
+    }
+  }
 
   /* The dialog that already exists (the "project folder" button in the top
      bar opens it): the app owns it, so the app's own button is clicked.
@@ -501,8 +593,8 @@
       }
     } catch { /* not fatal */ }
     renderProjects();
-    renderCurrent();
-    renderTiles();
+    renderMetrics();
+    loadMetrics();
     prefillParent();
   }
 
@@ -510,22 +602,17 @@
 
   function wireEvents() {
     $("#home-open-btn")?.addEventListener("click", openProjectDialog);
-    $("#home-refresh")?.addEventListener("click", () => { loadProjects(); });
-    $("#home-new-jump")?.addEventListener("click", () => {
-      const card = $("#home-new");
-      if (!card) return;
-      card.scrollIntoView({ block: "start", behavior: "smooth" });
-      $("#home-new-name")?.focus({ preventScroll: true });
+    $("#home-refresh")?.addEventListener("click", () => {
+      state.fetching = false;
+      loadProjects();
+      loadMetrics();
     });
+    $("#home-new-toggle")?.addEventListener("click", () => {
+      const form = $("#home-new-form");
+      showNewProject(form ? form.hidden : true);
+    });
+    $("#home-new-cancel")?.addEventListener("click", () => showNewProject(false));
     $("#home-new-form")?.addEventListener("submit", createProject);
-
-    $("#home-tiles")?.addEventListener("click", (e) => {
-      const tile = e.target.closest(".home-tile");
-      if (!tile || tile.disabled) return;
-      const view = tile.dataset.view;
-      const tab = document.querySelector(`.viewtab[data-view="${view}"]`);
-      if (tab) tab.click();
-    });
 
     const list = $("#home-projects");
     if (list) {
@@ -533,6 +620,15 @@
         const row = e.target.closest(".home-proj");
         if (!row || row.disabled) return;
         openProject(row.getAttribute("data-path") || "");
+      });
+    }
+
+    const docs = $("#home-docs-list");
+    if (docs) {
+      docs.addEventListener("click", (e) => {
+        const btn = e.target.closest(".home-doc");
+        if (!btn) return;
+        openDoc(btn.dataset.doc || "");
       });
     }
 
@@ -584,7 +680,9 @@
   }
 
   function init() {
-    renderTutorial();
+    renderTagline();
+    renderProjects();
+    renderMetrics();
     wireEvents();
     // the view switcher may have run before this file was ready
     syncVisibility();

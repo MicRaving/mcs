@@ -197,5 +197,136 @@
     } catch { /* the layout still works without it */ }
   }
 
-  window.CS = { $, $$, esc, svg, svgEl, api, toast, safeStore, safeGet, currentView, fitTopbar, optionText, optionTextOf };
+  /* ---------------------------------------------------------- markdown */
+  /* One markdown renderer for the whole app: the paper notes and the Home
+     instructions.  It covers what those documents use - headings, lists,
+     tables, block quotes, fenced code, rules, inline code, emphasis and
+     links - and it escapes the source first, so a document can never inject
+     HTML into the page. */
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function inlineMd(s) {
+    return s
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+      .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  }
+
+  function markdown(src) {
+    const lines = escapeHtml(String(src ?? "").replace(/\r\n?/g, "\n")).split("\n");
+    const out = [];
+    let i = 0;
+    const isSep = (t) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(t) && t.includes("-");
+    const cells = (t) => t.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+    const isList = (t) => /^\s*([-*+]|\d+\.)\s+/.test(t);
+    const isFence = (t) => /^\s*```/.test(t);
+    const isSpecial = (t) => /^(#{1,6})\s+/.test(t) || isList(t) || isFence(t)
+      || t.trimStart().startsWith(">") || t.trimStart().startsWith("|");
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i += 1; continue; }
+      let m;
+      if (isFence(line)) {
+        const buf = [];
+        i += 1;
+        while (i < lines.length && !isFence(lines[i])) { buf.push(lines[i]); i += 1; }
+        i += 1;   // the closing fence
+        out.push(`<pre><code>${buf.join("\n")}</code></pre>`);
+        continue;
+      }
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
+        const n = m[1].length;
+        out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`);
+        i += 1;
+        continue;
+      }
+      if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { out.push("<hr>"); i += 1; continue; }
+      if (line.trimStart().startsWith(">")) {
+        const buf = [];
+        while (i < lines.length && lines[i].trimStart().startsWith(">")) {
+          buf.push(lines[i].replace(/^\s*>\s?/, ""));
+          i += 1;
+        }
+        out.push(`<blockquote>${inlineMd(buf.join(" "))}</blockquote>`);
+        continue;
+      }
+      if (line.trimStart().startsWith("|")) {
+        const tbl = [];
+        while (i < lines.length && lines[i].trimStart().startsWith("|")) { tbl.push(lines[i]); i += 1; }
+        if (tbl.length > 1 && isSep(tbl[1])) {
+          const head = cells(tbl[0]);
+          const rows = tbl.slice(2).map(cells).filter((r) => r.some((c) => c !== ""));
+          out.push(
+            "<table><thead><tr>" + head.map((h) => `<th>${inlineMd(h)}</th>`).join("") + "</tr></thead><tbody>" +
+            rows.map((r) => "<tr>" + r.map((c) => `<td>${inlineMd(c)}</td>`).join("") + "</tr>").join("") +
+            "</tbody></table>"
+          );
+        } else {
+          out.push(`<p>${inlineMd(tbl.join(" "))}</p>`);
+        }
+        continue;
+      }
+      if (isList(line)) {
+        /* A list item runs to the next bullet, so an indented line under a
+           bullet is the rest of that item, not a paragraph.  Indented bullets
+           are a nested list. */
+        const items = [];
+        while (i < lines.length) {
+          const t = lines[i];
+          if (isList(t)) {
+            items.push({
+              text: t.replace(/^\s*([-*+]|\d+\.)\s+/, ""),
+              indent: t.match(/^\s*/)[0].replace(/\t/g, "  ").length,
+              ord: /^\s*\d+\./.test(t),
+            });
+            i += 1;
+            continue;
+          }
+          if (t.trim() && /^\s{2,}\S/.test(t) && items.length) {
+            items[items.length - 1].text += " " + t.trim();
+            i += 1;
+            continue;
+          }
+          if (!t.trim() && items.length) {
+            const next = lines[i + 1] || "";
+            if (isList(next) || /^\s{2,}\S/.test(next)) { i += 1; continue; }
+          }
+          break;
+        }
+        out.push(listHtml(items));
+        continue;
+      }
+      const buf = [];
+      while (i < lines.length && lines[i].trim() && !isSpecial(lines[i])) { buf.push(lines[i]); i += 1; }
+      out.push(`<p>${inlineMd(buf.join(" "))}</p>`);
+    }
+    return out.join("\n");
+  }
+
+  /* one list tree, built from the flat items the collector produced */
+  function listHtml(items) {
+    let i = 0;
+    const build = (indent) => {
+      const tag = items[i].ord ? "ol" : "ul";
+      let out = `<${tag}>`;
+      while (i < items.length) {
+        const it = items[i];
+        if (it.indent < indent) break;
+        if (it.indent > indent) { out = out.replace(/<\/li>$/, "") + build(it.indent) + "</li>"; continue; }
+        out += `<li>${inlineMd(it.text)}`;
+        i += 1;
+        if (i < items.length && items[i].indent > indent) out += build(items[i].indent);
+        out += "</li>";
+      }
+      return out + `</${tag}>`;
+    };
+    return items.length ? build(items[0].indent) : "";
+  }
+
+  window.CS = { $, $$, esc, svg, svgEl, api, toast, safeStore, safeGet, currentView, fitTopbar, optionText, optionTextOf, markdown };
 })();
