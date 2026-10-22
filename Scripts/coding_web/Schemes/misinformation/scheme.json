@@ -1829,7 +1829,22 @@
     "platform_exposure_reduction",
     "other"
    ],
-   "controlled_values": [],
+   "controlled_values": [
+    "inoculation",
+    "prebunking_warning",
+    "lateral_reading",
+    "credibility_labels",
+    "media_literacy_tips",
+    "fact_checking_training",
+    "openmindedness_intervention",
+    "debunking_and_rebuttals",
+    "community_correction",
+    "accuracy_prompts",
+    "friction",
+    "social_norms",
+    "platform_exposure_reduction",
+    "other"
+   ],
    "legacy_options": [],
    "columns": [],
    "role": "intervention_type",
@@ -3156,8 +3171,35 @@
      "critical_thinking",
      "other"
     ],
-    "controlled_values": [],
-    "legacy_options": [],
+    "controlled_values": [
+     "technique_recognition",
+     "credibility",
+     "sharing_intention",
+     "search_behavior",
+     "attitude_policy",
+     "trust",
+     "media_literacy_attitudes",
+     "critical_thinking",
+     "other"
+    ],
+    "legacy_options": [
+     {
+      "value": "engagement_behavior",
+      "label": "engagement_behavior"
+     },
+     {
+      "value": "confidence",
+      "label": "confidence"
+     },
+     {
+      "value": "affect",
+      "label": "affect"
+     },
+     {
+      "value": "belief_accuracy",
+      "label": "belief_accuracy"
+     }
+    ],
     "columns": [],
     "role": "dv_domain",
     "required": false,
@@ -3208,7 +3250,28 @@
      "change_score",
      "signal_detection_other"
     ],
-    "controlled_values": [],
+    "controlled_values": [
+     "separate_true",
+     "separate_false",
+     "separate_manipulative",
+     "separate_nonmanipulative",
+     "discernment_difference",
+     "composite",
+     "signal_detection_auc",
+     "signal_detection_d_prime",
+     "signal_detection_c",
+     "dichotomous_accuracy",
+     "continuous_accuracy",
+     "proportion",
+     "proportion_difference",
+     "behavioral_choice",
+     "other",
+     "count",
+     "single_item",
+     "behavioral_intention",
+     "change_score",
+     "signal_detection_other"
+    ],
     "legacy_options": [],
     "columns": [],
     "role": "score_types",
@@ -5399,7 +5462,52 @@
     ],
     "vocab": [],
     "controlled_values": [],
-    "legacy_options": [],
+    "legacy_options": [
+     {
+      "value": "t",
+      "label": "t"
+     },
+     {
+      "value": "F",
+      "label": "F"
+     },
+     {
+      "value": "chi2",
+      "label": "chi2"
+     },
+     {
+      "value": "log_odds",
+      "label": "log_odds"
+     },
+     {
+      "value": "means_sd",
+      "label": "means_sd"
+     },
+     {
+      "value": "cohen_d",
+      "label": "cohen_d"
+     },
+     {
+      "value": "cohens_d",
+      "label": "cohens_d"
+     },
+     {
+      "value": "hedges_g",
+      "label": "hedges_g"
+     },
+     {
+      "value": "smd",
+      "label": "smd"
+     },
+     {
+      "value": "d_val",
+      "label": "d_val"
+     },
+     {
+      "value": "g_val",
+      "label": "g_val"
+     }
+    ],
     "columns": [],
     "role": "effect_type_reported",
     "required": false,
@@ -10966,66 +11074,74 @@
    {
     "id": "S1",
     "name": "id",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S2",
     "name": "condition_col",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S3",
     "name": "arm_roles",
-    "weight": 4
+    "weight": 4.0
    },
    {
     "id": "S4",
     "name": "dv_pairs",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S5",
     "name": "dv_domain",
-    "weight": 4
+    "weight": 4.0
    },
    {
     "id": "S6",
     "name": "veracity",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S6cell",
     "name": "veracity_cell",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S7",
     "name": "timepoint",
-    "weight": 1
+    "weight": 1.0
    },
    {
     "id": "S8",
     "name": "dv_polarity",
-    "weight": 3
+    "weight": 3.0
    },
    {
     "id": "S9",
     "name": "exclusions",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S10",
     "name": "covariates",
-    "weight": 1
+    "weight": 1.0
    },
    {
     "id": "S11",
     "name": "provenance",
-    "weight": 1
+    "weight": 1.0
    }
   ]
  },
- "field_aliases": {},
+ "field_aliases": {
+  "Rationale_Notes": [
+   "notes"
+  ],
+  "Publication": [
+   "Publication_Type",
+   "Publication_Category"
+  ]
+ },
  "effect_families": [
   "descriptives",
   "t",
@@ -11040,7 +11156,128 @@
   "chi2"
  ],
  "kinds": [],
- "structures": {},
+ "structures": {
+  "Interventions": {
+   "key": "Interventions",
+   "label": "Intervention arms",
+   "kind": "list",
+   "description": "One entry per arm of the experiment; each arm carries its own type and may override the record's field values.",
+   "item_fields": [
+    {
+     "name": "Intervention_ID",
+     "label": "Arm id",
+     "group": "",
+     "scope": "structure",
+     "type": "string",
+     "base_type": "string",
+     "nullable": false,
+     "editor": "text",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": "intervention_id",
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "Intervention_Type",
+     "label": "Arm type",
+     "group": "",
+     "scope": "structure",
+     "type": "list",
+     "base_type": "list",
+     "nullable": false,
+     "editor": "multiselect",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": "intervention_type",
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "label",
+     "label": "Arm label",
+     "group": "",
+     "scope": "structure",
+     "type": "string",
+     "base_type": "string",
+     "nullable": false,
+     "editor": "text",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": null,
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    },
+    {
+     "name": "overrides",
+     "label": "Field overrides",
+     "group": "",
+     "scope": "structure",
+     "type": "object",
+     "base_type": "object",
+     "nullable": false,
+     "editor": "json",
+     "options": [],
+     "vocab": [],
+     "controlled_values": [],
+     "legacy_options": [],
+     "columns": [],
+     "role": null,
+     "required": false,
+     "derived": false,
+     "moderator": true,
+     "description": "",
+     "instruction": "",
+     "show_if": null,
+     "required_if": null,
+     "module": null,
+     "module_options": {},
+     "kind": null,
+     "source": {},
+     "coder": {}
+    }
+   ]
+  }
+ },
  "rules": {
   "omnibus_exclusions": {
    "contrast_type_codes": [
@@ -11162,62 +11399,62 @@
    {
     "id": "S1",
     "name": "id",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S2",
     "name": "condition_col",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S3",
     "name": "arm_roles",
-    "weight": 4
+    "weight": 4.0
    },
    {
     "id": "S4",
     "name": "dv_pairs",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S5",
     "name": "dv_domain",
-    "weight": 4
+    "weight": 4.0
    },
    {
     "id": "S6",
     "name": "veracity",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S6cell",
     "name": "veracity_cell",
-    "weight": 5
+    "weight": 5.0
    },
    {
     "id": "S7",
     "name": "timepoint",
-    "weight": 1
+    "weight": 1.0
    },
    {
     "id": "S8",
     "name": "dv_polarity",
-    "weight": 3
+    "weight": 3.0
    },
    {
     "id": "S9",
     "name": "exclusions",
-    "weight": 2
+    "weight": 2.0
    },
    {
     "id": "S10",
     "name": "covariates",
-    "weight": 1
+    "weight": 1.0
    },
    {
     "id": "S11",
     "name": "provenance",
-    "weight": 1
+    "weight": 1.0
    }
   ]
  }
