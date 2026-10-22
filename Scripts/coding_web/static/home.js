@@ -195,7 +195,7 @@
     const v = homeView();
     if (v) v.hidden = !on;
     document.body.classList.toggle("view-home", !!on);
-    if (on) ensureStarted();
+    if (on) { ensureStarted(); renderTiles(); }
   }
 
   /* the app opens the last used view; the Home view only has to appear when
@@ -276,21 +276,55 @@
       + `<span class="home-cur-path" title="${esc(root)}">${esc(root)}</span>`;
   }
 
+  /* ------------------------------------------------------------ sections */
+  /* The eight sections of the app, as the hero's "Go to" tiles.  Each one
+     presses its own tab, so the tiles can never point somewhere the tab strip
+     does not go. */
+  const SECTIONS = [
+    { view: "summary", icon: "i-list", title: "Summary",
+      text: "What is coded, at a glance." },
+    { view: "screening", icon: "i-filter", title: "Screening",
+      text: "The abstracts and their inclusion verdicts." },
+    { view: "coding", icon: "i-mark", title: "Coding",
+      text: "The paper and its coding form." },
+    { view: "agreement", icon: "i-users", title: "Agreement",
+      text: "Reliability between coders, and the conflicts." },
+    { view: "coverage", icon: "i-target", title: "Harmonization",
+      text: "How far the harmonised sidecars reach." },
+    { view: "reproduction", icon: "i-play", title: "Reproduction",
+      text: "Re-running a study's own results." },
+    { view: "analysis", icon: "i-chart", title: "Analysis",
+      text: "The pooled models and the figures." },
+    { view: "scheme", icon: "i-book", title: "Scheme",
+      text: "The blocks, fields, conditions and kinds." },
+  ];
+
+  function renderTiles() {
+    const host = $("#home-tiles");
+    if (!host) return;
+    const open = !!state.current;
+    host.innerHTML = SECTIONS.map((s) => {
+      const off = open ? "" : " is-off";
+      const tip = open ? esc(s.title) : "Open a project first";
+      return `<button class="home-tile${off}" data-view="${esc(s.view)}"`
+        + ` title="${tip}"${open ? "" : " disabled"}>`
+        + `<span class="home-tile-ico">${icon(s.icon)}</span>`
+        + `<span class="home-tile-title">${esc(s.title)}</span>`
+        + `<span class="home-tile-text">${esc(s.text)}</span>`
+        + `</button>`;
+    }).join("");
+  }
+
   function renderTutorial() {
     const host = $("#home-tutorial");
     if (!host) return;
     host.innerHTML = TUTORIAL.map((t, i) => `
-      <details class="section home-tut-sec" open>
-        <summary>
-          ${icon("i-caret", "caret")}
-          <span class="home-tut-num">${i + 1}</span>
-          <span class="home-tut-title">${esc(t.title)}</span>
-          <span class="home-tut-sum">${esc(t.summary)}</span>
-        </summary>
-        <div class="group-body">
-          <p class="home-tut-body"><em>${esc(t.body)}</em></p>
-        </div>
-      </details>`).join("");
+      <article class="home-tut-card">
+        <span class="home-tut-num">${String(i + 1).padStart(2, "0")}</span>
+        <h3 class="home-tut-title">${esc(t.title)}</h3>
+        <p class="home-tut-sum">${esc(t.summary)}</p>
+        <p class="home-tut-body"><em>${esc(t.body)}</em></p>
+      </article>`).join("");
   }
 
   /* ------------------------------------------------------------ loading */
@@ -317,6 +351,7 @@
     }
     renderProjects();
     renderCurrent();
+    renderTiles();
   }
 
   /* the parent folder of the new project: the folder the current project
@@ -467,6 +502,7 @@
     } catch { /* not fatal */ }
     renderProjects();
     renderCurrent();
+    renderTiles();
     prefillParent();
   }
 
@@ -475,7 +511,21 @@
   function wireEvents() {
     $("#home-open-btn")?.addEventListener("click", openProjectDialog);
     $("#home-refresh")?.addEventListener("click", () => { loadProjects(); });
+    $("#home-new-jump")?.addEventListener("click", () => {
+      const card = $("#home-new");
+      if (!card) return;
+      card.scrollIntoView({ block: "start", behavior: "smooth" });
+      $("#home-new-name")?.focus({ preventScroll: true });
+    });
     $("#home-new-form")?.addEventListener("submit", createProject);
+
+    $("#home-tiles")?.addEventListener("click", (e) => {
+      const tile = e.target.closest(".home-tile");
+      if (!tile || tile.disabled) return;
+      const view = tile.dataset.view;
+      const tab = document.querySelector(`.viewtab[data-view="${view}"]`);
+      if (tab) tab.click();
+    });
 
     const list = $("#home-projects");
     if (list) {

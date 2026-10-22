@@ -1,11 +1,12 @@
 /* ============================================================
-   Coding Studio — Home tab
-   The landing view: open a project, create one, and read the
-   tutorial.
+   Coding Studio - Home tab
+   The landing view: a hero, the doors into the app, and the two
+   things a project needs (open one, create one), plus the tutorial.
 
-   Only the `.home-*` namespace is added here; every colour,
-   radius and font comes from the app's own tokens (styles.css),
-   the way schema.css does for the scheme editor.
+   The shape is the landing page of the critcomp app - a centred
+   hero over a row of entry cards - redrawn in this app's editorial
+   type.  Every colour, radius and font comes from the app's own
+   tokens (styles.css); only the `.home-*` namespace is added here.
    ============================================================ */
 
 /* The view is one full-width column: the app's left/mid/right grid must not
@@ -20,6 +21,7 @@
 
 /* The coding-only actions in the top bar are meaningless on the landing
    view; the coder field stays, because it is a setting, not an action. */
+body.view-home #coder-mode,
 body.view-home #blind-btn,
 body.view-home #clear-btn,
 body.view-home #save-btn,
@@ -30,38 +32,97 @@ body.view-home #an-full-top,
 body.view-home #master-field { display: none !important; }
 
 /* ------------------------------------------------------------ page shell */
-.home-page { max-width: 1560px; margin: 0 auto; padding: 16px 18px 44px; }
+.home-page { max-width: 1560px; margin: 0 auto; padding: 0 18px 46px; }
 
-.home-head {
-  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
-  margin-bottom: 12px;
+/* ------------------------------------------------------------ hero */
+/* One soft glow behind the title, and nothing else: the hero is type, the
+   cards below do the pointing. */
+.home-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 46px 22px 30px; text-align: center;
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(58% 118% at 50% 0%,
+      color-mix(in srgb, var(--accent) 10%, transparent), transparent 72%);
 }
-.home-title h1 {
-  margin: 0; font-family: var(--serif); font-size: 20px; font-weight: 600;
-  letter-spacing: -.01em;
+.home-eyebrow {
+  font: 700 10px var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--accent-ink);
 }
-.home-title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; max-width: 660px; }
-.home-head-current {
-  margin-left: auto; display: flex; align-items: center; gap: 8px;
-  flex-wrap: wrap; min-width: 0;
+.home-hero h1 {
+  margin: 2px 0 0; font-family: var(--serif); font-size: 38px; font-weight: 600;
+  letter-spacing: -.025em; line-height: 1.05; color: var(--ink);
 }
+.home-lede {
+  margin: 4px 0 0; max-width: 62ch; font-size: 13.5px; line-height: 1.55;
+  color: var(--muted); text-wrap: pretty;
+}
+.home-hero-now {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex-wrap: wrap; min-height: 22px; min-width: 0; margin-top: 2px;
+}
+.home-hero-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+
+/* A project path is long, so it is capped rather than wrapped: the pill and
+   the path stay on one line and the path ends in an ellipsis.  The cap is a
+   min() so a narrow window clamps it instead of letting it push the pill off
+   the edge. */
 .home-cur-path {
   font: 500 11.5px var(--mono); color: var(--muted);
-  max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: min(520px, 100%); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .home-flash {
-  margin: 0 0 12px; padding: 8px 11px; border-radius: var(--r-sm);
+  margin: 0 auto 14px; max-width: 780px; padding: 8px 12px; border-radius: var(--r-sm);
   background: var(--ok-soft); color: var(--ok);
   border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
   font-size: 12px;
 }
 .home-flash[hidden] { display: none !important; }
 
+/* ------------------------------------------------------------ the doors */
+.home-sect { margin: 4px 0 20px; }
+.home-sect-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 0 2px 9px;
+}
+.home-sect-head h2 {
+  margin: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+}
+.home-sect-head p { margin: 0; font-size: 11.5px; color: var(--faint); }
+
+.home-tiles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 10px;
+}
+.home-tile {
+  display: flex; flex-direction: column; align-items: flex-start;
+  padding: 13px 14px 14px; text-align: left; font: inherit; color: inherit;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+  box-shadow: var(--shadow-1); cursor: pointer;
+  transition: border-color .13s, transform .13s, box-shadow .13s;
+}
+.home-tile:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  transform: translateY(-2px); box-shadow: var(--shadow-2);
+}
+.home-tile:active { transform: none; }
+.home-tile.is-off { opacity: .5; cursor: not-allowed; }
+.home-tile.is-off:hover { border-color: var(--line); transform: none; box-shadow: var(--shadow-1); }
+.home-tile-ico {
+  display: grid; place-items: center; width: 27px; height: 27px; margin-bottom: 8px;
+  border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink);
+}
+.home-tile-ico svg { width: 15px; height: 15px; }
+.home-tile-title { font-size: 12.5px; font-weight: 700; letter-spacing: -.005em; }
+.home-tile-text { margin-top: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.42; }
+
 /* ------------------------------------------------------------ grid + cards */
 .home-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -88,8 +149,12 @@ body.view-home #master-field { display: none !important; }
 /* ------------------------------------------------------------ recent list */
 .home-actions { display: flex; align-items: center; gap: 8px; }
 .home-actions .grow { flex: 1; }
+.home-hint {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--faint);
+}
 
-.home-projects { display: flex; flex-direction: column; gap: 5px; margin-top: 11px; }
+.home-projects { display: flex; flex-direction: column; gap: 5px; margin-top: 9px; }
 .home-proj {
   display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left;
   padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm);
@@ -138,24 +203,32 @@ body.view-home #master-field { display: none !important; }
 .home-form + .home-actions { margin-top: 12px; }
 
 /* ------------------------------------------------------------ tutorial */
-.home-tut { display: flex; flex-direction: column; max-height: calc(100vh - 170px); }
-.home-tut-list { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 14px; }
-.home-tut-sec { margin-bottom: 8px; }
-.home-tut-sec:last-child { margin-bottom: 0; }
-.home-tut-sec > summary { flex-wrap: wrap; gap: 3px 9px; }
-.home-tut-num { font: 700 10.5px var(--mono); color: var(--faint); }
-.home-tut-title { font-weight: 700; }
-.home-tut-sum {
-  flex-basis: 100%; font-weight: 400; font-size: 11.5px; color: var(--muted);
-  line-height: 1.45;
+.home-tut { display: flex; flex-direction: column; max-height: calc(100vh - 120px); }
+.home-tut-list {
+  flex: 1; min-height: 0; overflow: auto; padding: 12px 13px 14px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 9px; align-content: start;
 }
-.home-tut-body { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+.home-tut-card {
+  padding: 11px 12px 12px; border: 1px solid var(--line);
+  border-radius: var(--r); background: var(--panel-2);
+}
+.home-tut-num {
+  font: 700 10px var(--mono); letter-spacing: .08em; color: var(--accent-ink);
+}
+.home-tut-title {
+  margin: 3px 0 3px; font-family: var(--serif); font-size: 13.5px;
+  font-weight: 600; letter-spacing: -.005em;
+}
+.home-tut-sum { margin: 0; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.home-tut-body { margin: 6px 0 0; font-size: 11px; color: var(--faint); line-height: 1.45; }
 
 /* ------------------------------------------------------------ narrow */
 @media (max-width: 900px) {
   .home-grid { grid-template-columns: minmax(0, 1fr); }
   .home-tut { max-height: none; }
-  .home-tut-list { overflow: visible; padding: 10px 12px 12px; }
-  .home-head-current { margin-left: 0; width: 100%; }
-  .home-cur-path { max-width: 100%; }
+  .home-tut-list { overflow: visible; }
+  .home-hero { padding: 34px 12px 24px; }
+  .home-hero h1 { font-size: 31px; }
+  .home-tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 }

@@ -2755,6 +2755,12 @@
     if (fresh.length !== storedArr.length) {
       try { safeStore("cs.coders", JSON.stringify(fresh)); } catch { /* ignore */ }
     }
+    // A coder ADDED in the picker has no coding file yet, so the prune above
+    // would drop them the moment the page reloads - the drop of a name that
+    // was just typed.  Added names live in their own key and are never pruned.
+    let added = [];
+    try { added = JSON.parse(readStore("cs.coders.added", "[]")); } catch { added = []; }
+    (Array.isArray(added) ? added : []).forEach((c) => { if (c) set.add(String(c)); });
     if (state.coder && !isOriginalSource()) set.add(state.coder);
     return [...set].sort((a, b) => String(a).localeCompare(String(b)));
   }
@@ -2770,20 +2776,173 @@
   }
 
   function renderCoderOptions() {
-    const dl = $("#coder-options");
-    if (dl) {
-      dl.innerHTML = [`<option value="${esc(OG_CODER)}"></option>`]
-        .concat(knownCoders().map((c) => `<option value="${esc(c)}"></option>`))
-        .join("");
-    }
     const inp = $("#coder-input");
     if (inp) {
       const og = isOriginalSource();
       inp.classList.toggle("og-mode", og);
       inp.title = og
-        ? "Original extraction (read-only reference) — enter your own initials to code and save"
-        : "Your coder name — pick an existing one or type a new name to add yourself";
+        ? "Original extraction (read-only reference) - enter your own initials to code and save"
+        : "Your coder name - pick one from the list, or add yourself with your initials";
     }
+    if (coderMenuOpen()) renderCoderMenu();
+  }
+
+  /* ---------------------------------------------------------- coder picker */
+  /* The coder field is an in-app dropdown, not a <datalist>: the browser draws
+     a datalist itself, so it cannot follow the theme, cannot mark who is
+     selected, and has nowhere to put "add a coder".  The menu holds
+
+       - "Original (OG)", the reference extraction, always first;
+       - every coder with a coding file in the project;
+       - the coders added here by their initials (kept until they have a file);
+       - one row that adds a new coder by their initials.
+
+     Typing in the field filters the list, the arrow keys move through it,
+     Enter picks the highlighted row and Escape closes it.  Picking from the
+     list and typing a name end in the same place: commitCoder(). */
+
+  let coderQuery = "";   // what the user typed, for filtering the list
+  let coderHl = -1;      // the highlighted row while the keyboard moves
+
+  function coderIsOG(name) {
+    return String(name || "").trim().toLowerCase() === OG_CODER.toLowerCase();
+  }
+
+  /* Two letters for the row's avatar: the initials of a name, or the name
+     itself when it is already short ("MM"). */
+  function coderInitials(name) {
+    const t = String(name || "").trim();
+    if (!t) return "?";
+    if (coderIsOG(t)) return "OG";
+    const words = t.split(/[\s._-]+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return t.slice(0, 2).toUpperCase();
+  }
+
+  function coderMenuOpen() {
+    const menu = $("#coder-menu");
+    return !!menu && !menu.hidden;
+  }
+
+  function openCoderMenu() {
+    const menu = $("#coder-menu");
+    if (!menu) return;
+    coderQuery = "";
+    coderHl = -1;
+    menu.hidden = false;
+    $("#coder-pick")?.classList.add("open");
+    $("#coder-input")?.setAttribute("aria-expanded", "true");
+    renderCoderMenu();
+  }
+
+  function closeCoderMenu() {
+    const menu = $("#coder-menu");
+    if (menu) menu.hidden = true;
+    $("#coder-pick")?.classList.remove("open");
+    $("#coder-input")?.setAttribute("aria-expanded", "false");
+    coderHl = -1;
+  }
+
+  function coderRow(name) {
+    const row = el("button", "coder-opt");
+    row.type = "button";
+    row.setAttribute("role", "option");
+    row.dataset.coder = name;
+    const on = name === state.coder;
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-selected", String(on));
+    row.appendChild(el("span", "coder-av" + (coderIsOG(name) ? " og" : ""), coderInitials(name)));
+    const nm = el("span", "coder-name", name);
+    if (coderIsOG(name)) nm.appendChild(el("span", "coder-tag", "reference"));
+    row.appendChild(nm);
+    if (on) row.appendChild(icon("i-check", 13));
+    row.addEventListener("click", () => {
+      const inp = $("#coder-input");
+      if (inp) inp.value = name;
+      closeCoderMenu();
+      commitCoder(name);
+    });
+    return row;
+  }
+
+  function renderCoderMenu() {
+    const host = $("#coder-menu-list");
+    if (!host) return;
+    host.textContent = "";
+    const q = coderQuery.trim().toLowerCase();
+    const showOG = !q || OG_CODER.toLowerCase().includes(q);
+    const coders = knownCoders().filter((c) => !q || String(c).toLowerCase().includes(q));
+    if (showOG) host.appendChild(coderRow(OG_CODER));
+    if (showOG && coders.length) host.appendChild(el("div", "coder-menu-sep"));
+    coders.forEach((c) => host.appendChild(coderRow(c)));
+    if (!showOG && !coders.length) {
+      host.appendChild(el("div", "coder-menu-note",
+        "No coder matches \u201c" + coderQuery.trim() + "\u201d. Add them below."));
+    }
+    const add = $("#coder-add-input");
+    if (add && !add.value && coderQuery.trim()) add.value = coderQuery.trim();
+  }
+
+  /* Add a coder by their initials.  A name that already exists is simply
+     selected, so the same row both adds and picks. */
+  function addCoder() {
+    const field = $("#coder-add-input");
+    const raw = (field ? field.value : "").trim();
+    if (!raw) { if (field) field.focus(); return; }
+    if (coderIsOG(raw)) {
+      toast("\u201c" + OG_CODER + "\u201d is the reference extraction, not a coder", "err");
+      return;
+    }
+    const existing = knownCoders().find((c) => c.toLowerCase() === raw.toLowerCase());
+    if (field) field.value = "";
+    if (!existing) {
+      let added = [];
+      try { added = JSON.parse(readStore("cs.coders.added", "[]")); } catch { added = []; }
+      if (!Array.isArray(added)) added = [];
+      added.push(raw);
+      safeStore("cs.coders.added", JSON.stringify(added));
+      rememberCoder(raw);
+    }
+    const name = existing || raw;
+    const inp = $("#coder-input");
+    if (inp) inp.value = name;
+    closeCoderMenu();
+    commitCoder(name);
+    toast(existing ? "Coder selected" : "Coder added", "ok", name);
+  }
+
+  /* Commit a coder: the initials are set and that coder's working copy is
+     loaded.  Picking a row and typing a name both come through here, so the
+     two cannot drift apart. */
+  async function commitCoder(raw) {
+    const name = String(raw || "").trim();
+    if (name === state.coderLoaded) { renderCoderOptions(); return; }
+    if (state.dirty) {
+      const ok = await confirmDialog("Discard unsaved changes?",
+        "Switching coder replaces the working copy with that coder's coding.",
+        "Discard & switch", true);
+      if (!ok) { const inp = $("#coder-input"); if (inp) inp.value = state.coder; return; }
+    }
+    state.coder = name;
+    safeStore("cs.coder", name);
+    if (name) rememberCoder(name);
+    renderCoderOptions();
+    window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
+    if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
+    await loadWorkingCopyForCoder();
+    state.records.forEach(ensureModuleFields);
+    state.current = 0;
+    state.selIntervention = -1;
+    state.openDv = new Set();
+    state.statChoice = {};
+    dvAutoFill.clear();
+    state.dirty = false;
+    syncMissingOpen();
+    renderTabs();
+    renderForm();
+    syncRationale();
+    renderCompareSelect();
+    updateDirty();
   }
 
   /* Working copy for the selected coder: their saved coding, else the canonical
@@ -4368,44 +4527,82 @@
     $("#merge-btn")?.addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-merge"));
     });
-    $("#coder-input").addEventListener("input", (e) => {
-      state.coder = e.target.value;
-      safeStore("cs.coder", state.coder);
-      window.dispatchEvent(new CustomEvent("cs:coder", { detail: state.coder }));
-      if (!screeningView()) renderPaperList();
+    /* ---- the coder picker ---- */
+    const coderInp = $("#coder-input");
+    if (coderInp) {
+      coderInp.addEventListener("focus", () => openCoderMenu());
+      coderInp.addEventListener("click", () => { if (!coderMenuOpen()) openCoderMenu(); });
+      coderInp.addEventListener("input", (e) => {
+        coderQuery = e.target.value;
+        state.coder = e.target.value;
+        safeStore("cs.coder", state.coder);
+        window.dispatchEvent(new CustomEvent("cs:coder", { detail: state.coder }));
+        if (!screeningView()) renderPaperList();
+        if (!coderMenuOpen()) openCoderMenu();
+        else { coderHl = -1; renderCoderMenu(); }
+      });
+      coderInp.addEventListener("keydown", (e) => {
+        const rows = () => $$("#coder-menu-list .coder-opt");
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          if (!coderMenuOpen()) { openCoderMenu(); return; }
+          const list = rows();
+          if (!list.length) return;
+          e.preventDefault();
+          const step = e.key === "ArrowDown" ? 1 : -1;
+          coderHl = coderHl < 0
+            ? (step > 0 ? 0 : list.length - 1)
+            : (coderHl + step + list.length) % list.length;
+          list.forEach((r, i) => r.classList.toggle("hl", i === coderHl));
+          list[coderHl].scrollIntoView({ block: "nearest" });
+          return;
+        }
+        if (e.key === "Enter") {
+          const list = rows();
+          if (coderMenuOpen() && coderHl >= 0 && list[coderHl]) {
+            e.preventDefault();
+            list[coderHl].click();
+            return;
+          }
+          if (coderMenuOpen()) { e.preventDefault(); closeCoderMenu(); commitCoder(coderInp.value); }
+          return;
+        }
+        if (e.key === "Escape" && coderMenuOpen()) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeCoderMenu();
+        }
+      });
+      // A change without a pick (typed, then left) still commits the name.
+      coderInp.addEventListener("change", (e) => {
+        if (coderMenuOpen()) closeCoderMenu();
+        commitCoder(e.target.value);
+      });
+    }
+    $("#coder-caret")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (coderMenuOpen()) closeCoderMenu();
+      else { openCoderMenu(); coderInp?.focus(); }
     });
-    // Committing a coder (pick from the dropdown or type a new name) sets the
-    // initials AND loads that coder's working copy — the unified replacement for
-    // the old separate initials + source controls.
-    $("#coder-input").addEventListener("change", async (e) => {
-      const name = (e.target.value || "").trim();
-      if (name === state.coderLoaded) { renderCoderOptions(); return; }
-      if (state.dirty) {
-        const ok = await confirmDialog("Discard unsaved changes?",
-          "Switching coder replaces the working copy with that coder's coding.",
-          "Discard & switch", true);
-        if (!ok) { e.target.value = state.coder; return; }
-      }
-      state.coder = name;
-      safeStore("cs.coder", name);
-      if (name) rememberCoder(name);
-      renderCoderOptions();
-      window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
-      if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
-      await loadWorkingCopyForCoder();
-      state.records.forEach(ensureModuleFields);
-      state.current = 0;
-      state.selIntervention = -1;
-      state.openDv = new Set();
-      state.statChoice = {};
-      dvAutoFill.clear();
-      state.dirty = false;
-      syncMissingOpen();
-      renderTabs();
-      renderForm();
-      syncRationale();
-      renderCompareSelect();
-      updateDirty();
+    $("#coder-add-btn")?.addEventListener("click", () => addCoder());
+    $("#coder-add-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); addCoder(); }
+      if (e.key === "Escape") { e.preventDefault(); closeCoderMenu(); }
+    });
+    // Keep the focus in the field while a row is pressed: a blur would commit
+    // the half-typed name before the pressed row could be picked.
+    $("#coder-menu")?.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".coder-opt")) e.preventDefault();
+    });
+    // Clicking or tabbing out of the picker closes it.
+    document.addEventListener("mousedown", (e) => {
+      if (!coderMenuOpen()) return;
+      if (e.target.closest && e.target.closest("#coder-pick")) return;
+      closeCoderMenu();
+    });
+    document.addEventListener("focusin", (e) => {
+      if (!coderMenuOpen()) return;
+      if (e.target.closest && e.target.closest("#coder-pick")) return;
+      closeCoderMenu();
     });
     $("#save-btn").addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-save"));
