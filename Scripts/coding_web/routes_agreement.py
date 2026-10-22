@@ -6,7 +6,7 @@ import json
 import os
 import re
 import tempfile
-from agreement_lib import AGREEMENT_REFERENCE, DV_MIN_COVERAGE, DV_MIN_MATCHED, _ABSTRACT_CATS, _ABSTRACT_FIELDS, _LABEL_MAX_LEVELS, _abstract_agreement_index, _abstract_case_maps, _agreement_field_defs, _agreement_index, _canon_level, _dv_agreement_defs, _dv_alignment_for, _field_case_map, _field_value, _invalidate_agreement, _linear_weights, _norm_dv_name, _rater_sort_key, dv_alignment_summary, dv_conflict_cases, dv_field_cases, dv_field_categories, gwet_ac, insufficient_note, load_resolutions, pool_gwet, record_resolution, resolution_value
+from agreement_lib import AGREEMENT_REFERENCE, DV_MIN_COVERAGE, DV_MIN_MATCHED, _ABSTRACT_CATS, _LABEL_MAX_LEVELS, abstract_fields, _abstract_agreement_index, _abstract_case_maps, _agreement_field_defs, _agreement_index, _canon_level, _dv_agreement_defs, _dv_alignment_for, _field_case_map, _field_value, _invalidate_agreement, _linear_weights, _norm_dv_name, _rater_sort_key, dv_alignment_summary, dv_conflict_cases, dv_field_cases, dv_field_categories, gwet_ac, insufficient_note, load_resolutions, pool_gwet, record_resolution, resolution_value
 from screening_lib import ai_screen_decision, human_screen_decision, load_screening_decisions, save_screening_decisions, screening_index
 from studio_lib import _values, atomic_replace, load_extraction, safe_token
 from studio_state import S
@@ -349,7 +349,7 @@ def api_agreement_abstract_reliability():
     maps = _abstract_case_maps(index)
     fields = []
     wsum = acc = 0.0
-    for lab, name in _ABSTRACT_FIELDS:
+    for lab, name in abstract_fields():
         cmap = maps[lab]
         case_ratings = []
         for v in cmap.values():
@@ -402,7 +402,7 @@ def api_agreement_abstract_conflicts():
     maps = _abstract_case_maps(index)
     master_dec = load_screening_decisions(master) if master else {}
     rows, counts, studies = [], [], {}
-    for lab, name in _ABSTRACT_FIELDS:
+    for lab, name in abstract_fields():
         if field_filter and lab != field_filter:
             continue
         open_n = settled_n = 0
@@ -456,7 +456,7 @@ def api_agreement_abstract_resolve():
     value = payload.get("value")
     if not master:
         return jsonify({"ok": False, "error": "master name is required"}), 400
-    if lab not in [l for l, _ in _ABSTRACT_FIELDS]:
+    if lab not in [l for l, _ in abstract_fields()]:
         return jsonify({"ok": False, "error": "unknown criterion"}), 400
     if not uid:
         return jsonify({"ok": False, "error": "record id is required"}), 400

@@ -135,6 +135,9 @@
     criteriaError: "",   // why the criteria could not be loaded
     criteriaDirty: false,
     criteriaOpen: {},    // "stage:key" -> the criterion is expanded
+    /* which left-bar sections are folded away.  The left bar is rebuilt on
+       every change, so the fold has to live in the state, not in the DOM. */
+    collapsed: {},       // section id -> true when the section is closed
   };
 
   /* fields whose name was typed by hand (or that carry a legacy name the
@@ -779,23 +782,62 @@
   }
 
   /* ---------------------------------------------------------- left pane */
+  /* A left-bar section that can be folded away.  The open/closed state
+     lives in `state.collapsed`, so it survives the re-render that every
+     change triggers - the DOM is thrown away and rebuilt each time. */
+  function section(id, title, build) {
+    const det = el("details", "scheme-section");
+    det.dataset.section = id;
+    det.open = !state.collapsed[id];
+
+    const head = el("summary", "scheme-section-head");
+    head.appendChild(el("h4", "", title));
+    head.appendChild(el("span", "grow"));
+    const caret = icon("i-caret", 12);
+    caret.classList.add("scheme-caret");
+    head.appendChild(caret);
+    det.appendChild(head);
+
+    const body = el("div", "scheme-section-body");
+    build(body);
+    det.appendChild(body);
+
+    /* The summary drives the fold itself: the click works the same
+       wherever it lands in the header, and the state is written before
+       the next re-render can read it. */
+    head.addEventListener("click", (e) => {
+      e.preventDefault();
+      det.open = !det.open;
+      state.collapsed[id] = !det.open;
+    });
+    det.addEventListener("toggle", () => {
+      state.collapsed[id] = !det.open;
+    });
+    return det;
+  }
+
   function renderLeft() {
     const host = $("#scheme-left");
     if (!host) return;
     host.textContent = "";
-    host.appendChild(metaSection());
-    host.appendChild(blocksSection());
-    host.appendChild(fieldsSection());
-    host.appendChild(metricsSection());
-    host.appendChild(kindsSection());
-    host.appendChild(criteriaSection());
+    host.appendChild(section("scheme", "Scheme", (body) => {
+      body.appendChild(metaSection());
+    }));
+    host.appendChild(section("fields", "Fields", (body) => {
+      body.appendChild(fieldsSection());
+    }));
+    host.appendChild(section("metrics", "Metrics", (body) => {
+      body.appendChild(metricsSection());
+    }));
+    host.appendChild(section("kinds", "Kinds", (body) => {
+      body.appendChild(kindsSection());
+    }));
+    host.appendChild(section("criteria", "Abstract screening", (body) => {
+      body.appendChild(criteriaSection());
+    }));
   }
 
   function metaSection() {
-    const sec = el("div", "scheme-section");
-    const head = el("div", "scheme-section-head");
-    head.appendChild(el("h4", "", "Scheme"));
-    sec.appendChild(head);
     const stack = el("div", "scheme-stack");
     stack.appendChild(labelled("Name", textInput(state.draft.name, (v) => {
       state.draft.name = v;
@@ -809,70 +851,162 @@
       state.draft.description = v;
       changed();
     }, { placeholder: "What this scheme is for" })));
-    sec.appendChild(stack);
-    return sec;
+    return stack;
   }
 
-  function blocksSection() {
-    const sec = el("div", "scheme-section");
-    const head = el("div", "scheme-section-head");
-    head.appendChild(el("h4", "", "Blocks"));
-    sec.appendChild(head);
+  /* The field list carries the blocks: every block is a header row above
+     its own fields, and the blocks can be dragged into a new order.  The
+     module blocks are listed here too, but they are NOT groups - a
+     module's fields live in the scheme's `modules` map - so they stay
+     where they are and are not draggable. */
+  function fieldsSection() {
+    const box = el("div");
 
-    const list = el("div", "scheme-block-list");
-    state.draft.groups.forEach((g, index) => {
-      const row = el("div", "scheme-block-row");
-      const input = textInput(g.name, (v) => {
-        const old = g.name;
-        g.name = v;
-        if (g.label === old) g.label = v;
-        for (const f of state.draft.fields) if (f.group === old) f.group = v;
-        changed();
-      }, { "aria-label": "Block name" });
-      input.addEventListener("change", () => renderLeft());
-      row.appendChild(input);
+    for (const b of buckets()) {
+      if (b.orphan) continue;
+      const wrap = el("div", "scheme-bucket");
+      wrap.appendChild(blockHeader(b));
 
-      row.appendChild(chevron("up", "Move block up", () => {
-        if (index === 0) return;
-        const gs = state.draft.groups;
-        [gs[index - 1], gs[index]] = [gs[index], gs[index - 1]];
-        changed();
-        renderLeft();
-      }));
-      row.appendChild(chevron("down", "Move block down", () => {
-        if (index >= state.draft.groups.length - 1) return;
-        const gs = state.draft.groups;
-        [gs[index + 1], gs[index]] = [gs[index], gs[index + 1]];
-        changed();
-        renderLeft();
-      }));
+      const ul = el("ul", "scheme-list");
+      if (!b.fields.length) {
+        ul.appendChild(el("li", "scheme-empty", "No fields yet."));
+      }
+      for (const f of b.fields) {
+        ul.appendChild(fieldRow(f, b.scope));
+      }
+      wrap.appendChild(ul);
+      box.appendChild(wrap);
+    }
 
-      const condBtn = iconBtn("btn ghost icon scheme-block-cond" + (g.show_if ? " set" : ""),
-        g.show_if ? `Condition: ${condText(g.show_if)}` : "Set a condition for this block",
-        "i-filter", (e) => {
-          openConditionBuilder(e.currentTarget, g.show_if, (cond) => {
-            g.show_if = cond;
-            changed();
-            renderLeft();
-          }, { title: "Block condition", excludeBlock: g.name });
-        });
-      row.appendChild(condBtn);
+    /* the add-block control sits below the last block, so a new block is
+       added right where the user is looking */
+    box.appendChild(addBlockRow());
 
-      const inUse = state.draft.fields.some((f) => f.group === g.name);
-      const del = iconBtn("btn ghost icon", inUse
-        ? "This block still holds fields — move or delete them first"
-        : "Delete block", "i-trash", () => {
-        if (inUse) return;
-        state.draft.groups = state.draft.groups.filter((x) => x !== g);
-        changed();
-        renderLeft();
-      });
-      del.disabled = inUse;
-      row.appendChild(del);
-      list.appendChild(row);
+    const add = el("button", "btn scheme-btn-row", "Add field");
+    add.type = "button";
+    add.addEventListener("click", () => {
+      const first = state.draft.groups[0];
+      if (!first) {
+        state.draft.groups.push({ name: "Study", label: "Study", description: "", show_if: null });
+      }
+      addField("study", state.draft.groups[0].name, null);
     });
-    sec.appendChild(list);
+    add.style.width = "100%";
+    add.style.justifyContent = "center";
+    box.appendChild(add);
+    return box;
+  }
 
+  /* The header row of a block: the drag handle, the name, the add icon
+     (a field for THIS block), the rename icon, the condition icon and the
+     trash icon. */
+  function blockHeader(b) {
+    const head = el("div", "scheme-block-head");
+    head.dataset.bucket = b.id;
+    const isGroup = b.scope === "study";
+
+    if (isGroup) {
+      const grip = el("span", "scheme-grip");
+      grip.title = "Drag to move this block";
+      grip.setAttribute("aria-hidden", "true");
+      grip.appendChild(icon("i-grip", 13));
+      head.appendChild(grip);
+    }
+
+    const name = el("span", "scheme-bucket-name", b.label);
+    head.appendChild(name);
+    head.appendChild(el("span", "grow"));
+
+    /* the add icon: a new field for this very block */
+    head.appendChild(iconBtn("btn ghost icon", "Add a field to this block", "i-plus", () => {
+      addField(b.scope, b.name, b.scope === "module" ? b.name : null);
+    }));
+
+    /* a module is not a group: it has no name of its own to rename, no
+       condition and no place in the order - only its fields are edited
+       here. */
+    if (!isGroup) return head;
+
+    const g = b.group;
+
+    /* the small rename: an inline edit of the block's name */
+    head.appendChild(iconBtn("btn ghost icon", "Rename this block", "i-pencil", () => {
+      startBlockRename(g, head, name);
+    }));
+
+    /* the condition icon: the block's show_if */
+    head.appendChild(iconBtn("btn ghost icon scheme-block-cond" + (g.show_if ? " set" : ""),
+      g.show_if ? `Condition: ${condText(g.show_if)}` : "Set a condition for this block",
+      "i-filter", (e) => {
+        openConditionBuilder(e.currentTarget, g.show_if, (cond) => {
+          g.show_if = cond;
+          changed();
+          renderLeft();
+        }, { title: "Block condition", excludeBlock: g.name });
+      }));
+
+    /* the trash icon: the block goes, but only while it holds no fields */
+    const inUse = state.draft.fields.some((f) => f.group === g.name);
+    const del = iconBtn("btn ghost icon", inUse
+      ? "This block still holds fields — move or delete them first"
+      : "Delete block", "i-trash", () => {
+      if (inUse) return;
+      state.draft.groups = state.draft.groups.filter((x) => x !== g);
+      changed();
+      renderLeft();
+    });
+    del.disabled = inUse;
+    head.appendChild(del);
+
+    wireBlockDrag(head, g);
+    return head;
+  }
+
+  /* An inline rename of a block: the name becomes a small text field, and
+     the fields that belong to the block follow it.  The name is committed
+     when the field loses the focus or the user presses Enter; Escape
+     cancels. */
+  function startBlockRename(g, head, nameEl) {
+    if (!g || head.querySelector(".scheme-rename")) return;
+    const original = g.name;
+    const input = textInput(original, () => {}, { "aria-label": "Block name" });
+    input.classList.add("scheme-rename");
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const commit = () => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim();
+      if (!v) { renderLeft(); return; }
+      if (v !== original && state.draft.groups.some((x) => x !== g && x.name === v)) {
+        toast("That block already exists", "err");
+        renderLeft();
+        return;
+      }
+      if (v !== original) {
+        g.name = v;
+        if (g.label === original) g.label = v;
+        for (const f of state.draft.fields) if (f.group === original) f.group = v;
+        changed();
+      }
+      renderLeft();
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(); }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        done = true;
+        renderLeft();
+      }
+    });
+  }
+
+  /* The "add block" control: a name and a button. */
+  function addBlockRow() {
     const add = el("div", "scheme-btn-row");
     const name = textInput("", () => {}, { placeholder: "New block name" });
     const addBtn = el("button", "btn", "Add block");
@@ -894,55 +1028,76 @@
     });
     add.appendChild(name);
     add.appendChild(addBtn);
-    sec.appendChild(add);
-    return sec;
+    return add;
   }
 
-  function fieldsSection() {
-    const sec = el("div", "scheme-section");
-    const head = el("div", "scheme-section-head");
-    head.appendChild(el("h4", "", "Fields"));
-    sec.appendChild(head);
+  /* ---------------------------------------------------------- drag & drop
+     The GROUP blocks can be dragged into a new order (HTML5 drag events -
+     the only thing that works without a library).  A module is not a
+     group, so it is neither a drag source nor a drop target. */
+  let dragGroup = null;
 
-    for (const b of buckets()) {
-      if (b.orphan) continue;
-      const wrap = el("div", "scheme-bucket");
-      const bh = el("div", "scheme-bucket-head");
-      bh.appendChild(el("span", "scheme-bucket-name", b.label));
-      bh.appendChild(el("span", "grow"));
-      bh.appendChild(iconBtn("btn ghost icon", "Add a field to this block", "i-plus", () => {
-        addField(b.scope, b.scope === "study" ? b.name : b.name, b.scope === "module" ? b.name : null);
-      }));
-      wrap.appendChild(bh);
-
-      const ul = el("ul", "scheme-list");
-      if (!b.fields.length) {
-        ul.appendChild(el("li", "scheme-empty", "No fields yet."));
-      }
-      for (const f of b.fields) {
-        ul.appendChild(fieldRow(f, b.scope));
-      }
-      wrap.appendChild(ul);
-      sec.appendChild(wrap);
-    }
-
-    const add = el("button", "btn scheme-btn-row", "Add field");
-    add.type = "button";
-    add.addEventListener("click", () => {
-      const first = state.draft.groups[0];
-      if (!first) {
-        state.draft.groups.push({ name: "Study", label: "Study", description: "", show_if: null });
-      }
-      addField("study", state.draft.groups[0].name, null);
+  function wireBlockDrag(head, g) {
+    /* the whole header is the drag source, but only when the press did not
+       start on a button - a button press is a click, not a drag */
+    head.addEventListener("mousedown", (e) => {
+      if (e.target.closest("button")) return;
+      head.draggable = true;
     });
-    add.style.width = "100%";
-    add.style.justifyContent = "center";
-    sec.appendChild(add);
-    return sec;
+    head.addEventListener("mouseup", () => { head.draggable = false; });
+    head.addEventListener("dragstart", (e) => {
+      dragGroup = g;
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        try { e.dataTransfer.setData("text/plain", g.name); } catch (err) { /* ignore */ }
+      }
+      head.classList.add("scheme-dragging");
+    });
+    head.addEventListener("dragend", () => {
+      head.draggable = false;
+      head.classList.remove("scheme-dragging");
+      dragGroup = null;
+      for (const n of $$(".scheme-block-head")) n.classList.remove("scheme-drag-over");
+    });
+    head.addEventListener("dragover", (e) => {
+      if (!dragGroup || dragGroup === g) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      head.classList.add("scheme-drag-over");
+    });
+    head.addEventListener("dragleave", (e) => {
+      if (e.relatedTarget && head.contains(e.relatedTarget)) return;
+      head.classList.remove("scheme-drag-over");
+    });
+    head.addEventListener("drop", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      head.classList.remove("scheme-drag-over");
+      const src = dragGroup;
+      dragGroup = null;
+      if (!src || src === g) return;
+      moveBlock(src, g);
+    });
+  }
+
+  /* The dragged block takes the place of the block it was dropped on, so
+     the fields that belong to it travel with it. */
+  function moveBlock(src, target) {
+    const gs = state.draft.groups;
+    const from = gs.indexOf(src);
+    if (from < 0) return;
+    const to = gs.indexOf(target);
+    if (to < 0) return;
+    gs.splice(from, 1);
+    let at = gs.indexOf(target);
+    if (from < to) at += 1;
+    gs.splice(at, 0, src);
+    changed();
+    renderLeft();
   }
 
   function fieldRow(f, scope) {
-    const li = el("li");
+    const li = el("li", "scheme-fieldrow");
     const btn = el("button", "scheme-item" + (state.selected && state.selected.name === f.name ? " active" : ""));
     btn.type = "button";
     btn.dataset.name = f.name;
@@ -959,6 +1114,23 @@
       renderAll();
     });
     li.appendChild(btn);
+
+    /* every field can be deleted from the list - with the app's own
+       confirmation sheet, the one the criteria use */
+    li.appendChild(iconBtn("btn ghost icon", "Delete field", "i-trash", async () => {
+      const ok = await confirmDialog("Delete the field?",
+        `The field "${f.label || f.name || "(unnamed)"}" is removed from the scheme.`,
+        "Delete field");
+      if (!ok) return;
+      const list = listOf(scope, f);
+      if (list) {
+        const i = list.indexOf(f);
+        if (i >= 0) list.splice(i, 1);
+      }
+      if (state.selected && state.selected.name === f.name) state.selected = null;
+      changed();
+      renderAll();
+    }));
     return li;
   }
 
@@ -1002,8 +1174,6 @@
   function metricsSection() {
     const card = el("div", "scheme-card");
     const head = el("div", "scheme-card-head");
-    head.appendChild(el("h4", "scheme-card-title", "Metrics"));
-    head.appendChild(el("span", "grow"));
     head.appendChild(checkbox("Enabled", state.draft.metrics.enabled, (v) => {
       state.draft.metrics.enabled = v;
       changed();
@@ -1096,8 +1266,6 @@
   function kindsSection() {
     const card = el("div", "scheme-card");
     const head = el("div", "scheme-card-head");
-    head.appendChild(el("h4", "scheme-card-title", "Kinds"));
-    head.appendChild(el("span", "grow"));
     const add = el("button", "btn", "Add kind");
     add.type = "button";
     add.addEventListener("click", () => {
@@ -1284,25 +1452,21 @@
   }
 
   function criteriaSection() {
-    const sec = el("div", "scheme-section");
-    const head = el("div", "scheme-section-head");
-    head.appendChild(el("h4", "", "Abstract screening"));
-    head.appendChild(el("span", "grow"));
-    sec.appendChild(head);
+    const box = el("div");
 
     if (state.criteriaError) {
-      sec.appendChild(el("div", "scheme-empty",
+      box.appendChild(el("div", "scheme-empty",
         "The criteria could not be loaded: " + state.criteriaError));
     } else {
-      sec.appendChild(el("div", "scheme-card-sub",
+      box.appendChild(el("div", "scheme-card-sub",
         "The inclusion criteria of the active scheme. They live in their own "
         + "file next to the scheme and are saved with it."));
     }
 
     for (const stage of CRITERION_STAGES) {
-      sec.appendChild(criteriaStageCard(stage));
+      box.appendChild(criteriaStageCard(stage));
     }
-    return sec;
+    return box;
   }
 
   function criteriaStageCard(stage) {

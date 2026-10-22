@@ -4,7 +4,7 @@ from datetime import datetime
 from flask import Blueprint, abort, jsonify, request
 import os
 import threading
-from screening_lib import SCREENING_CRITERIA, _SCREEN_LABELS, _SCREEN_MERGE, _SCREEN_MERGE_LOCK, _screen_merge_worker, ai_screen_decision, human_screen_decision, load_screening_decisions, save_screening_decisions, screening_index, screening_master_path
+from screening_lib import SCREENING_CRITERIA, _SCREEN_LABELS, _SCREEN_MERGE, _SCREEN_MERGE_LOCK, _screen_merge_worker, ai_screen_decision, human_screen_decision, load_screening_decisions, save_screening_decisions, screening_criteria, screening_index, screening_master_path
 
 bp = Blueprint("screening", __name__)
 
@@ -20,7 +20,7 @@ def api_screening_meta():
         "master": os.path.basename(master),
         "master_mtime": (datetime.fromtimestamp(os.path.getmtime(master)).isoformat(timespec="seconds")
                          if os.path.exists(master) else None),
-        "criteria": SCREENING_CRITERIA,
+        "criteria": screening_criteria(),
         "total": len(idx["rows"]),
         "screened": len(decisions),
         "coder": coder,
@@ -81,8 +81,11 @@ def api_screening_decision():
     if rec is None:
         return jsonify({"ok": False, "error": "unknown abstract id"}), 400
     clean = {}
-    for lab in _SCREEN_LABELS:
-        entry = criteria.get(lab) or {}
+    for criterion in screening_criteria():
+        lab = criterion.get("label") or ""
+        if not lab:
+            continue
+        entry = criteria.get(lab) or criteria.get(criterion.get("key") or "") or {}
         clean[lab] = {
             "verdict": str(entry.get("verdict") or "").strip(),
             "certainty": str(entry.get("certainty") or "").strip(),

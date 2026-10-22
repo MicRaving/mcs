@@ -3,11 +3,12 @@
    Three-pane shell mirroring the Coding tab: abstract list |
    inclusion criteria form | abstract / AI-reference viewer.
 
-   Inclusion is driven by the Tab key (see screening.js): criteria whose
-   keywords appear nowhere in the title/abstract are pre-selected "Unsure"
-   when the abstract loads, and Tab accepts the focused criterion and
-   advances; past the last criterion it saves the record and loads the next
-   abstract in place.
+   Inclusion is driven by the Tab key (see screening.js): a criterion whose
+   auto-approval rule matches the title/abstract is pre-filled with the
+   criterion's first pass value (and the card says which rule matched), a
+   criterion with rules but no match is pre-selected "Unsure", and Tab
+   accepts the focused criterion and advances; past the last criterion it
+   saves the record and loads the next abstract in place.
    ============================================================ */
 
 /* author display rules beat [hidden]; state it explicitly for the view */

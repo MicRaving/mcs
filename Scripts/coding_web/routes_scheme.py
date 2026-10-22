@@ -653,10 +653,27 @@ def api_criteria():
 
 @bp.put("/api/criteria")
 def api_put_criteria():
-    """Replace the project's criteria."""
+    """Replace the project's criteria.
+
+    A document with a STRUCTURAL problem (a duplicate key, a missing key, a
+    rule set that is not a mapping) is refused with 400 and the problem list.
+    A rule whose regular expression does not compile is a WARNING: the
+    criteria stay usable, the rule is ignored at match time, and the editor
+    shows it as broken.
+    """
     doc = _body()
     if not doc:
         return _fail("the request body must be the criteria document", 400)
+    try:
+        import criteria_lib
+    except ImportError:  # pragma: no cover - criteria_lib is optional
+        criteria_lib = None
+    if criteria_lib is not None:
+        normalised = criteria_lib.normalise_criteria(doc)
+        problems = criteria_lib.validate_criteria(normalised)
+        errors = [p for p in problems if p.get("level") == "error"]
+        if errors:
+            return _fail("the criteria have structural errors", 400, problems=problems)
     try:
         project_context.write_criteria(doc)
         criteria = project_context.criteria()
@@ -682,6 +699,9 @@ def api_put_criteria():
         return _fail(str(exc), 400)
     except OSError as exc:
         return _fail(f"could not write the criteria: {exc}", 500)
+    if criteria_lib is not None:
+        problems = criteria_lib.validate_criteria(criteria)
+        return jsonify({"ok": True, "criteria": criteria, "problems": problems})
     return jsonify({"ok": True, "criteria": criteria})
 
 

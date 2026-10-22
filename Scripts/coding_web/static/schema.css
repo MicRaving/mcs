@@ -49,11 +49,26 @@
 .scheme-foot-note { font-size: 11.5px; color: var(--muted); }
 
 /* ------------------------------------------------------------ left pane */
+/* Every left-bar section is a <details>: the summary folds it away, the
+   state of the fold lives in the editor's state object (the left bar is
+   rebuilt on every change, so the DOM cannot keep it). */
 .scheme-section { margin-bottom: 16px; }
 .scheme-section-head {
   display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
 }
 .scheme-section-head .grow { flex: 1; }
+.scheme-section > summary {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 0; padding: 2px 0;
+  cursor: pointer; list-style: none; user-select: none;
+}
+.scheme-section > summary::-webkit-details-marker { display: none; }
+.scheme-section > summary::marker { content: ""; }
+.scheme-section > summary:hover h4 { color: var(--ink-2); }
+.scheme-section[open] > summary { margin-bottom: 6px; }
+.scheme-section[open] > summary .scheme-caret { transform: rotate(90deg); }
+.scheme-caret { flex: none; color: var(--faint); transition: transform .15s ease; }
+.scheme-section-body { min-width: 0; }
 
 .scheme-field { display: block; min-width: 0; }
 .scheme-field-label {
@@ -72,17 +87,32 @@
 .scheme-btn-row { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
 .scheme-btn-row .input { flex: 1; min-width: 0; }
 
-/* blocks */
-.scheme-block-list { display: flex; flex-direction: column; gap: 4px; }
-.scheme-block-row {
-  display: flex; align-items: center; gap: 4px;
-  padding: 3px; border: 1px solid transparent; border-radius: var(--r-sm);
+/* the block headers inside the field list */
+.scheme-block-head {
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 3px; border: 1px solid transparent; border-radius: var(--r-sm);
 }
-.scheme-block-row:hover { background: var(--panel); border-color: var(--line); }
-.scheme-block-row .input { flex: 1; min-width: 0; }
-.scheme-block-row .btn.icon { width: 26px; height: 26px; padding: 0; justify-content: center; }
-.scheme-block-row .btn.icon svg { width: 13px; height: 13px; }
-.scheme-block-row .btn[disabled] { opacity: .35; cursor: not-allowed; }
+.scheme-block-head:hover { background: var(--panel); border-color: var(--line); }
+.scheme-block-head .grow { flex: 1; }
+.scheme-block-head .scheme-bucket-name { max-width: 150px; }
+.scheme-block-head .btn.icon { width: 22px; height: 22px; padding: 0; justify-content: center; flex: none; }
+.scheme-block-head .btn.icon svg { width: 12px; height: 12px; }
+.scheme-block-head .btn[disabled] { opacity: .35; cursor: not-allowed; }
+
+/* the drag handle: the whole header can be dragged, the grip says so */
+.scheme-grip {
+  flex: none; width: 15px; height: 20px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--faint); cursor: grab;
+}
+.scheme-grip svg { width: 12px; height: 12px; }
+.scheme-block-head:hover .scheme-grip { color: var(--muted); }
+.scheme-block-head.scheme-dragging { opacity: .45; }
+.scheme-block-head.scheme-drag-over {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 .scheme-block-cond {
   width: 26px; height: 26px; padding: 0; justify-content: center;
 }
@@ -90,17 +120,16 @@
 
 /* field buckets */
 .scheme-bucket { margin-bottom: 9px; }
-.scheme-bucket-head {
-  display: flex; align-items: center; gap: 6px; padding: 2px 0 3px;
-}
 .scheme-bucket-name {
   font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
   text-transform: uppercase; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
 }
-.scheme-bucket-head .grow { flex: 1; }
-.scheme-bucket-head .btn.icon { width: 22px; height: 22px; padding: 0; justify-content: center; }
-.scheme-bucket-head .btn.icon svg { width: 12px; height: 12px; }
+.scheme-rename {
+  flex: 1; min-width: 0; max-width: 170px;
+  font-size: 11px; min-height: 22px; padding: 1px 5px;
+  text-transform: none; letter-spacing: 0;
+}
 
 .scheme-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .scheme-item {
@@ -112,10 +141,18 @@
 .scheme-item:hover { background: var(--panel); }
 .scheme-item.active { background: var(--accent-soft); color: var(--accent-ink); }
 .scheme-item .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.scheme-item .btn.icon { width: 20px; height: 20px; padding: 0; justify-content: center; opacity: 0; flex: none; }
-.scheme-item:hover .btn.icon, .scheme-item .btn.icon:focus-visible { opacity: 1; }
-.scheme-item .btn.icon svg { width: 12px; height: 12px; }
 .scheme-empty { font-size: 11px; color: var(--faint); padding: 2px 6px; }
+
+/* a field row: the field itself and its trash icon */
+.scheme-fieldrow { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.scheme-fieldrow .scheme-item { flex: 1; min-width: 0; width: auto; }
+.scheme-fieldrow .btn.icon {
+  width: 20px; height: 20px; padding: 0; justify-content: center; flex: none;
+  opacity: 0;
+}
+.scheme-fieldrow:hover .btn.icon,
+.scheme-fieldrow .btn.icon:focus-visible { opacity: 1; }
+.scheme-fieldrow .btn.icon svg { width: 12px; height: 12px; }
 
 .scheme-badge {
   flex: none; padding: 1px 6px; border-radius: 99px;

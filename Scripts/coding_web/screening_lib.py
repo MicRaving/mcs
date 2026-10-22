@@ -179,12 +179,86 @@ def screening_index():
 def _screen_verdict_of(ai, label):
     return str((ai.get(label) or {}).get("verdict") or "").strip()
 
+def _scheme_criteria():
+    """The abstract criteria of the active project's scheme.
+
+    The hardcoded ``SCREENING_CRITERIA`` below is the FALLBACK for a project
+    that carries no criteria of its own; a scheme's criteria win, so a
+    criterion added in the Scheme editor really appears in the screening tab.
+    """
+    try:
+        import project_context
+        criteria = (project_context.criteria() or {}).get("abstract") or []
+    except Exception:  # noqa: BLE001
+        criteria = []
+    if criteria:
+        return criteria
+    return [
+        {"key": c["label"], "label": c["title"], "kind": c.get("kind", "verdict"),
+         "prompt_text": c.get("instruction", ""), "options": c.get("options") or [],
+         "pass_values": ["Yes"], "gating": True}
+        for c in SCREENING_CRITERIA
+    ]
+
+
+def screening_criteria():
+    """The abstract criteria, in the shape the screening tab expects.
+
+    The scheme's criteria win: a criterion added in the Scheme editor really
+    appears in the screening tab, with its own options, pass values, gating
+    flag and auto-approval rules.  The hardcoded ``SCREENING_CRITERIA`` is the
+    fallback for a project that carries no criteria of its own.
+    """
+    out = []
+    for criterion in _scheme_criteria():
+        key = str(criterion.get("key") or criterion.get("label") or "").strip()
+        if not key:
+            continue
+        out.append({
+            "key": key,
+            "label": key,
+            "kind": criterion.get("kind") or "verdict",
+            "title": criterion.get("label") or criterion.get("title") or key,
+            "instruction": criterion.get("prompt_text")
+                          or criterion.get("instruction") or "",
+            "options": criterion.get("options") or ["Yes", "No", "Unsure"],
+            "pass_values": criterion.get("pass_values") or ["Yes"],
+            "gating": criterion.get("gating", True),
+            "auto_approve": criterion.get("auto_approve") or {},
+        })
+    return out
+
+
+def _criterion_passes(criterion, verdict):
+    """Whether a criterion's verdict passes it (its own pass values decide)."""
+    verdict = str(verdict or "").strip().lower()
+    if not verdict:
+        return False
+    wanted = criterion.get("pass_values") or ["yes"]
+    return verdict in {str(v).strip().lower() for v in wanted}
+
+
 def ai_screen_decision(rec):
-    """Include iff C1-C4 are all Yes; Exclude as soon as one is No; else blank."""
-    verdicts = [_screen_verdict_of(rec.get("ai", {}), lab) for lab in ("C1", "C2", "C3", "C4")]
-    if any(v == "No" for v in verdicts):
+    """Include iff every GATING criterion passes; Exclude as soon as one fails.
+
+    The criteria and their pass values come from the project's scheme, so a
+    criterion added in the Scheme editor takes part in the decision.
+    """
+    verdicts = rec.get("ai", {}) or {}
+    decided = []
+    for criterion in _scheme_criteria():
+        key = criterion.get("key") or criterion.get("label") or ""
+        if not key:
+            continue
+        verdict = _screen_verdict_of(verdicts, key)
+        if not verdict:
+            continue
+        if not criterion.get("gating", True):
+            continue        # informational: reported, never blocking
+        decided.append((criterion, verdict))
+    if any(not _criterion_passes(c, v) for c, v in decided):
         return "Exclude"
-    if all(v == "Yes" for v in verdicts):
+    if decided and all(_criterion_passes(c, v) for c, v in decided):
         return "Include"
     return ""
 
@@ -195,11 +269,20 @@ def human_screen_decision(dec):
     if decision:
         return decision
     crits = dec.get("criteria") or {}
-    verdicts = [str((crits.get(lab) or {}).get("verdict") or "").strip()
-                for lab in ("C1", "C2", "C3", "C4")]
-    if any(v == "No" for v in verdicts):
+    decided = []
+    for criterion in _scheme_criteria():
+        key = criterion.get("key") or criterion.get("label") or ""
+        if not key:
+            continue
+        verdict = str((crits.get(key) or {}).get("verdict") or "").strip()
+        if not verdict:
+            continue
+        if not criterion.get("gating", True):
+            continue
+        decided.append((criterion, verdict))
+    if any(not _criterion_passes(c, v) for c, v in decided):
         return "Exclude"
-    if all(v == "Yes" for v in verdicts):
+    if decided and all(_criterion_passes(c, v) for c, v in decided):
         return "Include"
     return ""
 
