@@ -32,8 +32,13 @@ Build:  python Scripts/build_coding_exe.py [--lite] [--onefile] [--name NAME]
 """
 
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all
+
+IS_WIN = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
+IS_LINUX = not IS_WIN and not IS_MAC
 
 APP = "app.py"
 LITE = os.environ.get("CODINGSTUDIO_LITE") == "1"
@@ -44,8 +49,13 @@ datas, binaries, hiddenimports = [], [], []
 
 # Export formats (always) + PDF text extraction (non-lite) + the native window
 # + the numeric stack the shared estimators need (D6).
-packages = ("openpyxl", "pptx", "docx", "lxml", "PIL", "webview", "pythonnet",
-            "clr_loader", "numpy", "scipy", "pandas")
+# pywebview's native window needs a different backend per platform: WinForms on
+# Windows, Cocoa on macOS, GTK on Linux.  Only the Windows backend is a pip
+# package of its own (pythonnet); the others come from the system/runtime.
+packages = ("openpyxl", "pptx", "docx", "lxml", "PIL", "webview",
+            "numpy", "scipy", "pandas")
+if IS_WIN:
+    packages = packages + ("pythonnet", "clr_loader")
 if not LITE:
     packages = ("pymupdf",) + packages
 for pkg in packages:
@@ -68,8 +78,8 @@ datas += [("static", "static"), ("schema.json", ".")]
 # the schemes travel with the app: Schemes/<id>/{scheme,criteria}.json
 datas += [("Schemes", "Schemes")]
 hiddenimports += [
-    "flask", "clr", "webview.platforms.winforms", "webview.platforms.edgechromium",
-    "openpyxl", "et_xmlfile", "pptx", "lxml", "lxml.etree", "PIL", "PIL.Image",
+    "flask", "openpyxl", "et_xmlfile", "pptx", "lxml", "lxml.etree",
+    "PIL", "PIL.Image",
     "docx", "typing_extensions",
     # shared pipeline modules imported in-process by the app (D6 / interface §2-§4)
     "contract", "stat_core", "specs_api", "prisma", "prisma_report",
@@ -79,6 +89,17 @@ hiddenimports += [
     # the agent bundle (the JSON Schema, the prompt and the MCP config)
     "scheme_export",
 ]
+
+# the native-window backend of this platform
+if IS_WIN:
+    hiddenimports += ["clr", "webview.platforms.winforms",
+                      "webview.platforms.edgechromium"]
+elif IS_MAC:
+    hiddenimports += ["webview.platforms.cocoa", "objc",
+                      "Foundation", "AppKit", "WebKit"]
+else:
+    hiddenimports += ["webview.platforms.gtk"]
+
 
 excludes = [
     "tkinter", "matplotlib",
@@ -149,3 +170,21 @@ else:
         **_common,
     )
     coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name=NAME)
+
+# On macOS a folder of files is not an app: wrap the collected tree in a
+# .app bundle so Finder can launch it (and so the zip has something to
+# double-click).
+if IS_MAC and not ONEFILE:
+    app = BUNDLE(
+        coll,
+        name=NAME + ".app",
+        icon=None,
+        bundle_identifier="org.codingstudio.app",
+        info_plist={
+            "CFBundleName": NAME,
+            "CFBundleDisplayName": NAME,
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+        },
+    )
+

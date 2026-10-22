@@ -77,11 +77,24 @@ def find_data_root(start, max_up=6):
 
 
 def _config_candidates():
+    """Where the app config lives, per platform.
+
+    Windows keeps the portable file next to the exe when it is frozen, and
+    falls back to %LOCALAPPDATA%.  macOS and Linux use the platform's own
+    place: an app folder inside a bundle or a Flatpak is read-only, so the
+    config cannot live beside the executable there.
+    """
     out = []
-    if FROZEN:
+    if FROZEN and sys.platform == "win32":
         out.append(os.path.join(EXE_DIR, CONFIG_NAME))
-    out.append(os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()),
-                            "CodingStudio", CONFIG_NAME))
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
+    elif sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~/Library/Application Support"))
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+            os.path.expanduser("~"), ".config")
+    out.append(os.path.join(base, "CodingStudio", CONFIG_NAME))
     return out
 
 
