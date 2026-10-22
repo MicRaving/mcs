@@ -1829,22 +1829,7 @@
     "platform_exposure_reduction",
     "other"
    ],
-   "controlled_values": [
-    "inoculation",
-    "prebunking_warning",
-    "lateral_reading",
-    "credibility_labels",
-    "media_literacy_tips",
-    "fact_checking_training",
-    "openmindedness_intervention",
-    "debunking_and_rebuttals",
-    "community_correction",
-    "accuracy_prompts",
-    "friction",
-    "social_norms",
-    "platform_exposure_reduction",
-    "other"
-   ],
+   "controlled_values": [],
    "legacy_options": [],
    "columns": [],
    "role": "intervention_type",
@@ -3171,42 +3156,15 @@
      "critical_thinking",
      "other"
     ],
-    "controlled_values": [
-     "technique_recognition",
-     "credibility",
-     "sharing_intention",
-     "search_behavior",
-     "attitude_policy",
-     "trust",
-     "media_literacy_attitudes",
-     "critical_thinking",
-     "other"
-    ],
-    "legacy_options": [
-     {
-      "value": "engagement_behavior",
-      "label": "engagement_behavior"
-     },
-     {
-      "value": "confidence",
-      "label": "confidence"
-     },
-     {
-      "value": "affect",
-      "label": "affect"
-     },
-     {
-      "value": "belief_accuracy",
-      "label": "belief_accuracy"
-     }
-    ],
+    "controlled_values": [],
+    "legacy_options": [],
     "columns": [],
     "role": "dv_domain",
     "required": false,
     "derived": false,
     "moderator": true,
     "description": "Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19.",
-    "instruction": "Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they belong in 'other'.",
+    "instruction": "Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they are coded as 'other' (the retired label 'affect' is also read as 'other'). The domain decides dv_polarity: a credibility score is better when it is higher for TRUE news, a sharing score is worse when it is higher for FALSE news, and technique_recognition mixes the two - derive the polarity per DV, never per domain.",
     "show_if": null,
     "required_if": null,
     "module": null,
@@ -3250,28 +3208,7 @@
      "change_score",
      "signal_detection_other"
     ],
-    "controlled_values": [
-     "separate_true",
-     "separate_false",
-     "separate_manipulative",
-     "separate_nonmanipulative",
-     "discernment_difference",
-     "composite",
-     "signal_detection_auc",
-     "signal_detection_d_prime",
-     "signal_detection_c",
-     "dichotomous_accuracy",
-     "continuous_accuracy",
-     "proportion",
-     "proportion_difference",
-     "behavioral_choice",
-     "other",
-     "count",
-     "single_item",
-     "behavioral_intention",
-     "change_score",
-     "signal_detection_other"
-    ],
+    "controlled_values": [],
     "legacy_options": [],
     "columns": [],
     "role": "score_types",
@@ -3279,7 +3216,7 @@
     "derived": false,
     "moderator": true,
     "description": "Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other.",
-    "instruction": "Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them.",
+    "instruction": "Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, signal_detection_other, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them. The veracity component decides dv_polarity: a score that is higher for true news is better, a score that is higher for false news is worse.",
     "show_if": null,
     "required_if": null,
     "module": null,
@@ -5462,59 +5399,14 @@
     ],
     "vocab": [],
     "controlled_values": [],
-    "legacy_options": [
-     {
-      "value": "t",
-      "label": "t"
-     },
-     {
-      "value": "F",
-      "label": "F"
-     },
-     {
-      "value": "chi2",
-      "label": "chi2"
-     },
-     {
-      "value": "log_odds",
-      "label": "log_odds"
-     },
-     {
-      "value": "means_sd",
-      "label": "means_sd"
-     },
-     {
-      "value": "cohen_d",
-      "label": "cohen_d"
-     },
-     {
-      "value": "cohens_d",
-      "label": "cohens_d"
-     },
-     {
-      "value": "hedges_g",
-      "label": "hedges_g"
-     },
-     {
-      "value": "smd",
-      "label": "smd"
-     },
-     {
-      "value": "d_val",
-      "label": "d_val"
-     },
-     {
-      "value": "g_val",
-      "label": "g_val"
-     }
-    ],
+    "legacy_options": [],
     "columns": [],
     "role": "effect_type_reported",
     "required": false,
     "derived": false,
     "moderator": true,
     "description": "Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none.",
-    "instruction": "Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used.",
+    "instruction": "Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, means, dprime, c, other, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used. A mis-coded value here silently drops the row from the pool, with nothing in the logs to say why.",
     "show_if": null,
     "required_if": null,
     "module": null,
@@ -5638,7 +5530,7 @@
     "derived": false,
     "moderator": true,
     "description": "Inputs used for conversion, e.g. {\"n1i\":181,\"n2i\":199,\"t_val\":9.2}.",
-    "instruction": "The inputs used for the conversion, e.g. {'n1i': 181, 'n2i': 199, 't_val': 9.2}.",
+    "instruction": "The inputs used for the conversion, e.g. {\"n1i\": 181, \"n2i\": 199, \"t_val\": 9.2}.",
     "show_if": null,
     "required_if": null,
     "module": null,
@@ -5690,7 +5582,7 @@
     "derived": false,
     "moderator": true,
     "description": "Array of objects, one per group-time cell, each {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}.",
-    "instruction": "One entry per group-time cell: {'group': string, 'timepoint': string, 'n': number or null, 'mean': number or null, 'sd': number or null}.",
+    "instruction": "One entry per group-time cell: {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}.",
     "show_if": null,
     "required_if": null,
     "module": null,
@@ -11074,74 +10966,66 @@
    {
     "id": "S1",
     "name": "id",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S2",
     "name": "condition_col",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S3",
     "name": "arm_roles",
-    "weight": 4.0
+    "weight": 4
    },
    {
     "id": "S4",
     "name": "dv_pairs",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S5",
     "name": "dv_domain",
-    "weight": 4.0
+    "weight": 4
    },
    {
     "id": "S6",
     "name": "veracity",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S6cell",
     "name": "veracity_cell",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S7",
     "name": "timepoint",
-    "weight": 1.0
+    "weight": 1
    },
    {
     "id": "S8",
     "name": "dv_polarity",
-    "weight": 3.0
+    "weight": 3
    },
    {
     "id": "S9",
     "name": "exclusions",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S10",
     "name": "covariates",
-    "weight": 1.0
+    "weight": 1
    },
    {
     "id": "S11",
     "name": "provenance",
-    "weight": 1.0
+    "weight": 1
    }
   ]
  },
- "field_aliases": {
-  "Rationale_Notes": [
-   "notes"
-  ],
-  "Publication": [
-   "Publication_Type",
-   "Publication_Category"
-  ]
- },
+ "field_aliases": {},
  "effect_families": [
   "descriptives",
   "t",
@@ -11156,128 +11040,7 @@
   "chi2"
  ],
  "kinds": [],
- "structures": {
-  "Interventions": {
-   "key": "Interventions",
-   "label": "Intervention arms",
-   "kind": "list",
-   "description": "One entry per arm of the experiment; each arm carries its own type and may override the record's field values.",
-   "item_fields": [
-    {
-     "name": "Intervention_ID",
-     "label": "Arm id",
-     "group": "",
-     "scope": "structure",
-     "type": "string",
-     "base_type": "string",
-     "nullable": false,
-     "editor": "text",
-     "options": [],
-     "vocab": [],
-     "controlled_values": [],
-     "legacy_options": [],
-     "columns": [],
-     "role": "intervention_id",
-     "required": false,
-     "derived": false,
-     "moderator": true,
-     "description": "",
-     "instruction": "",
-     "show_if": null,
-     "required_if": null,
-     "module": null,
-     "module_options": {},
-     "kind": null,
-     "source": {},
-     "coder": {}
-    },
-    {
-     "name": "Intervention_Type",
-     "label": "Arm type",
-     "group": "",
-     "scope": "structure",
-     "type": "list",
-     "base_type": "list",
-     "nullable": false,
-     "editor": "multiselect",
-     "options": [],
-     "vocab": [],
-     "controlled_values": [],
-     "legacy_options": [],
-     "columns": [],
-     "role": "intervention_type",
-     "required": false,
-     "derived": false,
-     "moderator": true,
-     "description": "",
-     "instruction": "",
-     "show_if": null,
-     "required_if": null,
-     "module": null,
-     "module_options": {},
-     "kind": null,
-     "source": {},
-     "coder": {}
-    },
-    {
-     "name": "label",
-     "label": "Arm label",
-     "group": "",
-     "scope": "structure",
-     "type": "string",
-     "base_type": "string",
-     "nullable": false,
-     "editor": "text",
-     "options": [],
-     "vocab": [],
-     "controlled_values": [],
-     "legacy_options": [],
-     "columns": [],
-     "role": null,
-     "required": false,
-     "derived": false,
-     "moderator": true,
-     "description": "",
-     "instruction": "",
-     "show_if": null,
-     "required_if": null,
-     "module": null,
-     "module_options": {},
-     "kind": null,
-     "source": {},
-     "coder": {}
-    },
-    {
-     "name": "overrides",
-     "label": "Field overrides",
-     "group": "",
-     "scope": "structure",
-     "type": "object",
-     "base_type": "object",
-     "nullable": false,
-     "editor": "json",
-     "options": [],
-     "vocab": [],
-     "controlled_values": [],
-     "legacy_options": [],
-     "columns": [],
-     "role": null,
-     "required": false,
-     "derived": false,
-     "moderator": true,
-     "description": "",
-     "instruction": "",
-     "show_if": null,
-     "required_if": null,
-     "module": null,
-     "module_options": {},
-     "kind": null,
-     "source": {},
-     "coder": {}
-    }
-   ]
-  }
- },
+ "structures": {},
  "rules": {
   "omnibus_exclusions": {
    "contrast_type_codes": [
@@ -11399,62 +11162,62 @@
    {
     "id": "S1",
     "name": "id",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S2",
     "name": "condition_col",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S3",
     "name": "arm_roles",
-    "weight": 4.0
+    "weight": 4
    },
    {
     "id": "S4",
     "name": "dv_pairs",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S5",
     "name": "dv_domain",
-    "weight": 4.0
+    "weight": 4
    },
    {
     "id": "S6",
     "name": "veracity",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S6cell",
     "name": "veracity_cell",
-    "weight": 5.0
+    "weight": 5
    },
    {
     "id": "S7",
     "name": "timepoint",
-    "weight": 1.0
+    "weight": 1
    },
    {
     "id": "S8",
     "name": "dv_polarity",
-    "weight": 3.0
+    "weight": 3
    },
    {
     "id": "S9",
     "name": "exclusions",
-    "weight": 2.0
+    "weight": 2
    },
    {
     "id": "S10",
     "name": "covariates",
-    "weight": 1.0
+    "weight": 1
    },
    {
     "id": "S11",
     "name": "provenance",
-    "weight": 1.0
+    "weight": 1
    }
   ]
  }

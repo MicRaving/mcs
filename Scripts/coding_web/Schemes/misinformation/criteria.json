@@ -52,7 +52,42 @@
     "credibility",
     "headline"
    ],
-   "order": 0
+   "order": 0,
+   "auto_approve": {
+    "misinformation": "misinformation",
+    "disinformation": "disinformation",
+    "fake news": "fake news",
+    "fake-news": "fake-news",
+    "conspiracy": "conspiracy",
+    "conspirac": "conspirac",
+    "false": "false",
+    "falsely": "falsely",
+    "misleading": "misleading",
+    "misperception": "misperception",
+    "rumor": "rumor",
+    "rumour": "rumour",
+    "hoax": "hoax",
+    "propaganda": "propaganda",
+    "post-truth": "post-truth",
+    "deepfake": "deepfake",
+    "manipulat": "manipulat",
+    "debunk": "debunk",
+    "prebunk": "prebunk",
+    "inoculat": "inoculat",
+    "media literacy": "media literacy",
+    "fact-check": "fact-check",
+    "fact check": "fact check",
+    "correction": "correction",
+    "vaccine": "vaccine",
+    "anti-vax": "anti-vax",
+    "climate change": "climate change",
+    "lateral reading": "lateral reading",
+    "source credibility": "source credibility",
+    "accuracy": "accuracy",
+    "truth": "truth",
+    "credibility": "credibility",
+    "headline": "headline"
+   }
   },
   {
    "key": "C2",
@@ -92,7 +127,29 @@
     "intervention group",
     "experimental group"
    ],
-   "order": 1
+   "order": 1,
+   "auto_approve": {
+    "control group": "control group",
+    "control condition": "control condition",
+    "control": "control",
+    "comparison": "comparison",
+    "compared": "compared",
+    "placebo": "placebo",
+    "wait-list": "wait-list",
+    "waitlist": "waitlist",
+    "wait list": "wait list",
+    "baseline": "baseline",
+    "no intervention": "no intervention",
+    "no treatment": "no treatment",
+    "treatment as usual": "treatment as usual",
+    "business as usual": "business as usual",
+    "sham": "sham",
+    "randomi": "randomi",
+    "assigned": "assigned",
+    "condition": "condition",
+    "intervention group": "intervention group",
+    "experimental group": "experimental group"
+   }
   },
   {
    "key": "C3",
@@ -131,7 +188,8 @@
     "we recruited",
     "sample size"
    ],
-   "order": 2
+   "order": 2,
+   "auto_approve": {}
   },
   {
    "key": "C4",
@@ -173,7 +231,54 @@
     "we conducted",
     "we ran"
    ],
-   "order": 3
+   "order": 3,
+   "auto_approve": {
+    "experiment": "experiment",
+    "experimental": "experimental",
+    "randomized": "randomized",
+    "randomised": "randomised",
+    "randomly assigned": "randomly assigned",
+    "trial": "trial",
+    "field experiment": "field experiment",
+    "online experiment": "online experiment",
+    "survey experiment": "survey experiment",
+    "study": "study",
+    "studies": "studies",
+    "quasi-experimental": "quasi-experimental",
+    "pretest": "pretest",
+    "posttest": "posttest",
+    "pre-test": "pre-test",
+    "post-test": "post-test",
+    "between-subjects": "between-subjects",
+    "within-subjects": "within-subjects",
+    "ANOVA": "ANOVA",
+    "regression": "regression",
+    "we conducted": "we conducted",
+    "we ran": "we ran"
+   }
+  },
+  {
+   "key": "C5",
+   "label": "Pre-registered (demo criterion)",
+   "kind": "verdict",
+   "options": [
+    "Yes",
+    "No",
+    "Unsure"
+   ],
+   "pass_values": [
+    "Yes"
+   ],
+   "exclude_reason": "",
+   "gating": true,
+   "help": "",
+   "prompt_text": "",
+   "keywords": [],
+   "order": 4,
+   "auto_approve": {
+    "has preregistration": "",
+    "rule 1": "pre-?regist"
+   }
   }
  ],
  "fulltext": [
@@ -199,7 +304,8 @@
    "help": "No misinformation intervention (C1)",
    "prompt_text": "No misinformation intervention (C1)",
    "keywords": [],
-   "order": 0
+   "order": 0,
+   "auto_approve": {}
   },
   {
    "key": "C2",
@@ -223,7 +329,8 @@
    "help": "No control/comparison group (C2)",
    "prompt_text": "No control/comparison group (C2)",
    "keywords": [],
-   "order": 1
+   "order": 1,
+   "auto_approve": {}
   },
   {
    "key": "C3",
@@ -247,7 +354,8 @@
    "help": "Not English (C3)",
    "prompt_text": "Not English (C3)",
    "keywords": [],
-   "order": 2
+   "order": 2,
+   "auto_approve": {}
   },
   {
    "key": "C4",
@@ -271,7 +379,8 @@
    "help": "Not a primary experimental study (C4)",
    "prompt_text": "Not a primary experimental study (C4)",
    "keywords": [],
-   "order": 3
+   "order": 3,
+   "auto_approve": {}
   },
   {
    "key": "irretrievable",
@@ -295,7 +404,8 @@
    "help": "Fulltext irretrievable",
    "prompt_text": "Fulltext irretrievable",
    "keywords": [],
-   "order": 4
+   "order": 4,
+   "auto_approve": {}
   },
   {
    "key": "no_contrast",
@@ -319,7 +429,8 @@
    "help": "No eligible contrast reported",
    "prompt_text": "No eligible contrast reported",
    "keywords": [],
-   "order": 5
+   "order": 5,
+   "auto_approve": {}
   },
   {
    "key": "duplicate",
@@ -343,7 +454,8 @@
    "help": "Duplicate/non-independent report of an included study",
    "prompt_text": "Duplicate/non-independent report of an included study",
    "keywords": [],
-   "order": 6
+   "order": 6,
+   "auto_approve": {}
   },
   {
    "key": "observational",
@@ -367,7 +479,8 @@
    "help": "No experimental intervention (observational)",
    "prompt_text": "No experimental intervention (observational)",
    "keywords": [],
-   "order": 7
+   "order": 7,
+   "auto_approve": {}
   },
   {
    "key": "domain_mismatch",
@@ -391,7 +504,8 @@
    "help": "Outcome/intervention outside misinformation susceptibility",
    "prompt_text": "Outcome/intervention outside misinformation susceptibility",
    "keywords": [],
-   "order": 8
+   "order": 8,
+   "auto_approve": {}
   },
   {
    "key": "other",
@@ -415,7 +529,8 @@
    "help": "Other (specify)",
    "prompt_text": "Other (specify)",
    "keywords": [],
-   "order": 9
+   "order": 9,
+   "auto_approve": {}
   }
  ]
 }

@@ -175,7 +175,7 @@ def check_c1(root):
                          f"{_rel(scheme_file, root)}: {type(exc).__name__}: {exc}"),
                     None, scheme_file)
         return (_row("C1", PASS,
-                     f"the scheme loads from Project/scheme.json "
+                     f"the scheme loads from the app's Schemes folder "
                      f"({_scheme_stats(scheme)})",
                      _rel(scheme_file, root)), scheme, scheme_file)
 
@@ -454,7 +454,7 @@ def check_c5(root, scheme):
                      "the fallback path would silently change the coding form:\n  "
                      + "\n  ".join(detail))]
     return [_row("C5", PASS,
-                 f"the legacy conversion matches Project/scheme.json "
+                 f"the legacy conversion matches the stored scheme "
                  f"({len(converted_names)} field names)",
                  _rel(legacy_file, root))]
 

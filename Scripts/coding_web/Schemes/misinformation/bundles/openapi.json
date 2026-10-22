@@ -2468,7 +2468,7 @@
        "type": "string"
       },
       "title": "DV Domains",
-      "description": "DV Domains — Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19. — Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they belong in 'other'. Suggested values: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Any other value is accepted.",
+      "description": "DV Domains — Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19. — Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they are coded as 'other' (the retired label 'affect' is also read as 'other'). The domain decides dv_polarity: a credibility score is better when it is higher for TRUE news, a sharing score is worse when it is higher for FALSE news, and technique_recognition mixes the two - derive the polarity per DV, never per domain. Suggested values: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Any other value is accepted.",
       "x-role": "dv_domain"
      },
      "score_types": {
@@ -2503,7 +2503,7 @@
        "type": "string"
       },
       "title": "Score Types",
-      "description": "Score Types — Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. — Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them. Suggested values: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. Any other value is accepted.",
+      "description": "Score Types — Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. — Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, signal_detection_other, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them. The veracity component decides dv_polarity: a score that is higher for true news is better, a score that is higher for false news is worse. Suggested values: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. Any other value is accepted.",
       "x-role": "score_types"
      },
      "discernment_defined_as": {
@@ -3162,7 +3162,7 @@
        null
       ],
       "title": "Effect Size Type Reported",
-      "description": "Effect Size Type Reported — Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none. — Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used.",
+      "description": "Effect Size Type Reported — Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none. — Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, means, dprime, c, other, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used. A mis-coded value here silently drops the row from the pool, with nothing in the logs to say why.",
       "x-role": "effect_type_reported"
      },
      "effect_favors": {
@@ -3198,7 +3198,7 @@
        "null"
       ],
       "title": "Conversion Inputs",
-      "description": "Conversion Inputs — Inputs used for conversion, e.g. {\"n1i\":181,\"n2i\":199,\"t_val\":9.2}. — The inputs used for the conversion, e.g. {'n1i': 181, 'n2i': 199, 't_val': 9.2}.",
+      "description": "Conversion Inputs — Inputs used for conversion, e.g. {\"n1i\":181,\"n2i\":199,\"t_val\":9.2}. — The inputs used for the conversion, e.g. {\"n1i\": 181, \"n2i\": 199, \"t_val\": 9.2}.",
       "x-role": "conversion_inputs"
      },
      "cell_descriptives": {
@@ -3243,7 +3243,7 @@
        "additionalProperties": true
       },
       "title": "Cell Descriptives",
-      "description": "Cell Descriptives — Array of objects, one per group-time cell, each {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}. — One entry per group-time cell: {'group': string, 'timepoint': string, 'n': number or null, 'mean': number or null, 'sd': number or null}.",
+      "description": "Cell Descriptives — Array of objects, one per group-time cell, each {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}. — One entry per group-time cell: {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}.",
       "x-role": "cell_descriptives"
      },
      "missing_metrics_reason": {

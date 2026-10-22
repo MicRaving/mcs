@@ -592,9 +592,15 @@ def validate_criteria(criteria, stage=None):
                     continue
                 regex, error = compile_rule(expression)
                 if regex is None:
-                    add("warning", "auto_approve_rule_invalid",
-                        f"the rule '{rule_name}' does not compile ({error}); "
-                        "it is ignored until it is fixed", rule_where)
+                    if error == "the expression is empty":
+                        add("warning", "auto_approve_rule_empty",
+                            f"the rule '{rule_name}' has an empty expression; "
+                            "it approves nothing until it is filled in",
+                            rule_where)
+                    else:
+                        add("warning", "auto_approve_rule_invalid",
+                            f"the rule '{rule_name}' does not compile ({error}); "
+                            "it is ignored until it is fixed", rule_where)
     return problems
 
 

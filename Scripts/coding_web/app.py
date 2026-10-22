@@ -24,6 +24,14 @@ from studio_lib import APP_VERSION
 
 app = Flask(__name__, static_folder=None)
 app.config["JSON_SORT_KEYS"] = False
+# Flask 2.3 moved the switch to the JSON provider, and the provider sorts
+# the keys by default.  The app wants the keys in the order it built them
+# (a criterion's auto-approval rules are a dictionary whose order is the
+# insertion order), so the switch is set on the provider as well.
+try:
+    app.json.sort_keys = False
+except AttributeError:  # pragma: no cover - Flask < 2.2
+    pass
 
 # The route modules only build their blueprints; they are registered here so the
 # import graph stays acyclic (route modules never import app.py back).

@@ -338,7 +338,9 @@
 
   function isDirty() {
     if (!state.draft) return false;
-    return state.rev !== state.baselineRev;
+    /* the criteria are their own document, but they are saved with the
+       scheme - so they count towards the dirty state too */
+    return state.rev !== state.baselineRev || !!state.criteriaDirty;
   }
 
   function allFields() {
@@ -786,6 +788,7 @@
     host.appendChild(fieldsSection());
     host.appendChild(metricsSection());
     host.appendChild(kindsSection());
+    host.appendChild(criteriaSection());
   }
 
   function metaSection() {
@@ -1170,6 +1173,444 @@
     list.appendChild(addOpt);
     wrap.appendChild(list);
     return wrap;
+  }
+
+  /* ---------------------------------------------------------- criteria
+     The inclusion criteria are the abstract-screening and full-text
+     exclusion rules.  They live in their OWN document next to the
+     scheme, so the editor writes them through their own route
+     (/api/criteria) - but they are edited here, in the left bar, and
+     they are saved with the rest of the scheme.
+
+     Every criterion can carry an **auto-approval rule set**: a
+     dictionary of named regular expressions.  A rule approves the
+     criterion when its expression matches the abstract text; the
+     screening tab then pre-fills the criterion's first pass value and
+     says which rule matched.  A rule whose expression does not compile
+     is marked broken right here and ignored at match time. */
+  const CRITERION_KINDS = ["verdict", "classify", "number"];
+  const CRITERION_STAGES = [
+    { id: "abstract", label: "Abstract screening" },
+    { id: "fulltext", label: "Full-text exclusion" },
+  ];
+
+  function critDoc() {
+    return state.criteria || { version: 1, abstract: [], fulltext: [] };
+  }
+
+  function critList(stage) {
+    const list = critDoc()[stage];
+    return Array.isArray(list) ? list : [];
+  }
+
+  function splitList(text) {
+    return String(text == null ? "" : text).split(",")
+      .map((s) => s.trim()).filter(Boolean);
+  }
+
+  function cleanCriterion(raw) {
+    const c = raw && typeof raw === "object" ? raw : {};
+    const rules = {};
+    const given = c.auto_approve && typeof c.auto_approve === "object" ? c.auto_approve : {};
+    for (const name of Object.keys(given)) {
+      const key = String(name).trim();
+      if (!key) continue;
+      rules[key] = String(given[name] == null ? "" : given[name]);
+    }
+    return {
+      key: String(c.key || ""),
+      label: String(c.label || ""),
+      kind: CRITERION_KINDS.indexOf(c.kind) >= 0 ? c.kind : "verdict",
+      options: Array.isArray(c.options) ? c.options.map(String) : [],
+      pass_values: Array.isArray(c.pass_values) ? c.pass_values.map(String) : [],
+      exclude_reason: String(c.exclude_reason || ""),
+      gating: c.gating === undefined ? true : !!c.gating,
+      help: String(c.help || ""),
+      prompt_text: String(c.prompt_text || ""),
+      keywords: Array.isArray(c.keywords) ? c.keywords.map(String) : [],
+      order: Number(c.order || 0),
+      auto_approve: rules,
+    };
+  }
+
+  function normaliseCriteriaDoc(raw) {
+    const doc = raw && typeof raw === "object" ? raw : {};
+    const out = { version: Number(doc.version || 1) };
+    for (const stage of CRITERION_STAGES) {
+      const list = Array.isArray(doc[stage.id]) ? doc[stage.id] : [];
+      out[stage.id] = list.map((c) => cleanCriterion(c));
+    }
+    return out;
+  }
+
+  /* A rule's expression, compiled the way ``criteria_lib`` compiles it:
+     case-insensitive, unless the expression starts with "(?-i)". */
+  function compileRule(pattern) {
+    const text = String(pattern == null ? "" : pattern);
+    let body = text;
+    let flags = "i";
+    if (body.startsWith("(?-i)")) { body = body.slice(4); flags = ""; }
+    if (!body.trim()) return { ok: false, error: "the expression is empty" };
+    try {
+      return { ok: true, regex: new RegExp(body, flags) };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  }
+
+  function ruleCount(c) {
+    return Object.keys((c && c.auto_approve) || {}).length;
+  }
+
+  function stageLabel(stageId) {
+    const stage = CRITERION_STAGES.find((s) => s.id === stageId);
+    return stage ? stage.label : stageId;
+  }
+
+  /* an edit of the criteria makes the editor dirty, exactly like an edit
+     of the scheme: both are written by the Save button */
+  function criteriaChanged() {
+    state.criteriaDirty = true;
+    changed();
+  }
+
+  function nextCriterionKey(list) {
+    const taken = new Set(list.map((c) => c.key));
+    for (let n = 1; n < 1000; n += 1) {
+      const key = "C" + n;
+      if (!taken.has(key)) return key;
+    }
+    return "C" + (list.length + 1);
+  }
+
+  function criteriaSection() {
+    const sec = el("div", "scheme-section");
+    const head = el("div", "scheme-section-head");
+    head.appendChild(el("h4", "", "Abstract screening"));
+    head.appendChild(el("span", "grow"));
+    sec.appendChild(head);
+
+    if (state.criteriaError) {
+      sec.appendChild(el("div", "scheme-empty",
+        "The criteria could not be loaded: " + state.criteriaError));
+    } else {
+      sec.appendChild(el("div", "scheme-card-sub",
+        "The inclusion criteria of the active scheme. They live in their own "
+        + "file next to the scheme and are saved with it."));
+    }
+
+    for (const stage of CRITERION_STAGES) {
+      sec.appendChild(criteriaStageCard(stage));
+    }
+    return sec;
+  }
+
+  function criteriaStageCard(stage) {
+    const card = el("div", "scheme-card");
+    const head = el("div", "scheme-card-head");
+    head.appendChild(el("h4", "scheme-card-title", stage.label));
+    head.appendChild(el("span", "grow"));
+    head.appendChild(el("span", "scheme-badge", String(critList(stage.id).length)));
+    card.appendChild(head);
+
+    const list = critList(stage.id);
+    if (!list.length) {
+      card.appendChild(el("div", "scheme-empty", "No criteria in this stage."));
+    }
+    for (const c of list) card.appendChild(criterionCard(c, stage.id));
+
+    const add = el("button", "btn scheme-btn-row", "Add criterion");
+    add.type = "button";
+    add.style.width = "100%";
+    add.style.justifyContent = "center";
+    add.addEventListener("click", () => addCriterion(stage.id));
+    card.appendChild(add);
+    return card;
+  }
+
+  function criterionCard(c, stage) {
+    const wrap = el("div", "scheme-kind");
+    const open = !!state.criteriaOpen[stage + ":" + c.key];
+
+    const head = el("div", "scheme-kind-head");
+    head.appendChild(el("span", "scheme-badge", c.key || "(no key)"));
+    const lab = el("span", "label", c.label || "(no label)");
+    lab.style.flex = "1";
+    lab.style.minWidth = "0";
+    lab.style.overflow = "hidden";
+    lab.style.textOverflow = "ellipsis";
+    lab.style.whiteSpace = "nowrap";
+    head.appendChild(lab);
+    head.appendChild(el("span", "scheme-badge", c.kind));
+    wrap.appendChild(head);
+
+    const meta = el("div", "scheme-card-sub",
+      "pass: " + (c.pass_values.length ? c.pass_values.join(", ") : "—")
+      + " · " + (c.gating ? "gating" : "informational")
+      + " · " + ruleCount(c) + " auto-approval rule" + (ruleCount(c) === 1 ? "" : "s"));
+    wrap.appendChild(meta);
+
+    const actions = el("div", "scheme-btn-row");
+    const edit = el("button", "btn ghost", open ? "Close" : "Edit");
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      state.criteriaOpen[stage + ":" + c.key] = !open;
+      renderLeft();
+    });
+    actions.appendChild(edit);
+    const del = el("button", "btn ghost", "Delete");
+    del.type = "button";
+    del.addEventListener("click", async () => {
+      const ok = await confirmDialog("Delete the criterion?",
+        `The criterion "${c.key}" and its auto-approval rules are removed `
+        + `from the ${stageLabel(stage)} stage.`, "Delete criterion");
+      if (!ok) return;
+      const list = critList(stage);
+      const index = list.indexOf(c);
+      if (index >= 0) list.splice(index, 1);
+      criteriaChanged();
+      renderLeft();
+    });
+    actions.appendChild(del);
+    wrap.appendChild(actions);
+
+    if (open) wrap.appendChild(criterionEditor(c, stage));
+    return wrap;
+  }
+
+  function criterionEditor(c, stage) {
+    const box = el("div", "scheme-stack");
+    box.style.marginTop = "6px";
+
+    box.appendChild(labelled("Key", textInput(c.key, (v) => {
+      c.key = v;
+      criteriaChanged();
+    }, { "aria-label": "Criterion key" })));
+    box.appendChild(labelled("Label", textInput(c.label, (v) => {
+      c.label = v;
+      criteriaChanged();
+    }, { "aria-label": "Criterion label" })));
+    box.appendChild(labelled("Kind", selectBox(
+      CRITERION_KINDS.map((k) => ({ value: k, label: k })), c.kind,
+      (v) => { c.kind = v; criteriaChanged(); renderLeft(); })));
+    box.appendChild(labelled("Options (comma separated)", textInput(
+      c.options.join(", "),
+      (v) => { c.options = splitList(v); criteriaChanged(); },
+      { "aria-label": "Criterion options" })));
+    box.appendChild(labelled("Pass values (comma separated)", textInput(
+      c.pass_values.join(", "),
+      (v) => { c.pass_values = splitList(v); criteriaChanged(); },
+      { "aria-label": "Pass values" })));
+    box.appendChild(labelled("Exclusion reason", textInput(c.exclude_reason, (v) => {
+      c.exclude_reason = v;
+      criteriaChanged();
+    }, { "aria-label": "Exclusion reason" })));
+
+    const checks = el("div", "scheme-checks");
+    checks.appendChild(checkbox("Gating (a failed criterion excludes the study)",
+      c.gating, (v) => { c.gating = v; criteriaChanged(); renderLeft(); }));
+    box.appendChild(checks);
+
+    box.appendChild(el("div", "scheme-card-sub", "Prompt text (what the agent is asked)"));
+    const ta = el("textarea", "textarea");
+    ta.rows = 3;
+    ta.value = c.prompt_text || "";
+    ta.addEventListener("input", () => {
+      c.prompt_text = ta.value;
+      criteriaChanged();
+    });
+    box.appendChild(ta);
+
+    box.appendChild(ruleSetEditor(c));
+    return box;
+  }
+
+  function ruleSetEditor(c) {
+    const wrap = el("div", "scheme-kind");
+    const head = el("div", "scheme-kind-head");
+    head.appendChild(el("span", "scheme-bucket-name", "Auto-approval rules"));
+    head.appendChild(el("span", "grow"));
+    wrap.appendChild(head);
+    wrap.appendChild(el("div", "scheme-pop-hint",
+      "A rule approves the criterion when its expression matches the abstract "
+      + "text; the screening tab then pre-fills the criterion's first pass "
+      + "value and says which rule matched. The matching is case-insensitive "
+      + "unless the expression starts with (?-i). A rule that does not compile "
+      + "is ignored until it is fixed."));
+
+    const names = Object.keys(c.auto_approve || {});
+    if (!names.length) {
+      wrap.appendChild(el("div", "scheme-empty",
+        "No rules - nothing is pre-filled for this criterion."));
+    }
+    for (const name of names) wrap.appendChild(ruleRow(c, name));
+
+    const add = el("button", "btn scheme-btn-row", "Add rule");
+    add.type = "button";
+    add.style.width = "100%";
+    add.style.justifyContent = "center";
+    add.addEventListener("click", () => {
+      const rules = c.auto_approve || (c.auto_approve = {});
+      let n = 1;
+      while (rules["rule " + n] !== undefined) n += 1;
+      rules["rule " + n] = "";
+      criteriaChanged();
+      renderLeft();
+    });
+    wrap.appendChild(add);
+    return wrap;
+  }
+
+  function ruleRow(c, name) {
+    const row = el("div", "scheme-editrow");
+    row.style.flexWrap = "wrap";
+
+    /* the rule's name IS its key in the rule set, so renaming a rule
+       re-keys the dictionary.  ``key`` follows the rename, so the
+       expression and the delete button always act on the rule that is
+       on screen. */
+    let key = name;
+
+    const nameInput = textInput(name, (v) => {
+      const next_name = String(v || "").trim();
+      if (!next_name || next_name === key) return;
+      const rules = c.auto_approve || {};
+      const next = {};
+      for (const k of Object.keys(rules)) {
+        next[k === key ? next_name : k] = rules[k];
+      }
+      c.auto_approve = next;
+      key = next_name;
+      criteriaChanged();
+    }, { "aria-label": "Rule name" });
+    nameInput.style.width = "108px";
+    nameInput.style.flex = "none";
+    row.appendChild(nameInput);
+
+    const patInput = textInput(c.auto_approve[name], (v) => {
+      c.auto_approve[key] = v;
+      criteriaChanged();
+      markRuleState(row, v);
+    }, { "aria-label": "Rule expression" });
+    row.appendChild(patInput);
+
+    const badge = el("span", "scheme-badge", "ok");
+    row.appendChild(badge);
+
+    row.appendChild(iconBtn("btn ghost icon", "Delete rule", "i-trash", () => {
+      delete c.auto_approve[key];
+      criteriaChanged();
+      renderLeft();
+    }));
+
+    markRuleState(row, c.auto_approve[name]);
+    return row;
+  }
+
+  /* mark a rule whose expression does not compile as broken, with the error */
+  function markRuleState(row, pattern) {
+    const badge = row.querySelector(".scheme-badge");
+    if (!badge) return;
+    const st = compileRule(pattern);
+    if (st.ok) {
+      badge.textContent = "ok";
+      badge.style.color = "";
+      badge.title = "The expression compiles.";
+    } else if (!String(pattern == null ? "" : pattern).trim()) {
+      badge.textContent = "empty";
+      badge.style.color = "";
+      badge.title = "The rule has no expression yet - it approves nothing until "
+        + "the expression is filled in.";
+    } else {
+      badge.textContent = "broken";
+      badge.style.color = "var(--danger)";
+      badge.title = st.error;
+    }
+  }
+
+  function addCriterion(stage) {
+    const list = critList(stage);
+    const key = nextCriterionKey(list);
+    const c = cleanCriterion({
+      key,
+      label: "",
+      kind: "verdict",
+      options: ["Yes", "No", "Unsure"],
+      pass_values: ["Yes"],
+      exclude_reason: "",
+      gating: true,
+      help: "",
+      prompt_text: "",
+      keywords: [],
+      auto_approve: {},
+    });
+    list.push(c);
+    state.criteriaOpen[stage + ":" + key] = true;
+    criteriaChanged();
+    renderLeft();
+  }
+
+  function buildCriteriaPayload() {
+    const doc = critDoc();
+    const out = { version: Number(doc.version || 1) };
+    for (const stage of CRITERION_STAGES) {
+      out[stage.id] = critList(stage.id).map((c, i) => ({
+        key: c.key,
+        label: c.label,
+        kind: c.kind,
+        options: c.options.slice(),
+        pass_values: c.pass_values.slice(),
+        exclude_reason: c.exclude_reason,
+        gating: c.gating,
+        help: c.help,
+        prompt_text: c.prompt_text,
+        keywords: c.keywords.slice(),
+        order: i,
+        auto_approve: Object.assign({}, c.auto_approve),
+      }));
+    }
+    return out;
+  }
+
+  async function loadCriteria() {
+    try {
+      const doc = await api("/api/criteria");
+      state.criteria = normaliseCriteriaDoc(doc);
+      state.criteriaError = "";
+      state.criteriaDirty = false;
+    } catch (err) {
+      state.criteria = { version: 1, abstract: [], fulltext: [] };
+      state.criteriaError = String((err && err.message) || err);
+    }
+  }
+
+  /* The criteria are written through their own route: the document is
+     their own file, the route is their own. */
+  async function saveCriteria() {
+    if (!state.criteriaDirty) return { ok: true, problems: [] };
+    let res = null;
+    let data = null;
+    try {
+      res = await fetch("/api/criteria", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildCriteriaPayload()),
+      });
+    } catch (err) {
+      return { ok: false, problems: [{ level: "error",
+        message: String((err && err.message) || err) }] };
+    }
+    try { data = await res.json(); } catch (err) { data = null; }
+    const problems = (data && data.problems) || [];
+    if (!res.ok || (data && data.ok === false)) {
+      return { ok: false, problems: problems.length ? problems : [{
+        level: "error",
+        message: `The server refused the criteria (HTTP ${res.status}).`,
+      }] };
+    }
+    if (data && data.criteria) state.criteria = normaliseCriteriaDoc(data.criteria);
+    state.criteriaDirty = false;
+    return { ok: true, problems };
   }
 
   /* ---------------------------------------------------------- right pane */
@@ -1756,10 +2197,15 @@
       if (data && data.scheme) {
         state.draft = normaliseDraft(data.scheme);
       }
+      /* The criteria live in their own file next to the scheme, so they
+         are written through their own route - but they are saved with
+         the scheme, by the same button. */
+      const crit = await saveCriteria();
       state.baselineRev = state.rev;
-      showProblems(problems);
+      showProblems(problems.concat(crit.problems || []));
       renderAll();
-      toast("Scheme saved");
+      toast(crit.ok ? "Scheme saved" : "The scheme was saved, the criteria were not",
+        crit.ok ? "ok" : "err");
       window.dispatchEvent(new CustomEvent("cs:scheme-saved"));
     } catch (err) {
       showProblems([{ level: "error", message: String((err && err.message) || err) }]);
@@ -1838,6 +2284,7 @@
     state.loaded = true;
     showProblems([]);
     await loadRoles();
+    await loadCriteria();
     renderAll();
     if (note) note.textContent = "";
   }

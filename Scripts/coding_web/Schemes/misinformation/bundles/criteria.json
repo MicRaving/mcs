@@ -53,7 +53,41 @@
     "headline"
    ],
    "order": 0,
-   "auto_approve": {}
+   "auto_approve": {
+    "misinformation": "misinformation",
+    "disinformation": "disinformation",
+    "fake news": "fake news",
+    "fake-news": "fake-news",
+    "conspiracy": "conspiracy",
+    "conspirac": "conspirac",
+    "false": "false",
+    "falsely": "falsely",
+    "misleading": "misleading",
+    "misperception": "misperception",
+    "rumor": "rumor",
+    "rumour": "rumour",
+    "hoax": "hoax",
+    "propaganda": "propaganda",
+    "post-truth": "post-truth",
+    "deepfake": "deepfake",
+    "manipulat": "manipulat",
+    "debunk": "debunk",
+    "prebunk": "prebunk",
+    "inoculat": "inoculat",
+    "media literacy": "media literacy",
+    "fact-check": "fact-check",
+    "fact check": "fact check",
+    "correction": "correction",
+    "vaccine": "vaccine",
+    "anti-vax": "anti-vax",
+    "climate change": "climate change",
+    "lateral reading": "lateral reading",
+    "source credibility": "source credibility",
+    "accuracy": "accuracy",
+    "truth": "truth",
+    "credibility": "credibility",
+    "headline": "headline"
+   }
   },
   {
    "key": "C2",
@@ -94,7 +128,28 @@
     "experimental group"
    ],
    "order": 1,
-   "auto_approve": {}
+   "auto_approve": {
+    "control group": "control group",
+    "control condition": "control condition",
+    "control": "control",
+    "comparison": "comparison",
+    "compared": "compared",
+    "placebo": "placebo",
+    "wait-list": "wait-list",
+    "waitlist": "waitlist",
+    "wait list": "wait list",
+    "baseline": "baseline",
+    "no intervention": "no intervention",
+    "no treatment": "no treatment",
+    "treatment as usual": "treatment as usual",
+    "business as usual": "business as usual",
+    "sham": "sham",
+    "randomi": "randomi",
+    "assigned": "assigned",
+    "condition": "condition",
+    "intervention group": "intervention group",
+    "experimental group": "experimental group"
+   }
   },
   {
    "key": "C3",
@@ -177,7 +232,30 @@
     "we ran"
    ],
    "order": 3,
-   "auto_approve": {}
+   "auto_approve": {
+    "experiment": "experiment",
+    "experimental": "experimental",
+    "randomized": "randomized",
+    "randomised": "randomised",
+    "randomly assigned": "randomly assigned",
+    "trial": "trial",
+    "field experiment": "field experiment",
+    "online experiment": "online experiment",
+    "survey experiment": "survey experiment",
+    "study": "study",
+    "studies": "studies",
+    "quasi-experimental": "quasi-experimental",
+    "pretest": "pretest",
+    "posttest": "posttest",
+    "pre-test": "pre-test",
+    "post-test": "post-test",
+    "between-subjects": "between-subjects",
+    "within-subjects": "within-subjects",
+    "ANOVA": "ANOVA",
+    "regression": "regression",
+    "we conducted": "we conducted",
+    "we ran": "we ran"
+   }
   }
  ],
  "fulltext": [

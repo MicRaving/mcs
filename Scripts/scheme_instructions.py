@@ -628,18 +628,26 @@ _add("dv_rules", {
         "sharing_intention, search_behavior, attitude_policy, trust, "
         "media_literacy_attitudes, critical_thinking, other. Do not code "
         "confidence, certainty or metacognition as a dv_domain - they are a "
-        "separate strand that is never pooled, so they belong in 'other'."
+        "separate strand that is never pooled, so they are coded as 'other' "
+        "(the retired label 'affect' is also read as 'other'). The domain "
+        "decides dv_polarity: a credibility score is better when it is higher "
+        "for TRUE news, a sharing score is worse when it is higher for FALSE "
+        "news, and technique_recognition mixes the two - derive the polarity "
+        "per DV, never per domain."
     ),
     "score_types": (
         "Controlled list: separate_true, separate_false, "
         "separate_manipulative, separate_nonmanipulative, "
         "discernment_difference, composite, signal_detection_auc, "
-        "signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, "
-        "continuous_accuracy, proportion, proportion_difference, "
-        "behavioral_choice, other, count, single_item, behavioral_intention, "
-        "change_score. Use separate_true / separate_false when the paper "
-        "reports a score per stimulus veracity, and discernment_difference "
-        "when the DV is the difference between them."
+        "signal_detection_d_prime, signal_detection_c, signal_detection_other, "
+        "dichotomous_accuracy, continuous_accuracy, proportion, "
+        "proportion_difference, behavioral_choice, other, count, single_item, "
+        "behavioral_intention, change_score. Use separate_true / "
+        "separate_false when the paper reports a score per stimulus veracity, "
+        "and discernment_difference when the DV is the difference between them. "
+        "The veracity component decides dv_polarity: a score that is higher "
+        "for true news is better, a score that is higher for false news is "
+        "worse."
     ),
     "discernment_defined_as": (
         "Write how the difference/discernment score is computed, e.g. "
@@ -977,10 +985,11 @@ _add("no_invented", {
 _add("effect_routes", {
     "effect_size_type_reported": (
         "Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, "
-        "r, none. Read it from the paper - 'none' means the paper reported no "
-        "standardised effect, and the row is then refused by the "
-        "standardisation guard, so set it to the estimator the paper actually "
-        "used."
+        "r, means, dprime, c, other, none. Read it from the paper - 'none' "
+        "means the paper reported no standardised effect, and the row is then "
+        "refused by the standardisation guard, so set it to the estimator the "
+        "paper actually used. A mis-coded value here silently drops the row "
+        "from the pool, with nothing in the logs to say why."
     ),
 })
 
@@ -1004,13 +1013,12 @@ _add("estimation", {
         "(<= 10%)."
     ),
     "conversion_inputs": (
-        "The inputs used for the conversion, e.g. {'n1i': 181, 'n2i': 199, "
-        "'t_val': 9.2}."
+        "The inputs used for the conversion, e.g. {\"n1i\": 181, \"n2i\": 199, "
+        "\"t_val\": 9.2}."
     ),
     "cell_descriptives": (
-        "One entry per group-time cell: {'group': string, 'timepoint': "
-        "string, 'n': number or null, 'mean': number or null, 'sd': number or "
-        "null}."
+        "One entry per group-time cell: {\"group\": string, \"timepoint\": "
+        "string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}."
     ),
     "missing_metrics_reason": (
         "Required when the row carries no usable effect: say concretely what "
