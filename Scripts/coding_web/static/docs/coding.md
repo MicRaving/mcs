@@ -45,8 +45,9 @@ between projects. The usual ones:
 | **Interventions** | what each arm received: inoculation, sourcing tip, accuracy prompt, … |
 | **Measures / DVs** | one row per outcome × contrast, with its effect size |
 
-Fields marked with a red dot are required. Hover a field name for its
-instruction — that text is part of the scheme, written for this project.
+Fields marked with a red dot are required. Every field also carries an
+instruction in the scheme; the *Scheme* tab's *Prompt* pane prints the form as
+the prompt an agent would code from, instructions and all.
 
 ## Interventions
 
@@ -112,8 +113,9 @@ comparing two sentences.
 matching `.md` note. It never touches another coder's file and never touches
 `Extraction/<Key>.json`.
 
-The pill in the top bar says **saved** or **unsaved changes**. Switching paper,
-switching coder, or closing the tab with unsaved changes asks first.
+The **Save** button changes colour while there are unsaved changes (and the
+window title gains a leading dot). Switching paper, switching coder, or closing
+the window with unsaved changes asks first.
 
 ## Coder mode and blind mode
 

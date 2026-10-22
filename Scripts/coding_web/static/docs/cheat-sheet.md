@@ -63,12 +63,17 @@ analysis need the codings to be finished first.
 
 | Key | What it does |
 |---|---|
-| `Ctrl+K` | jump to the search box of the current tab |
+| `Ctrl+K` | jump to the search box (papers, abstracts) |
 | `Ctrl+S` | save the paper you are coding |
+| `Ctrl+Enter` or `Insert` | next paper |
+| `Ctrl+B` | blind mode on / off |
 | `Tab` / `Shift+Tab` | in coder mode, next / previous variable |
-| `1`–`9` | pick that level of a closed field (coder mode) |
+| `1`–`9` | in coder mode, pick that level of a closed field |
 | `Y` / `N` / `U` | in screening: yes / no / unsure, then next criterion |
 | `Tab` in screening | accept the pre-filled answer and go to the next criterion |
+
+They only act in the tab they belong to: `Ctrl+S` does nothing while you are
+reading the instructions.
 
 ## Where things are saved
 
