@@ -14,17 +14,17 @@ The left column of the Coding tab is the project: every study the app found in
 | `MISSING` (amber) | contrasts without complete metrics |
 | `missing` (red) | no PDF in `Papers/`, or no text in `Text/` |
 
-The name is the **study key** — `Surname et al. (Year)`. It is the same string in
-every folder, and it is what the analysis uses to join a coding to its data.
+The name is the **study key**. It is the same string in every folder, and it is
+what the analysis uses to join a coding to its data.
 
 ## Finding a paper
 
 * The **search box** (`Ctrl+K`) matches the key, the title and the authors.
 * The **chips** filter: *All*, *To code* (no coding of yours yet), *My codings*,
   *Missing* (papers whose metrics are incomplete).
-* The **funnel** button filters by study characteristics — setting, country,
-  intervention type, and so on. Useful when you want to code all the
-  field experiments together.
+* The **funnel** button filters by study characteristics — whatever the scheme
+  codes as levels (setting, country, design, intervention type …). Useful when
+  you want to code all the field experiments together.
 
 ## The paper itself
 
@@ -49,14 +49,13 @@ says it should be, or by renaming the file to match the key exactly.
 
 ## Why the keys matter
 
-`schema-module` is not the key, it is the project. The key is
-`Bråten et al. (2019)`, and it appears as:
+The key is `Surname et al. (2019)`, and it appears as:
 
 ```
-Papers/Bråten et al. (2019).pdf
-Text/Bråten et al. (2019).txt
-Extraction/Bråten et al. (2019).json
-Codings/Bråten et al. (2019) - MM.json
+Papers/Surname et al. (2019).pdf
+Text/Surname et al. (2019).txt
+Extraction/Surname et al. (2019).json
+Codings/Surname et al. (2019) - MM.json
 ```
 
 Non-ASCII letters are fine. What breaks things is a difference of one character:

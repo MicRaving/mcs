@@ -1508,6 +1508,13 @@
     return "C" + (list.length + 1);
   }
 
+  /* The criteria are shown in the MAIN WINDOW in Screening mode (they used to
+     be a left-bar section), so a change has to re-render whichever pane holds
+     them - otherwise Edit, Delete and Add seem to do nothing. */
+  function renderCriteria() {
+    if (state.mode === "screening") renderRight();
+    else renderLeft();
+  }
   function criteriaSection() {
     const box = el("div");
 
@@ -1583,7 +1590,7 @@
     edit.type = "button";
     edit.addEventListener("click", () => {
       state.criteriaOpen[stage + ":" + c.key] = !open;
-      renderLeft();
+      renderCriteria();
     });
     actions.appendChild(edit);
     const del = el("button", "btn ghost", "Delete");
@@ -1597,7 +1604,7 @@
       const index = list.indexOf(c);
       if (index >= 0) list.splice(index, 1);
       criteriaChanged();
-      renderLeft();
+      renderCriteria();
     });
     actions.appendChild(del);
     wrap.appendChild(actions);
@@ -1620,7 +1627,7 @@
     }, { "aria-label": "Criterion label" })));
     box.appendChild(labelled("Kind", selectBox(
       CRITERION_KINDS.map((k) => ({ value: k, label: k })), c.kind,
-      (v) => { c.kind = v; criteriaChanged(); renderLeft(); })));
+      (v) => { c.kind = v; criteriaChanged(); renderCriteria(); })));
     box.appendChild(labelled("Options (comma separated)", textInput(
       c.options.join(", "),
       (v) => { c.options = splitList(v); criteriaChanged(); },
@@ -1636,7 +1643,7 @@
 
     const checks = el("div", "scheme-checks");
     checks.appendChild(checkbox("Gating (a failed criterion excludes the study)",
-      c.gating, (v) => { c.gating = v; criteriaChanged(); renderLeft(); }));
+      c.gating, (v) => { c.gating = v; criteriaChanged(); renderCriteria(); }));
     box.appendChild(checks);
 
     box.appendChild(el("div", "scheme-card-sub", "Prompt text (what the agent is asked)"));
@@ -1683,7 +1690,7 @@
       while (rules["rule " + n] !== undefined) n += 1;
       rules["rule " + n] = "";
       criteriaChanged();
-      renderLeft();
+      renderCriteria();
     });
     wrap.appendChild(add);
     return wrap;
@@ -1728,7 +1735,7 @@
     row.appendChild(iconBtn("btn ghost icon", "Delete rule", "i-trash", () => {
       delete c.auto_approve[key];
       criteriaChanged();
-      renderLeft();
+      renderCriteria();
     }));
 
     markRuleState(row, c.auto_approve[name]);
@@ -1775,7 +1782,7 @@
     list.push(c);
     state.criteriaOpen[stage + ":" + key] = true;
     criteriaChanged();
-    renderLeft();
+    renderCriteria();
   }
 
   function buildCriteriaPayload() {

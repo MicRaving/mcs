@@ -167,66 +167,59 @@
 
     <p class="home-flash" id="home-flash" hidden></p>
 
-    <section class="home-box">
-      <header class="home-box-head">
-        <h2>Projects</h2>
-        <span class="home-grow"></span>
-        <button class="btn icon" id="home-refresh" title="Reload the project list" aria-label="Reload the project list">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-undo"/></svg>
-        </button>
-        <button class="btn" id="home-new-toggle" aria-pressed="false" aria-controls="home-new-form" title="Create a project folder">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plus"/></svg>
-          New project
-        </button>
-        <button class="btn primary" id="home-open-btn" title="Choose an existing project folder">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
-          Open a folder
-        </button>
-      </header>
-      <div class="home-box-body">
-        <div class="home-projects" id="home-projects"></div>
-      </div>
-      <form class="home-new" id="home-new-form" hidden autocomplete="off">
-        <div class="home-new-grid">
-          <label class="home-field">
-            <span>Name</span>
-            <input class="input" id="home-new-name" placeholder="My study" spellcheck="false">
-          </label>
-          <label class="home-field">
-            <span>Parent folder</span>
-            <input class="input mono-val" id="home-new-parent" placeholder="C:\path\to\projects" spellcheck="false">
-          </label>
-          <label class="home-field">
-            <span>Scheme</span>
-            <select class="select" id="home-new-template">
-              <option value="blank">Blank scheme</option>
-              <option value="copy">Copy the current scheme</option>
-            </select>
-          </label>
+    <div class="home-top">
+      <section class="home-box">
+        <header class="home-box-head">
+          <h2>Projects</h2>
+          <span class="home-grow"></span>
+          <button class="btn icon" id="home-refresh" title="Reload the project list" aria-label="Reload the project list">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-undo"/></svg>
+          </button>
+          <button class="btn" id="home-new-toggle" aria-pressed="false" aria-controls="home-new-form" title="Create a project folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-plus"/></svg>
+            New project
+          </button>
+          <button class="btn primary" id="home-open-btn" title="Choose an existing project folder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
+            Open a folder
+          </button>
+        </header>
+        <div class="home-box-body">
+          <div class="home-projects" id="home-projects"></div>
         </div>
-        <p class="home-error" id="home-new-error" hidden></p>
-        <p class="home-ok" id="home-new-ok" hidden></p>
-        <div class="home-new-actions">
-          <button class="btn primary" type="submit" id="home-new-create">Create project</button>
-          <button class="btn ghost" type="button" id="home-new-cancel">Cancel</button>
-        </div>
-      </form>
-    </section>
+        <form class="home-new" id="home-new-form" hidden autocomplete="off">
+          <div class="home-new-grid">
+            <label class="home-field">
+              <span>Name</span>
+              <input class="input" id="home-new-name" placeholder="My study" spellcheck="false">
+            </label>
+            <label class="home-field">
+              <span>Parent folder</span>
+              <input class="input mono-val" id="home-new-parent" placeholder="C:\path\to\projects" spellcheck="false">
+            </label>
+            <label class="home-field">
+              <span>Scheme</span>
+              <select class="select" id="home-new-template">
+                <option value="blank">Blank scheme</option>
+                <option value="copy">Copy the current scheme</option>
+              </select>
+            </label>
+          </div>
+          <p class="home-error" id="home-new-error" hidden></p>
+          <p class="home-ok" id="home-new-ok" hidden></p>
+          <div class="home-new-actions">
+            <button class="btn primary" type="submit" id="home-new-create">Create project</button>
+            <button class="btn ghost" type="button" id="home-new-cancel">Cancel</button>
+          </div>
+        </form>
+      </section>
 
-    <section class="home-metrics">
-      <header class="home-sect-head">
-        <h2 id="home-metrics-title">This project</h2>
-        <p class="home-sect-note" id="home-metrics-note">-</p>
-      </header>
-      <div class="home-metric-grid" id="home-metric-grid"></div>
-    </section>
+      <section class="home-metrics" id="home-metric-grid" aria-label="The open project at a glance"></section>
+    </div>
 
     <section class="home-docs">
       <aside class="home-docs-nav">
-        <header class="home-sect-head">
-          <h2>Instructions</h2>
-          <p class="home-sect-note">For a first meta-analysis.</p>
-        </header>
+        <h2 class="home-docs-heading">Documentation</h2>
         <div class="home-docs-list" id="home-docs-list"></div>
       </aside>
       <article class="home-docs-body">

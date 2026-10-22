@@ -54,7 +54,8 @@ the three you are looking at, and the app never merges them into one number.
 
 ## The discrimination re-analysis
 
-The second layer pools **signal detection** measures instead of self-reports.
+The second layer pools **signal-detection** measures when a study's outcome is
+"correctly told apart from not" rather than a rating.
 From each study's data it computes:
 
 * the **hit rate** (calling true items true) and the **false-alarm rate**
@@ -63,9 +64,9 @@ From each study's data it computes:
 * the difference in d′ between arms: the intervention's effect on *discernment*,
   as opposed to its effect on what people say they would share.
 
-This is the sharper test of an accuracy intervention, because "shared less" is
-ambiguous — it can mean "shared less misinformation" or "shared less of
-everything".
+This is the sharper test whenever an arm could plausibly change *willingness*
+rather than *ability*: "did less of the bad thing" is ambiguous — it can mean
+"recognised it as bad" or "did less of everything".
 
 ## Moderators and subgroups
 

@@ -55,6 +55,14 @@ for _bp in (core_bp, scheme_bp, criteria_bp, project_bp, harmonizer_bp,
             harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, repro_bp):
     app.register_blueprint(_bp)
 
+# The corpus-wide GETs are answered from a file-stamp cache: they are pure
+# functions of Extraction/, Codings/ and Screening/, so they are recomputed
+# only when one of those files changes.
+from studio_cache import register_response_cache  # noqa: E402
+
+register_response_cache(app)
+
+
 
 def free_port(preferred):
     if preferred:

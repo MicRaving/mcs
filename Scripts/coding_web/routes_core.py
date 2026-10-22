@@ -97,10 +97,13 @@ def api_schema():
 @bp.get("/api/papers")
 def api_papers():
     from fulltext_lib import load_agreed
+    from studio_cache import papers_index
     agreed = load_agreed()
+    # The summaries are cached against the files: a study is re-read only when
+    # one of its own files changed (on disk or in the app).
     papers = []
-    for k in paper_keys():
-        s = summarise(k)
+    for s in papers_index(paper_keys(), summarise):
+        k = s["key"]
         ex = agreed.get(k)
         s["fulltext_excluded"] = bool(ex)
         s["fulltext_criterion"] = (ex or {}).get("criterion_label") or ""

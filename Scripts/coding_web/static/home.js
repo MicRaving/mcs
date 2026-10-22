@@ -97,7 +97,9 @@
   function num(n) {
     const v = Number(n);
     if (!Number.isFinite(v)) return "-";
-    return v.toLocaleString();
+    // the app speaks English: group thousands the same way everywhere, rather
+    // than following whatever locale the browser happens to have
+    return v.toLocaleString("en-US");
   }
 
   const state = {
@@ -257,21 +259,21 @@
     const papers = Number(p.papers || 0);
     const missing = p.exists === false;
     const isCurrent = samePath(path, state.current);
-    const tags = [];
-    if (isCurrent) tags.push(`<span class="pill accent">open</span>`);
-    if (label) tags.push(`<span class="pill">${esc(label)}</span>`);
-    tags.push(`<span class="pill">${papers} paper${papers === 1 ? "" : "s"}</span>`);
-    if (p.last_opened) tags.push(`<span class="pill">${esc(formatWhen(p.last_opened))}</span>`);
-    if (missing) tags.push(`<span class="pill danger">missing</span>`);
+    const meta = [`${papers} paper${papers === 1 ? "" : "s"}`];
+    if (label) meta.push(label);
+    if (p.last_opened) meta.push(formatWhen(p.last_opened));
+    if (missing) meta.push("folder missing");
     return `<button class="home-proj${isCurrent ? " current" : ""}${missing ? " missing" : ""}"`
       + ` data-path="${esc(path)}"${missing ? " disabled" : ""}`
       + ` title="${esc(path || name)}">`
+      + `<span class="home-proj-line">`
       + `<span class="home-proj-name">${esc(name)}</span>`
+      + (isCurrent ? `<span class="home-proj-open">open</span>` : "")
+      + `</span>`
+      + `<span class="home-proj-meta">${esc(meta.join(" · "))}</span>`
       + `<span class="home-proj-path">${esc(path)}</span>`
-      + `<span class="home-proj-tags">${tags.join("")}</span>`
       + `</button>`;
   }
-
   function renderProjects() {
     const list = $("#home-projects");
     if (!list) return;
@@ -297,24 +299,20 @@
       + `</div>`;
   }
 
+  /* The metrics are six blocks beside the projects box: the project itself is
+     already named by the open row in that box, so the section needs no title
+     of its own.  Nothing to measure yet is a dash, not a zero. */
   function renderMetrics() {
     const grid = $("#home-metric-grid");
-    const title = $("#home-metrics-title");
-    const note = $("#home-metrics-note");
     if (!grid) return;
-
     const root = state.current || "";
     const usable = state.metricsFor && samePath(state.metricsFor, root) && state.metricsProject;
     const m = usable ? state.metrics : null;
-    if (title) title.textContent = root ? "This project" : "No project open";
-    if (note) note.textContent = root ? root : "-";
-
     grid.innerHTML = METRICS.map((spec) => {
-      if (!m) return metricCard(spec, null, "");
-      return metricCard(spec, m[spec.key], spec.sub ? spec.sub(m) : "");
+      const value = m ? m[spec.key] : null;
+      return metricCard(spec, value, m && spec.sub ? spec.sub(m) : "");
     }).join("");
   }
-
   /* ------------------------------------------------------------ instructions */
 
   function renderDocsNav() {
@@ -470,48 +468,38 @@
     }
   }
 
-  /* The dialog that already exists (the "project folder" button in the top
-     bar opens it): the app owns it, so the app's own button is clicked.
-     The app wires that button while it is still starting up (the paper list
-     of a big project takes a while), so a click that arrives too early finds
-     no handler - the very same dialog is then opened here, with the same
-     fields, and the folder is set from here too, because the app's own
-     "Use this folder" button is not wired yet either. */
-  function openProjectDialog() {
-    const btn = $("#project-btn");
-    const dlg = $("#project-dialog");
-    if (!btn || !dlg) {
-      toast("The project dialog is not available", "err");
-      return;
-    }
-    if (dlg.open) return;
-    btn.click();
-    setTimeout(() => openDialogDirectly(dlg), 700);
-  }
+  /* Open the app's project dialog AT ONCE.
 
-  /* the fallback: fill the app's dialog the way the app does and show it. */
-  async function openDialogDirectly(dlg) {
+     It used to click the app's own button and wait for that handler, which
+     only runs after the paper list has loaded - on a large project the dialog
+     therefore seemed to appear when you switched tabs.  The dialog is filled
+     from what this view already knows, and the app's answer is merged in
+     afterwards if it arrives.  The save button belongs to this view while the
+     dialog was opened from here; otherwise the app's own handler has it. */
+  function openProjectDialog() {
+    const dlg = $("#project-dialog");
+    if (!dlg) { toast("The project dialog is not available", "err"); return; }
     if (dlg.open) return;
-    let info = {};
-    try { info = await api("/api/root"); } catch { /* ignore */ }
-    if (dlg.open) return;                       // the app opened it meanwhile
     const input = $("#project-input");
     const status = $("#project-status");
-    if (input) input.value = (info && info.root) || state.current || "";
-    if (status) {
-      status.textContent = info && info.papers != null ? `${info.papers} papers found` : "";
-    }
+    if (input && !input.value.trim()) input.value = state.current || "";
+    const cur = state.projects.find((p) => samePath(p.path, state.current));
+    if (status) status.textContent = cur ? `${Number(cur.papers || 0)} papers found` : "";
     try {
       dlg.showModal();
     } catch {
-      /* the app opened it in the meantime */
-      return;
+      return;                    // already open
     }
-    // the app is still starting: its own "Use this folder" button is not
-    // wired, so this view sets the folder itself.
     state.dialogIsMine = true;
+    api("/api/root").then((info) => {
+      if (!dlg.open || !info) return;
+      if (input && !input.value.trim()) input.value = info.root || "";
+      if (status && info.papers != null) status.textContent = `${info.papers} papers found`;
+      const browse = $("#project-browse");
+      const desktop = !!(window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder);
+      if (browse) browse.hidden = !(info.can_pick || desktop);
+    }).catch(() => { /* the dialog still works with a typed path */ });
   }
-
   /* open a project by path and start it as the active one */
   async function openProject(path) {
     if (!path) return;
@@ -638,11 +626,12 @@
       noteDialogSwitch();
     });
 
-    // When the app was still starting and the dialog was opened from here,
-    // the app's own "Use this folder" button is not wired yet: the folder is
-    // set from here.
-    $("#project-save")?.addEventListener("click", () => {
-      if (!state.dialogIsMine) return;        // the app's own handler does it
+    // The dialog is opened from here, so the save is handled from here.  The
+    // app has its own listener on the same button and registered it later,
+    // which is why this one stops the event when it takes the click.
+    $("#project-save")?.addEventListener("click", (e) => {
+      if (!state.dialogIsMine) return;        // the app opened it: the app saves
+      e.stopImmediatePropagation();
       state.dialogIsMine = false;
       const input = $("#project-input");
       const path = input ? input.value.trim() : "";

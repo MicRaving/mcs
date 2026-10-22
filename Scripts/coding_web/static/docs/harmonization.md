@@ -1,4 +1,4 @@
-# Harmonized data
+# Harmonizing a study's data
 
 Harmonisation is the step that makes two studies comparable. A coded paper says
 *"p = .03, F(1, 210) = 4.8"*; a harmonized dataset says *`dv_discernment` for
@@ -38,17 +38,15 @@ it is a DV or a covariate, its veracity (true or false stimuli), its timepoint
 
 ## Polarity: which direction is good
 
-Every DV is oriented so that **higher is better**: more discernment, more
-credibility for true news, less misinformation sharing, more analytic
-processing. The sidecar records which of the two directions the raw column had
-(`higher_is_better` / `higher_is_worse`), and the re-analysis flips the second
-kind before pooling.
+Every DV is oriented so that **higher is better** on that outcome — whatever
+"better" means for the review. The sidecar records which of the two directions
+the raw column had (`higher_is_better` / `higher_is_worse`), and the re-analysis
+flips the second kind before pooling.
 
 This is the single place where a sign error is easy to make and hard to see. If a
-study's `dv_sharing` counts pieces of misinformation shared, the raw numbers are
-*bad* when high: polarity is `higher_is_worse`, and the analysis turns them into
-`1 − value`. Get that wrong and the study pulls the pooled estimate the wrong
-way.
+measure counts something undesirable, the raw numbers are *bad* when high:
+polarity is `higher_is_worse`, and the analysis turns them into `1 − value`. Get
+that wrong and the study pulls the pooled estimate the wrong way.
 
 ## Exclusions
 

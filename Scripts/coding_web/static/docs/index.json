@@ -2,53 +2,53 @@
   "docs": [
     {
       "id": "cheat-sheet",
-      "title": "Cheat sheet",
-      "summary": "Folders, the workflow end to end, your first hour, keys."
+      "title": "Getting started",
+      "summary": "The folder, the workflow, your first hour."
     },
     {
       "id": "papers",
       "title": "The paper list",
-      "summary": "What the status marks mean, and how to find a study."
+      "summary": "What the marks mean, and how to find a study."
     },
     {
       "id": "coding",
       "title": "Coding a paper",
-      "summary": "Experiments, interventions, measures, effect sizes, sources."
+      "summary": "Experiments, arms, measures, effect sizes, sources."
     },
     {
       "id": "screening",
       "title": "Screening",
-      "summary": "The four criteria, abstract and full text, the keyboard flow."
+      "summary": "The criteria, abstract and full text, the keys."
     },
     {
       "id": "scheme",
-      "title": "The coding scheme",
-      "summary": "Fields, blocks, kinds, conditions, criteria, roles."
+      "title": "The scheme",
+      "summary": "Fields, blocks, kinds, conditions, criteria."
     },
     {
       "id": "agreement",
-      "title": "Agreement between coders",
-      "summary": "Reliability, conflicts, and how to settle a disagreement."
+      "title": "Agreement",
+      "summary": "Reliability, conflicts, settling a disagreement."
     },
     {
       "id": "harmonization",
-      "title": "Harmonized data",
-      "summary": "One row per participant, polarity, exclusions, coverage."
+      "title": "Harmonization",
+      "summary": "Bringing a study's data into one shape."
     },
     {
       "id": "reproduction",
-      "title": "Reproducing a study",
-      "summary": "Re-running the paper's own numbers, and what a mismatch means."
+      "title": "Reproduction",
+      "summary": "Re-running the paper's own numbers."
     },
     {
       "id": "analysis",
       "title": "The analysis",
-      "summary": "What is pooled, random effects, the three questions, moderators."
+      "summary": "What is pooled, random effects, moderators."
     },
     {
       "id": "glossary",
       "title": "Glossary",
-      "summary": "Effect size, d-prime, I-squared and the rest, in plain words."
+      "summary": "Effect size, d-prime, I-squared, in plain words."
     }
   ]
 }

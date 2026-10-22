@@ -70,13 +70,13 @@ tell you who is right; the paper does.
 | A field is low only on a subgroup of papers | the field's condition (`show_if`) fires on papers where it does not apply |
 | Agreement is perfect | suspicious: one coder may have seen the other's answers, or copied the reference coding |
 
-## The three routes
+## More than two raters
 
-This project is coded by more than one independent route: a person (or the
-canonical route), and two machine coders. They are all treated as raters, which
-is why the reliability table lists them together. A machine coder being wrong is
-informative — it usually means the instruction is ambiguous enough for a reader
-to get it wrong too.
+Every coding file in `Codings/` is a rater, so a study coded by three people (or
+by a person and two machine-assisted passes) simply has more rows in the
+reliability table. A machine coder being wrong is informative: it usually means
+the instruction is ambiguous enough for a reader to get it wrong too.
 
-The **canonical** route is the one the analysis uses. Agreement never silently
-overwrites it; disagreements are reviewed and written back deliberately.
+One route is the **canonical** one — `Extraction/`, the reference coding the
+analysis reads. Agreement never silently overwrites it; disagreements are
+reviewed and written back deliberately.
