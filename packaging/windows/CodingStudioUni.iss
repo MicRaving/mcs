@@ -24,14 +24,14 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={pf}\CodingStudio\CodingStudioUni
 DefaultGroupName=CodingStudioUni
 AllowNoIcons=yes
-OutputDir=..
+OutputDir=..\..
 OutputBaseFilename={#SetupFileName}
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
 
 [Files]
-Source: "CodingStudioUni\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\CodingStudioUni\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\CodingStudioUni"; Filename: "{app}\{#MyAppExeName}"
