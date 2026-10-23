@@ -14,7 +14,7 @@
 #define SetupFileName "CodingStudioUni-{#MyAppVersion}-windows-x64-setup"
 
 [Setup]
-AppId={4F1A2B3C-5D6E-7F8A-9B0C-1D2E3F4A5B6C}
+AppId={{4F1A2B3C-5D6E-7F8A-9B0C-1D2E3F4A5B6C}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
