@@ -25,7 +25,7 @@ FIELD_TYPES = _SL.FIELD_TYPES
 
 #: Version stamp for the portable build (D6).  Bump on every coordinated rebuild
 #: so a frozen binary can be matched against the source it was built from.
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 # ``contract.py`` is the ONE shared coding contract (stdlib-only, bundled in the
 # packaged app): the DV-completeness rule lives there so ``B_validate`` and the

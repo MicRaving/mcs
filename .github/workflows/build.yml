@@ -1,11 +1,13 @@
 name: build
 
 # Builds the desktop app on every push, and on a `v*` tag also publishes the
-# three installables as a GitHub release:
+# installables as a GitHub release:
 #
-#   CodingStudioUni-windows-x64.zip      onedir build (run CodingStudioUni.exe)
-#   CodingStudioUni-macos-<arch>.zip     .app bundle (arm64 and x86_64)
-#   CodingStudioUni-linux-x64.flatpak    single-file Flatpak bundle
+#   CodingStudioUni-windows-x64.zip       portable onedir (run CodingStudioUni.exe)
+#   CodingStudioUni-<ver>-windows-x64-setup.exe   Inno Setup installer
+#   CodingStudioUni-macos-<arch>.zip      portable .app bundle (arm64 and x86_64)
+#   CodingStudioUni-macos-<arch>.dmg      drag-to-install disk image
+#   CodingStudioUni-linux-x64.flatpak     single-file Flatpak bundle
 #
 # The research corpus is not in this repository (see .gitignore): a build is
 # software only.  A checkout with Papers/, Text/ and Extraction/ beside the
@@ -50,17 +52,30 @@ jobs:
       - name: Build
         run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}
 
-      - name: Package
+      - name: Package the portable zip
         shell: pwsh
         run: |
-          $zip = "${{ env.APP_NAME }}-windows-x64.zip"
-          Compress-Archive -Path "${{ env.APP_NAME }}" -DestinationPath $zip
-          Get-Item $zip | Select-Object Name, Length
+          Compress-Archive -Path "${{ env.APP_NAME }}" -DestinationPath "${{ env.APP_NAME }}-windows-x64.zip"
+          Get-Item "${{ env.APP_NAME }}-windows-x64.zip" | Select-Object Name, Length
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the Windows installer
+        shell: pwsh
+        run: |
+          $ver = python -c "import sys; sys.path.insert(0,'Scripts/coding_web'); import studio_lib; print(studio_lib.APP_VERSION)"
+          $iscc = Get-ChildItem -Path "C:\Program Files (x86)\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup was not installed" }
+          & $iscc.FullName /Q /DMyAppVersion="$ver" packaging/windows/CodingStudioUni.iss
+          Get-ChildItem "${{ env.APP_NAME }}-*-windows-x64-setup.exe" | Select-Object -First 1 | Select-Object Name, Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-windows-x64
-          path: ${{ env.APP_NAME }}-windows-x64.zip
+          path: |
+            ${{ env.APP_NAME }}-windows-x64.zip
+            ${{ env.APP_NAME }}-*-windows-x64-setup.exe
           if-no-files-found: error
 
   # ------------------------------------------------------------------ macOS
@@ -93,7 +108,7 @@ jobs:
       - name: Build
         run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}
 
-      - name: Package
+      - name: Package the portable zip
         run: |
           cd "Scripts/coding_web/dist"
           ditto -c -k --sequesterRsrc --keepParent \
@@ -101,10 +116,20 @@ jobs:
             "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip"
           ls -lh "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip"
 
+      - name: Package the disk image
+        run: |
+          cd "Scripts/coding_web/dist"
+          hdiutil create -srcfolder "${{ env.APP_NAME }}.app" \
+            -volname "CodingStudioUni" -ov -format UDZO \
+            "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
+          ls -lh "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-macos-${{ matrix.arch }}
-          path: ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip
+          path: |
+            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip
+            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   # ---------------------------------------------------------------- flatpak
@@ -179,7 +204,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------- release
-  # A tag is the one place the three builds meet: publish them together.
+  # A tag is the one place the builds meet: publish them together.
   release:
     name: Release
     if: startsWith(github.ref, 'refs/tags/v')
