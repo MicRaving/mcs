@@ -1,13 +1,23 @@
-flask
-numpy
-scipy
-pandas
-openpyxl
-python-pptx
-python-docx
-lxml
-Pillow
-pywebview
-pythonnet
-pyinstaller
-pymupdf
+# Runtime dependencies of CodingStudio.
+#
+# Installed by the build workflows (and by anyone building from source); the
+# desktop build then bundles them with PyInstaller.  Ranges, not exact pins, so
+# each platform resolves the wheels it actually has (the same app builds on
+# Windows, macOS arm64/x86_64 and Linux).
+Flask>=3.0,<4
+PyMuPDF>=1.24,<3
+pywebview>=5,<7
+numpy>=1.26,<3
+scipy>=1.11,<2
+pandas>=2.2,<4
+openpyxl>=3.1,<4
+python-pptx>=1.0,<2
+python-docx>=1.1,<2
+lxml>=5,<7
+Pillow>=10,<14
+
+# the native window backend, per platform
+pythonnet>=3.0,<4; sys_platform == "win32"
+pyobjc-core>=10; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10; sys_platform == "darwin"
+pyobjc-framework-WebKit>=10; sys_platform == "darwin"

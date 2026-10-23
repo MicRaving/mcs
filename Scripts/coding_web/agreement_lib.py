@@ -615,6 +615,23 @@ _ABSTRACT_FIELDS = [("C1", "Unrelated topic"), ("C2", "No control group"),
 
 _ABSTRACT_CATS = ["Yes", "No", "Unsure"]
 
+
+def abstract_fields():
+    """The abstract criteria that are scored for agreement.
+
+    The project's scheme wins, so a criterion added in the Scheme editor is
+    scored too; the hardcoded list is the fallback for a project that carries
+    no criteria of its own.
+    """
+    try:
+        from screening_lib import screening_criteria
+        criteria = screening_criteria()
+    except Exception:  # noqa: BLE001
+        criteria = []
+    if criteria:
+        return [(c["key"], c.get("title") or c["key"]) for c in criteria]
+    return list(_ABSTRACT_FIELDS)
+
 def _abstract_agreement_index():
     """{coder: {uid: {C1..C4: verdict}}} from Screening/<coder>.json."""
     out = {}
@@ -633,7 +650,7 @@ def _abstract_agreement_index():
         for uid, rec in dec.items():
             crits = (rec or {}).get("criteria") or {}
             vals = {}
-            for lab, _ in _ABSTRACT_FIELDS:
+            for lab, _ in abstract_fields():
                 v = (crits.get(lab) or {}).get("verdict")
                 if v:
                     vals[lab] = str(v).strip()
@@ -651,7 +668,7 @@ def _abstract_agreement_index():
     for rec in (idx.get("rows") or []):
         ai = rec.get("ai") or {}
         vals = {}
-        for lab, _ in _ABSTRACT_FIELDS:
+        for lab, _ in abstract_fields():
             v = str((ai.get(lab) or {}).get("verdict") or "").strip()
             if v:
                 vals[lab] = v
@@ -663,7 +680,7 @@ def _abstract_agreement_index():
 
 def _abstract_case_maps(index):
     """{label: {uid: {rater: verdict}}}."""
-    maps = {lab: {} for lab, _ in _ABSTRACT_FIELDS}
+    maps = {lab: {} for lab, _ in abstract_fields()}
     for rater, by_uid in index.items():
         for uid, vals in by_uid.items():
             for lab, v in vals.items():

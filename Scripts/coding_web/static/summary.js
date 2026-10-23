@@ -12,7 +12,7 @@
 (() => {
   "use strict";
 
-  const { $, $$, esc, api } = window.CS;
+  const { $, $$, esc, api, optionText } = window.CS;
   const icon = window.CS.svg;
 
   // read-only context shown next to the editable dimension
@@ -56,7 +56,7 @@
   function labelOf(dim, value) {
     const levels = state.levelCache[dim] || [];
     const lv = levels.find((l) => String(l.value) === String(value));
-    if (lv && lv.label) return lv.label;
+    if (lv && lv.label) return optionText(lv.value, lv.label);
     return value === "" ? "—" : value;
   }
 
@@ -102,7 +102,7 @@
   function levelChipHTML(l) {
     const active = state.selValue !== null && String(state.selValue) === String(l.value) ? " active" : "";
     const lab = l.value === "" ? `<span class="lv blank">(blank)</span>`
-      : `<span class="lv">${esc(l.label || l.value)}</span>`;
+      : `<span class="lv">${esc(optionText(l.value, l.label || l.value))}</span>`;
     return `<button class="sm-chip${active}" data-dim="${esc(state.selDim)}" data-value="${esc(l.value)}">` +
       `${lab} <b>${l.n_records}</b> <i>${l.n_studies} ${l.n_studies === 1 ? "study" : "studies"}</i></button>`;
   }

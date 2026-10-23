@@ -919,6 +919,16 @@
   async function loadOverview() {
     const d = await api("/api/repro/overview");
     S.overview = d;
+    // Say where the verdicts come from.  The workbook is the campaign's own
+    // summary; without it the tab reads each study's repro_facts.json, and a
+    // reader should not have to guess that from the numbers.
+    const sub = $("#rp-sub");
+    if (sub) {
+      if (!sub.dataset.base) sub.dataset.base = sub.innerHTML;
+      sub.innerHTML = sub.dataset.base + (d.reproduction_available ? "" :
+        " <b>reproduction_summary.xlsx</b> is not in this project, so the verdicts " +
+        "are read from each study's <code>repro_facts.json</code> and its report.");
+    }
     renderKpis();
     renderFilters();
     renderTable();

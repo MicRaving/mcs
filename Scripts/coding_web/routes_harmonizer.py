@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import threading
-from studio_lib import DOMAIN_VOCAB, atomic_replace, safe_token
+from studio_lib import atomic_replace, domain_vocab, safe_token
 from studio_state import S
 
 bp = Blueprint("harmonizer", __name__)
@@ -239,7 +239,7 @@ def api_harmonizer_index():
 
 def _harmonizer_options():
     return {"role": ["dv", "covariate", ""],
-            "dv_domain": list(DOMAIN_VOCAB) + [""],
+            "dv_domain": list(domain_vocab()) + [""],
             "veracity": ["true", "false", ""],
             "timepoint": ["pre", "post", "followup", ""],
             "dv_polarity": ["higher_is_better", "higher_is_worse", "ambiguous", ""]}

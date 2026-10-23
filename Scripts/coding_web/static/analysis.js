@@ -305,7 +305,8 @@
                     agreement: $("#view-agreement"),
                     coverage: $("#view-coverage"),
                     summary: $("#view-summary"), analysis: $("#view-analysis"),
-                    reproduction: $("#view-reproduction") };
+                    reproduction: $("#view-reproduction"),
+                    scheme: $("#view-scheme"), settings: $("#view-settings") };
     Object.entries(views).forEach(([name, el]) => { if (el) el.hidden = name !== view; });
     $$(".viewtab").forEach((b) => {
       const active = b.dataset.view === view;
@@ -318,10 +319,18 @@
     document.body.classList.toggle("view-agreement", view === "agreement");
     document.body.classList.toggle("view-summary", view === "summary");
     document.body.classList.toggle("view-reproduction", view === "reproduction");
+    document.body.classList.toggle("view-scheme", view === "scheme");
+    document.body.classList.toggle("view-settings", view === "settings");
     document.dispatchEvent(new CustomEvent("cs:view", { detail: view }));
     if (view === "analysis" && !state.overview) refresh();
     if (view === "analysis") window.dispatchEvent(new Event("resize"));
+    // the tab in use keeps its label, so the strip has to be measured again
+    if (window.CS && typeof window.CS.fitTopbar === "function") window.CS.fitTopbar();
   }
+
+  // The scheme editor is a view of its own, and it needs to come back to
+  // whatever view the user came from.
+  window.CS.showView = showView;
 
   // ---------------------------------------------------------------- selects
   function fillSelect(el, values, current, labeler = (v) => v) {

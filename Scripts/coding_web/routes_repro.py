@@ -711,10 +711,63 @@ def _study_flags(key, ds):
     }
 
 
+
+# ---------------------------------------------------------------------------
+# per-study reproduction facts (Datasets/<Key>/<Key> - repro_facts.json)
+# ---------------------------------------------------------------------------
+# The workbook is the campaign's summary; these files are what it summarises.
+# The field names below are the workbook's column names, so a facts dict can
+# stand in for a workbook row wherever one is missing.
+
+_FACTS_CACHE = {}
+
+
+def _facts_row(key, ds):
+    """One study's reproduction facts, shaped like a workbook row (or None)."""
+    path = os.path.join(ds, key, key + " - repro_facts.json")
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    hit = _FACTS_CACHE.get(key)
+    if hit and hit[0] == mtime:
+        return hit[1]
+    data = _read_json(path)
+    row = None
+    if isinstance(data, dict) and _s(data.get("status")):
+        row = {
+            "key": key,
+            "status": _s(data.get("status")),
+            "success": _s(data.get("success")),
+            "machine_status": _s(data.get("machine_status")),
+            "documented_status": _s(data.get("documented_status")),
+            "documented_verdict": _s(data.get("documented_verdict")),
+            "script_kind": _s(data.get("script_kind")),
+            "n_contrasts": _int(data.get("n_coded")),
+            "n_reproduced": _int(data.get("n_reproduced")),
+            "n_direction": _int(data.get("n_direction")),
+            "n_not_reproduced": _int(data.get("n_not_reproduced")),
+            "runtime_s": _num(data.get("runtime")),
+            "returncode": _int(data.get("rc")),
+            "machine_disagrees": _s(data.get("machine_disagrees")),
+        }
+    _FACTS_CACHE[key] = (mtime, row)
+    return row
+
+
 def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
     flags = _study_flags(key, ds)
     h = harm_by_key.get(key, {})
     r = repro_by_key.get(key, {})
+    facts = None
+    if not r:
+        # no workbook row: the study's own facts stand in for it
+        facts = _facts_row(key, ds)
+        if facts:
+            r = facts
+        elif flags["has_report"]:
+            # documented in Reproduction/<Key>.md, never machine-checked
+            r = {"key": key, "status": "reported_only"}
 
     raw_status = _s(r.get("status"))
     status = _STATUS_NORM.get(raw_status, raw_status or "not_run")
@@ -766,6 +819,10 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
         # reproduction summary (workbook)
         "repro_status": raw_status,
         "status": status,
+        "status_source": ("workbook" if repro_by_key.get(key) else
+                           "dossier" if dossier else
+                           "facts" if facts else
+                           "report" if status == "reported_only" else ""),
         "success": _s(r.get("success")),
         "machine_status": _s(r.get("machine_status")),
         "documented_status": _s(r.get("documented_status")),

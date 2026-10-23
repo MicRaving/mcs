@@ -1,0 +1,297 @@
+/* ============================================================
+   CodingStudio — Home tab
+
+   Four bands, and the page never scrolls as a whole: the header
+   and the project box keep their height, and the documentation
+   takes whatever is left, scrolling inside its own pane.
+
+     hero        the name and a tagline
+     top         the projects box (left) and the metrics (right)
+     docs        the list (left) and the selected read (right)
+
+   Every colour, radius and font comes from the app's own tokens
+   (styles.css); only the `.home-*` namespace is added here.
+   ============================================================ */
+
+.workspace.home {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
+#view-home[hidden] { display: none !important; }
+.workspace.home p { color: inherit; }
+
+/* The coding-only actions in the top bar are meaningless on the landing
+   view; the coder field stays, because it is a setting, not an action. */
+body.view-home #coder-mode,
+body.view-home #blind-btn,
+body.view-home #clear-btn,
+body.view-home #save-btn,
+body.view-home #next-btn,
+body.view-home #shuffle-btn,
+body.view-home #merge-btn,
+body.view-home #an-full-top,
+body.view-home #master-field { display: none !important; }
+
+/* ------------------------------------------------------------ page shell */
+.home-page {
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px 22px 0;
+}
+.home-page.home-busy { cursor: progress; }
+.home-grow { flex: 1; }
+
+/* ------------------------------------------------------------ hero */
+.home-hero { flex: none; text-align: center; }
+.home-hero h1 {
+  margin: 0; font-family: var(--serif); font-size: 34px; font-weight: 600;
+  letter-spacing: -.03em; line-height: 1;
+  color: var(--ink);
+}
+.home-tagline {
+  margin: 7px auto 0; max-width: 72ch; font-size: 13px; line-height: 1.45;
+  color: var(--muted); font-style: italic; text-wrap: balance;
+}
+
+.home-flash {
+  flex: none; margin: 0 auto; max-width: 760px; padding: 7px 12px;
+  border-radius: var(--r-sm);
+  background: var(--ok-soft); color: var(--ok);
+  border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+  font-size: 12px;
+}
+.home-flash[hidden] { display: none !important; }
+
+/* ------------------------------------------------------------ top band */
+.home-top {
+  flex: none;
+  display: grid; grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px; align-items: start;
+}
+
+.home-box {
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1); overflow: hidden;
+  min-width: 0;
+}
+.home-box-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+}
+.home-box-head h2 {
+  margin: 0; font-family: var(--serif); font-size: 14.5px; font-weight: 600;
+  letter-spacing: -.01em;
+}
+.home-box-body { padding: 9px 10px 10px; }
+
+.home-projects {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 168px; overflow: auto;
+}
+.home-proj {
+  display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
+  padding: 7px 10px 8px;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: var(--panel-2); color: inherit; font: inherit; cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.home-proj:hover { border-color: var(--accent); background: var(--panel); }
+.home-proj.current {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft);
+}
+.home-proj[disabled] { opacity: .55; cursor: not-allowed; }
+.home-proj-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.home-proj-name {
+  font-size: 12.5px; font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-proj-open {
+  flex: none; font-size: 9px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--accent-ink);
+}
+.home-proj-meta {
+  font-size: 11px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-proj-path {
+  font: 500 10.5px var(--mono); color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.home-note { margin: 2px 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.home-note code {
+  font: 500 11px var(--mono); background: var(--panel-3);
+  border-radius: 4px; padding: 1px 4px;
+}
+
+/* the new-project form, revealed by the New project button */
+.home-new {
+  padding: 11px 14px 13px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+}
+.home-new[hidden] { display: none !important; }
+.home-new-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 180px);
+  gap: 10px;
+}
+.home-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.home-field > span {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.home-new-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+
+.home-error {
+  margin: 9px 0 0; padding: 6px 9px; border-radius: var(--r-sm);
+  font-size: 11.5px; color: var(--danger); background: var(--danger-soft);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  line-height: 1.45;
+}
+.home-error[hidden] { display: none !important; }
+.home-ok { margin: 9px 0 0; font-size: 11.5px; color: var(--ok); }
+.home-ok[hidden] { display: none !important; }
+
+/* ------------------------------------------------------------ metrics */
+/* Six blocks beside the projects box.  The project is already named by the
+   open row on the left, so this column carries no title of its own. */
+.home-metrics {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px; min-width: 0;
+}
+.home-metric {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--panel); min-width: 0;
+}
+.home-metric-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-metric-value {
+  font-family: var(--serif); font-size: 19px; font-weight: 600;
+  letter-spacing: -.02em; line-height: 1.15; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.home-metric-sub {
+  font-size: 10px; color: var(--faint); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.home-metric.is-empty { background: transparent; border-style: dashed; }
+.home-metric.is-empty .home-metric-value { color: var(--faint); }
+
+/* ------------------------------------------------------------ documentation */
+.home-docs {
+  flex: 1 1 auto; min-height: 0;
+  display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 16px;
+  padding-bottom: 16px;
+}
+.home-docs-nav {
+  display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0;
+}
+.home-docs-heading {
+  margin: 0; font-size: 10px; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted);
+}
+.home-docs-list {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 1px;
+  padding-right: 2px;
+}
+.home-doc {
+  display: flex; flex-direction: column; gap: 0; width: 100%;
+  padding: 5px 9px 6px; text-align: left; font: inherit; color: inherit;
+  background: none; border: 0; border-left: 2px solid transparent;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.home-doc:hover { background: var(--panel-2); }
+.home-doc.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.home-doc-title { font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.home-doc.active .home-doc-title { color: var(--accent-ink); }
+.home-doc-sum {
+  font-size: 10.5px; color: var(--muted); line-height: 1.32;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.home-doc.active .home-doc-sum { color: var(--accent-ink); opacity: .8; }
+
+.home-docs-body {
+  min-height: 0; min-width: 0; overflow: auto;
+  padding: 22px 28px 26px;
+  border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1);
+}
+
+/* The instructions are read, not skimmed: the note styles are tuned for the
+   paper's side pane, so the body gets its own scale - and the full width of
+   the pane, since a wide measure only costs scrolling. */
+.home-docs-text { max-width: none; font-size: 13px; line-height: 1.62; color: var(--ink-2); }
+.home-docs-text > :first-child { margin-top: 0; }
+.home-docs-text h1 {
+  margin: 0 0 14px; font-family: var(--serif); font-size: 26px; font-weight: 600;
+  letter-spacing: -.02em; color: var(--ink);
+}
+.home-docs-text h2 {
+  margin: 26px 0 8px; font-family: var(--serif); font-size: 17px; font-weight: 600;
+  letter-spacing: -.01em; color: var(--ink);
+}
+.home-docs-text h3 {
+  margin: 18px 0 6px; font-size: 13px; font-weight: 700; color: var(--ink);
+}
+.home-docs-text p { margin: .55em 0; }
+.home-docs-text ul, .home-docs-text ol { margin: .5em 0; padding-left: 1.35em; }
+.home-docs-text li { margin: .22em 0; }
+.home-docs-text li > ul, .home-docs-text li > ol { margin: .2em 0; }
+.home-docs-text code { font: 500 11.5px var(--mono); }
+.home-docs-text pre { padding: 10px 12px; font-size: 11.5px; line-height: 1.5; }
+.home-docs-text blockquote {
+  margin: .7em 0; padding: .2em 0 .2em 1em;
+  border-left: 3px solid var(--line-2); color: var(--muted);
+}
+.home-docs-text table { font-size: 12px; margin: .8em 0; }
+.home-docs-text th { background: var(--panel-2); }
+.home-docs-text hr { margin: 1.2em 0; }
+.home-docs-text strong { color: var(--ink); }
+
+/* ------------------------------------------------------------ narrow / short */
+@media (max-width: 1080px) {
+  .home-top { grid-template-columns: minmax(0, 1fr); }
+  .home-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .home-docs { grid-template-columns: minmax(0, 1fr); }
+  .home-docs-nav { flex: none; }
+  .home-docs-list {
+    flex: none; flex-direction: row; flex-wrap: wrap; gap: 4px; overflow: visible;
+  }
+  .home-doc {
+    width: auto; border-left: 0; border: 1px solid var(--line);
+    border-radius: 99px; padding: 4px 11px;
+  }
+  .home-doc.active { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  .home-doc-sum { display: none; }
+}
+
+/* A short window cannot give the documentation a pane of its own: let the
+   page scroll again rather than squeeze it into nothing. */
+@media (max-height: 720px) {
+  .workspace.home { overflow: auto; }
+  .home-page { height: auto; min-height: 0; padding-bottom: 16px; }
+  .home-docs { flex: none; min-height: 0; }
+  .home-docs-body { overflow: visible; }
+  .home-docs-list { overflow: visible; }
+}
+
+@media (max-width: 760px) {
+  .home-page { padding: 12px 14px 0; }
+  .home-hero h1 { font-size: 28px; }
+  .home-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .home-new-grid { grid-template-columns: minmax(0, 1fr); }
+  .home-docs-body { padding: 16px 15px 20px; }
+  .home-box-head { flex-wrap: wrap; }
+}

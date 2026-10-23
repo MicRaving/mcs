@@ -24,10 +24,21 @@ from studio_lib import APP_VERSION
 
 app = Flask(__name__, static_folder=None)
 app.config["JSON_SORT_KEYS"] = False
+# Flask 2.3 moved the switch to the JSON provider, and the provider sorts
+# the keys by default.  The app wants the keys in the order it built them
+# (a criterion's auto-approval rules are a dictionary whose order is the
+# insertion order), so the switch is set on the provider as well.
+try:
+    app.json.sort_keys = False
+except AttributeError:  # pragma: no cover - Flask < 2.2
+    pass
 
 # The route modules only build their blueprints; they are registered here so the
 # import graph stays acyclic (route modules never import app.py back).
 from routes_core import bp as core_bp            # noqa: E402
+from routes_scheme import bp as scheme_bp        # noqa: E402
+from routes_criteria import bp as criteria_bp    # noqa: E402
+from routes_project import bp as project_bp      # noqa: E402
 from routes_harmonizer import bp as harmonizer_bp  # noqa: E402
 from routes_coverage import bp as coverage_bp    # noqa: E402
 from routes_summary import bp as summary_bp      # noqa: E402
@@ -38,11 +49,21 @@ from routes_analysis import bp as analysis_bp    # noqa: E402
 from routes_apa import bp as apa_bp              # noqa: E402
 from routes_fulltext import bp as fulltext_bp    # noqa: E402
 from routes_repro import bp as repro_bp          # noqa: E402
+from routes_settings import bp as settings_bp      # noqa: E402
 
-for _bp in (core_bp, harmonizer_bp, coverage_bp, summary_bp, screening_bp,
-            agreement_bp, harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp,
-            repro_bp):
+for _bp in (core_bp, scheme_bp, criteria_bp, project_bp, harmonizer_bp,
+            coverage_bp, summary_bp, screening_bp, agreement_bp,
+            harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, repro_bp,
+            settings_bp):
     app.register_blueprint(_bp)
+
+# The corpus-wide GETs are answered from a file-stamp cache: they are pure
+# functions of Extraction/, Codings/ and Screening/, so they are recomputed
+# only when one of those files changes.
+from studio_cache import register_response_cache  # noqa: E402
+
+register_response_cache(app)
+
 
 
 def free_port(preferred):

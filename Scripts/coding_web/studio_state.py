@@ -34,7 +34,33 @@ def _first_existing(*paths):
 
 
 STATIC = _first_existing(os.path.join(BUNDLE, "static"), os.path.join(HERE, "static"))
+#: The legacy (v3.1) schema shipped with the app.  It is the fallback for a
+#: project that has no scheme of its own; the project's own scheme is read
+#: through ``project_context`` (see :func:`schema_path`).
 SCHEMA = _first_existing(os.path.join(BUNDLE, "schema.json"), os.path.join(HERE, "schema.json"))
+
+# The shared project layer lives one level up (Scripts/): ``project_context``
+# answers "which project is active?".  The app points it at the data root, so
+# the scheme, the criteria and the manifest follow a re-root.
+try:
+    import project_context  # noqa: E402
+except Exception:  # pragma: no cover - source layout fallback
+    for _d in (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               os.path.join(HERE, "Scripts")):
+        if _d and _d not in sys.path:
+            sys.path.insert(0, _d)
+    import project_context  # noqa: E402
+
+
+def schema_path():
+    """The scheme document of the active project (the legacy file as fallback)."""
+    try:
+        path = project_context.scheme_path(project_context.active_scheme_id() or "")
+        if os.path.exists(path):
+            return path
+    except Exception:  # noqa: BLE001
+        pass
+    return SCHEMA
 
 
 def find_data_root(start, max_up=6):
@@ -51,11 +77,24 @@ def find_data_root(start, max_up=6):
 
 
 def _config_candidates():
+    """Where the app config lives, per platform.
+
+    Windows keeps the portable file next to the exe when it is frozen, and
+    falls back to %LOCALAPPDATA%.  macOS and Linux use the platform's own
+    place: an app folder inside a bundle or a Flatpak is read-only, so the
+    config cannot live beside the executable there.
+    """
     out = []
-    if FROZEN:
+    if FROZEN and sys.platform == "win32":
         out.append(os.path.join(EXE_DIR, CONFIG_NAME))
-    out.append(os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()),
-                            "CodingStudio", CONFIG_NAME))
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA", tempfile.gettempdir())
+    elif sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~/Library/Application Support"))
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+            os.path.expanduser("~"), ".config")
+    out.append(os.path.join(base, "CodingStudio", CONFIG_NAME))
     return out
 
 
@@ -88,6 +127,80 @@ def save_config(updates):
         return False
 
 
+#: The app config key that holds the recently opened project folders.
+RECENT_PROJECTS_KEY = "recent_projects"
+#: The app config key that holds the opening time of every recent project.
+RECENT_OPENED_KEY = "recent_projects_opened"
+#: How many projects the recent list keeps.
+RECENT_PROJECTS_LIMIT = 12
+
+
+def recent_projects():
+    """The recently opened project folders, most recent first.
+
+    The list lives in the app config (``codingstudio.config.json``) under
+    ``recent_projects``: absolute paths, most recent first, at most
+    :data:`RECENT_PROJECTS_LIMIT` entries.  The opening time of each folder
+    lives beside it under ``recent_projects_opened`` (an ISO stamp), so the
+    Home page can show when a project was last used.
+
+    Windows paths are compared case-insensitively, so the same folder never
+    appears twice under two spellings.
+    """
+    raw = load_config().get(RECENT_PROJECTS_KEY)
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for entry in raw:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        path = os.path.abspath(entry.strip())
+        if not any(os.path.normcase(path) == os.path.normcase(known)
+                   for known in out):
+            out.append(path)
+    return out
+
+
+def recent_project_opened(path):
+    """The ISO stamp of the last opening of ``path`` (``""`` when unknown)."""
+    if not path:
+        return ""
+    stamps = load_config().get(RECENT_OPENED_KEY)
+    if not isinstance(stamps, dict):
+        return ""
+    target = os.path.normcase(os.path.abspath(path))
+    for key, value in stamps.items():
+        if (isinstance(key, str) and isinstance(value, str)
+                and os.path.normcase(key) == target):
+            return value
+    return ""
+
+
+def record_recent_project(path):
+    """Record ``path`` as recently opened; returns the new recent list.
+
+    The folder moves to the front, duplicates are dropped and the list keeps
+    at most :data:`RECENT_PROJECTS_LIMIT` entries.
+    """
+    if not path:
+        return recent_projects()
+    path = os.path.abspath(path)
+    target = os.path.normcase(path)
+    paths = [p for p in recent_projects() if os.path.normcase(p) != target]
+    paths.insert(0, path)
+    paths = paths[:RECENT_PROJECTS_LIMIT]
+    stamps = {}
+    raw_stamps = load_config().get(RECENT_OPENED_KEY)
+    kept = {os.path.normcase(p) for p in paths}
+    if isinstance(raw_stamps, dict):
+        stamps = {k: v for k, v in raw_stamps.items()
+                  if isinstance(k, str) and isinstance(v, str)
+                  and os.path.normcase(k) in kept}
+    stamps[path] = datetime.now().isoformat(timespec="seconds")
+    save_config({RECENT_PROJECTS_KEY: paths, RECENT_OPENED_KEY: stamps})
+    return paths
+
+
 def default_root():
     """Packaged: the folder the executable sits in. Source: the repo root above Scripts/coding_web."""
     return EXE_DIR if FROZEN else REPO
@@ -115,7 +228,17 @@ class State:
 
     def configure(self, root=None):
         """Point the app at a data root (papers, text, extractions, codings)."""
-        explicit = root or os.environ.get("CODING_STUDIO_ROOT") or load_config().get("root")
+        # The project context resolves the root (an explicit override, the
+        # environment, the code's own root when that root is a project, then
+        # the app's saved folder).  The app asks it rather than resolving a
+        # root of its own, so the app and the analysis pipeline can never
+        # disagree about which project is active.
+        explicit = root or os.environ.get("CODING_STUDIO_ROOT")
+        if not explicit:
+            try:
+                explicit = project_context.active_root()
+            except Exception:  # pragma: no cover - the context is optional here
+                explicit = load_config().get("root")
         root = explicit or default_root()
         if not explicit and not has_data(root):
             up = find_data_root(root)  # tolerate being placed in a sub-folder
@@ -150,6 +273,19 @@ class State:
             self.PDFIMG = self.TEMP
         tempfile.tempdir = self.TEMP
         self.ROOT = root
+        # The project context follows the app: the scheme, the criteria and the
+        # manifest are read from the active root, so a re-root (POST /api/root)
+        # switches the scheme with the project.
+        try:
+            project_context.set_root(root)
+        except Exception:  # noqa: BLE001 - never fail a re-root over the context
+            pass
+        # Opening a project is what makes it "recent": the Home page lists the
+        # folders that were opened lately, most recent first.
+        try:
+            record_recent_project(root)
+        except Exception:  # noqa: BLE001 - the recent list is a convenience
+            pass
         return root
 
     def paper_keys(self):

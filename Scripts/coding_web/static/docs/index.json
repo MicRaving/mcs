@@ -1,0 +1,54 @@
+{
+  "docs": [
+    {
+      "id": "cheat-sheet",
+      "title": "Getting started",
+      "summary": "The folder, the workflow, your first hour."
+    },
+    {
+      "id": "papers",
+      "title": "The paper list",
+      "summary": "What the marks mean, and how to find a study."
+    },
+    {
+      "id": "coding",
+      "title": "Coding a paper",
+      "summary": "Experiments, arms, measures, effect sizes, sources."
+    },
+    {
+      "id": "screening",
+      "title": "Screening",
+      "summary": "The criteria, abstract and full text, the keys."
+    },
+    {
+      "id": "scheme",
+      "title": "The scheme",
+      "summary": "Fields, blocks, kinds, conditions, criteria."
+    },
+    {
+      "id": "agreement",
+      "title": "Agreement",
+      "summary": "Reliability, conflicts, settling a disagreement."
+    },
+    {
+      "id": "harmonization",
+      "title": "Harmonization",
+      "summary": "Bringing a study's data into one shape."
+    },
+    {
+      "id": "reproduction",
+      "title": "Reproduction",
+      "summary": "Re-running the paper's own numbers."
+    },
+    {
+      "id": "analysis",
+      "title": "The analysis",
+      "summary": "What is pooled, random effects, moderators."
+    },
+    {
+      "id": "glossary",
+      "title": "Glossary",
+      "summary": "Effect size, d-prime, I-squared, in plain words."
+    }
+  ]
+}

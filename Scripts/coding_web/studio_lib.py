@@ -11,9 +11,21 @@ import tempfile
 import time
 from studio_state import S, SCHEMA, paper_keys
 
+try:
+    import scheme_lib as _SL  # noqa: E402
+except Exception:  # pragma: no cover - source layout fallback
+    for _d in (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               os.path.join(S.ROOT, "Scripts")):
+        if _d and _d not in sys.path:
+            sys.path.insert(0, _d)
+    import scheme_lib as _SL  # noqa: E402
+
+#: The value types a scheme field may hold (``scheme_lib.FIELD_TYPES``).
+FIELD_TYPES = _SL.FIELD_TYPES
+
 #: Version stamp for the portable build (D6).  Bump on every coordinated rebuild
 #: so a frozen binary can be matched against the source it was built from.
-APP_VERSION = "2026-09-22+ws_w2app"
+APP_VERSION = "0.2.1"
 
 # ``contract.py`` is the ONE shared coding contract (stdlib-only, bundled in the
 # packaged app): the DV-completeness rule lives there so ``B_validate`` and the
@@ -26,6 +38,21 @@ except Exception:  # pragma: no cover - source layout fallback
         if _d and _d not in sys.path:
             sys.path.insert(0, _d)
     import contract as CT  # noqa: E402
+
+# The project layer lives one level up (Scripts/): ``project_context`` answers
+# "which project is active?" and ``scheme_legacy`` converts the legacy v3.1
+# schema into a scheme.  The app re-roots through ``project_context``, so the
+# scheme the app serves always follows the data root.
+try:
+    import project_context  # noqa: E402
+    import scheme_legacy  # noqa: E402
+except Exception:  # pragma: no cover - source layout fallback
+    for _d in (os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+               os.path.join(S.ROOT, "Scripts")):
+        if _d and _d not in sys.path:
+            sys.path.insert(0, _d)
+    import project_context  # noqa: E402
+    import scheme_legacy  # noqa: E402
 
 
 def atomic_replace(src, dst, attempts=6, base_delay=0.5):
@@ -63,11 +90,45 @@ _pdf_text = {}
 # `engagement_behavior` folds into `sharing_intention`, and `belief_accuracy` is
 # merged into `credibility` (see Scripts/domain_restriction.py and
 # Scripts/DV_DOMAIN_MERGE_LOG.md), so none is offered here.
-DOMAIN_VOCAB = [
+# This list is the FALLBACK: the active project's scheme wins (see
+# :func:`domain_vocab`).
+_DV_DOMAINS_FALLBACK = [
     "technique_recognition", "credibility", "sharing_intention",
     "search_behavior", "attitude_policy", "trust",
     "media_literacy_attitudes", "critical_thinking", "other",
 ]
+
+#: The live vocabulary.  It is refreshed in place by :func:`domain_vocab`, so
+#: the module-level name stays valid for every importer.
+DOMAIN_VOCAB = list(_DV_DOMAINS_FALLBACK)
+
+_DOMAIN_CACHE = {"stamp": None, "value": None}
+
+
+def domain_vocab():
+    """The ``dv_domains`` vocabulary of the active project.
+
+    The project's scheme wins; the list above is the fallback for a project
+    that declares no vocabulary of its own.  The lookup is cached until the
+    scheme file changes.
+    """
+    stamp = _scheme_stamp()
+    cached = _DOMAIN_CACHE.get("value")
+    if cached and _DOMAIN_CACHE.get("stamp") == stamp:
+        DOMAIN_VOCAB[:] = cached
+        return DOMAIN_VOCAB
+    values = None
+    try:
+        values = project_context.vocabulary("dv_domains", default=None)
+    except Exception:  # noqa: BLE001
+        values = None
+    if not values:
+        values = list(_DV_DOMAINS_FALLBACK)
+    values = [str(v) for v in values]
+    _DOMAIN_CACHE["stamp"] = stamp
+    _DOMAIN_CACHE["value"] = values
+    DOMAIN_VOCAB[:] = values
+    return DOMAIN_VOCAB
 
 def safe_token(name):
     name = (name or "").strip()
@@ -349,8 +410,23 @@ def is_fully_within_record(rec):
 
 
 #: Required coded fields, mirroring ``Scripts/B_validate.py`` (REQUIRED).
+#: The active project's scheme may declare its own list
+#: (``rules.required_fields``); this is the fallback.
 _VALIDATE_REQUIRED = ["Study_ID", "Year", "Authors", "Title", "Study_Description",
                       "Intervention_Type", "DV_Metrics"]
+
+
+def required_fields():
+    """The required coded fields: the scheme's list when it declares one."""
+    rules = {}
+    try:
+        rules = project_scheme().get("rules") or {}
+    except Exception:  # noqa: BLE001
+        rules = {}
+    required = rules.get("required_fields")
+    if isinstance(required, list) and required:
+        return [str(name) for name in required]
+    return list(_VALIDATE_REQUIRED)
 
 
 def validate_records(records):
@@ -364,11 +440,12 @@ def validate_records(records):
     warnings = []
     if not isinstance(records, list) or not records:
         return ["top level must be a non-empty JSON array"]
+    required = required_fields()
     for i, rec in enumerate(records):
         if not isinstance(rec, dict):
             warnings.append(f"[{i}] not an object")
             continue
-        for k in _VALIDATE_REQUIRED:
+        for k in required:
             if k not in rec or rec[k] in (None, "", []):
                 warnings.append(f"[{i}] missing required field {k}")
         it = rec.get("Intervention_Type")
@@ -483,13 +560,348 @@ _SCHEMA_CACHE = {"obj": None}
 
 _CODING_INDEX = {"at": 0.0, "data": None}
 
-def _schema():
-    if _SCHEMA_CACHE["obj"] is None:
+
+def _legacy_document():
+    """The legacy v3.1 schema document of the active project (if it has one).
+
+    The project's own ``Scripts/coding_web/schema.json`` wins; the copy shipped
+    with the app is the fallback (the packaged build keeps it beside the exe).
+    """
+    paths = []
+    try:
+        paths.append(project_context.legacy_schema_path())
+    except Exception:  # noqa: BLE001
+        pass
+    paths.append(SCHEMA)
+    for path in paths:
         try:
-            with open(SCHEMA, encoding="utf-8") as fh:
-                _SCHEMA_CACHE["obj"] = json.load(fh)
-        except Exception:
-            _SCHEMA_CACHE["obj"] = {}
+            if path and os.path.exists(path):
+                with open(path, encoding="utf-8") as fh:
+                    doc = json.load(fh)
+                if isinstance(doc, dict) and doc:
+                    return doc
+        except (OSError, json.JSONDecodeError):
+            continue
+    return {}
+
+
+def _scheme_stamp():
+    """A cheap fingerprint of the scheme source, so a rewrite is noticed."""
+    paths = []
+    try:
+        paths.append(project_context.scheme_path(project_context.active_scheme_id() or ""))
+        paths.append(project_context.legacy_schema_path())
+    except Exception:  # noqa: BLE001
+        pass
+    paths.append(SCHEMA)
+    for path in paths:
+        try:
+            st = os.stat(path)
+        except OSError:
+            continue
+        return (path, st.st_mtime_ns, st.st_size)
+    return None
+
+
+def project_scheme():
+    """The active project's scheme, normalised (the new shape).
+
+    A project that carries its own ``Project/scheme.json`` is read from there;
+    a project without one falls back to its legacy schema, converted on the
+    fly.  The document is cached until the source file changes, so a rewritten
+    scheme is picked up without a restart.
+    """
+    stamp = _scheme_stamp()
+    cached = _SCHEMA_CACHE.get("project")
+    if cached and cached.get("stamp") == stamp:
+        return cached["scheme"]
+    scheme = {}
+    try:
+        scheme = project_context.scheme() or {}
+    except Exception:  # noqa: BLE001
+        scheme = {}
+    if not (scheme.get("fields") or (scheme.get("metrics") or {}).get("fields")):
+        legacy = _legacy_document()
+        if legacy:
+            try:
+                scheme = scheme_legacy.convert_to_normalised(legacy)
+            except Exception:  # noqa: BLE001
+                pass
+    _SCHEMA_CACHE["project"] = {"stamp": stamp, "scheme": scheme}
+    return scheme
+
+
+def _base_type_of(field_type):
+    """The base part of a v3.1 type: "string|null" -> "string"."""
+    return str(field_type or "").split("|")[0].strip()
+
+
+def legacy_schema_view(scheme):
+    """Render a scheme in the legacy v3.1 shape.
+
+    The v3.1 document is what the coder form, the agreement tab and the
+    analysis tab consume: a list of group names, a flat list of study fields,
+    a flat list of DV fields, the intervention modules and the controlled
+    vocabularies.  A scheme is the same information with roles, conditions and
+    kinds added, so it is rendered back into that shape here.
+
+    One asymmetry is repaired on the way: a scheme holds **one** field per
+    name, while the v3.1 document repeated a field name in several modules
+    (each with its own option list).  The conversion keeps the first
+    occurrence and parks the per-module option lists in ``module_options``;
+    the view puts those fields back into the modules they belong to, so the
+    coder form still offers every input the v3.1 document had.
+    """
+    scheme = scheme if isinstance(scheme, dict) else {}
+
+    def field_view(field, group=None):
+        name = field.get("name") or ""
+        base = field.get("type") or "string"
+        options = list(field.get("options") or [])
+        vocab = list(field.get("vocab") or [])
+        if options and vocab and field.get("editor") in ("multiselect", "chips"):
+            # The v3.1 document carried the levels of a multi-label field in
+            # its ``vocab`` and left ``options`` empty.  The scheme derives an
+            # option list from the vocabulary, which would hide the fact that
+            # the field holds several labels at once (the agreement layer
+            # reads that difference), so the option list is dropped again.
+            values = {str(o.get("value")) for o in options}
+            if values == {str(v) for v in vocab}:
+                options = []
+        return {
+            "name": name,
+            "label": field.get("label") or name,
+            "group": group if group is not None else (field.get("group") or ""),
+            "type": base,
+            "base_type": base,
+            "description": field.get("description") or "",
+            "required": bool(field.get("required")),
+            "derived": bool(field.get("derived")),
+            "moderator": bool(field.get("moderator", True)),
+            "module": field.get("module"),
+            "editor": field.get("editor") or "text",
+            "options": options,
+            "vocab": vocab,
+            "role": field.get("role"),
+        }
+
+    # Every field of the scheme, by name (the first occurrence wins).
+    by_name = {}
+    for field in (scheme.get("fields") or []):
+        by_name.setdefault(field.get("name"), field)
+    for mod in (scheme.get("modules") or {}).values():
+        for field in (mod.get("fields") or []):
+            by_name.setdefault(field.get("name"), field)
+    for field in ((scheme.get("metrics") or {}).get("fields") or []):
+        by_name.setdefault(field.get("name"), field)
+
+    groups = [g.get("name") for g in (scheme.get("groups") or []) if g.get("name")]
+    common = [field_view(f) for f in (scheme.get("fields") or [])]
+    dv = [field_view(f) for f in ((scheme.get("metrics") or {}).get("fields") or [])]
+    modules = {}
+    for key, mod in (scheme.get("modules") or {}).items():
+        group = f"Intervention module ({key})"
+        fields = [field_view(f, group) for f in (mod.get("fields") or [])]
+        seen = {f["name"] for f in fields}
+        # Put back the fields the v3.1 document repeated in this module.
+        for name, field in by_name.items():
+            options = (field.get("module_options") or {}).get(key)
+            if options is None or name in seen:
+                continue
+            clone = field_view(field, group)
+            clone["options"] = list(options)
+            fields.append(clone)
+            seen.add(name)
+        modules[key] = {
+            "label": mod.get("label") or key,
+            "family": mod.get("family"),
+            "intervention_types": list(mod.get("intervention_types") or []),
+            "description": mod.get("description") or "",
+            "fields": fields,
+        }
+    return {
+        "schema_version": "3.1",
+        "groups": groups,
+        "common_fields": common,
+        "dv_fields": dv,
+        "modules": modules,
+        "intervention_type_modules": {
+            str(k): [str(m) for m in v]
+            for k, v in (scheme.get("intervention_type_modules") or {}).items()
+            if isinstance(v, list)
+        },
+        "vocabularies": scheme.get("vocabularies") or {},
+    }
+
+
+def _restore_module_membership(doc, legacy):
+    """Put back the module fields a scheme cannot keep.
+
+    A scheme holds **one** field per name, while the v3.1 document repeated a
+    field name in several modules (each with its own description and option
+    list).  The conversion keeps the first occurrence, so the membership of
+    the later ones is gone from the scheme.
+
+    The v3.1 document still knows the membership, and the scheme still knows
+    the name, so the field is put back into the module it belonged to.  The
+    scheme's own version of a field always wins; the v3.1 document is only
+    consulted for the membership and for the fields the scheme never placed
+    in that module.
+    """
+    if not legacy:
+        return doc
+    known = {f.get("name") for f in (doc.get("common_fields") or [])}
+    for mod in (doc.get("modules") or {}).values():
+        known.update(f.get("name") for f in (mod.get("fields") or []))
+    known.update(f.get("name") for f in (doc.get("dv_fields") or []))
+    # The names the v3.1 document repeated across modules (or repeated between
+    # the common core and a module): for those the scheme cannot hold a
+    # per-module definition, so the v3.1 one is used.
+    counts = {}
+    for field in (legacy.get("common_fields") or []):
+        name = field.get("name")
+        if name:
+            counts[name] = counts.get(name, 0) + 1
+    for mod in (legacy.get("modules") or {}).values():
+        for field in (mod.get("fields") or []):
+            name = field.get("name")
+            if name:
+                counts[name] = counts.get(name, 0) + 1
+    repeated = {name for name, n in counts.items() if n > 1}
+    for key, mod in (legacy.get("modules") or {}).items():
+        target = (doc.get("modules") or {}).get(key)
+        if not target:
+            continue
+        own = {f.get("name"): f for f in (target.get("fields") or [])}
+        ordered, seen = [], set()
+        for field in (mod.get("fields") or []):
+            name = field.get("name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            if name in repeated:
+                clone = dict(field)
+                clone["group"] = f"Intervention module ({key})"
+                ordered.append(clone)
+            elif name in own:
+                ordered.append(own[name])
+            elif name in known:
+                clone = dict(field)
+                clone["group"] = f"Intervention module ({key})"
+                ordered.append(clone)
+        for field in (target.get("fields") or []):
+            if field.get("name") not in seen:
+                ordered.append(field)
+                seen.add(field.get("name"))
+        target["fields"] = ordered
+    _restore_legacy_field_detail(doc, legacy)
+    return doc
+
+
+def _restore_legacy_field_detail(doc, legacy):
+    """Restore the v3.1 details a scheme cannot carry.
+
+    Three things are lost in the conversion and are taken back from the v3.1
+    document when it is still there:
+
+    * the **nullable marker** of a field (``"string|null"``) and the couple of
+      types the scheme does not model (``"multiselect"``): the scheme knows the
+      base type, and the coder form reads the marker when it initialises a
+      blank value;
+    * the **group of the DV fields** (the v3.1 document put them in "Other"),
+      and with it the group list the coder form walks through;
+    * the **field list itself**: a scheme may declare fields the v3.1 document
+      never had (the corpus-only fields the pipeline reads).  The
+      compatibility view renders the v3.1 document, so those stay out of the
+      coder form until the form renders the derived blocks instead.
+    """
+    if not legacy:
+        return doc
+    legacy_fields = {}
+    for bucket in ("common_fields", "dv_fields"):
+        for field in (legacy.get(bucket) or []):
+            legacy_fields[field.get("name")] = field
+    for mod in (legacy.get("modules") or {}).values():
+        for field in (mod.get("fields") or []):
+            legacy_fields.setdefault(field.get("name"), field)
+    groups = list(doc.get("groups") or [])
+    for bucket in ("common_fields", "dv_fields"):
+        kept = []
+        for field in (doc.get(bucket) or []):
+            old = legacy_fields.get(field.get("name"))
+            if not old:
+                continue          # a corpus-only field: not part of v3.1
+            kept.append(field)
+            old_type = old.get("type")
+            if old_type and (_base_type_of(old_type) == field.get("type")
+                             or _base_type_of(old_type) not in FIELD_TYPES):
+                # the v3.1 spelling carries the nullable marker ("string|null")
+                # and a couple of types the scheme does not model ("multiselect")
+                field["type"] = old_type
+                field["base_type"] = old.get("base_type") or _base_type_of(old_type)
+            elif field.get("nullable"):
+                field["type"] = "%s|null" % field.get("type")
+            if bucket == "dv_fields" and old.get("group"):
+                field["group"] = old["group"]
+                if old["group"] not in groups:
+                    groups.append(old["group"])
+        doc[bucket] = kept
+    for mod in (doc.get("modules") or {}).values():
+        kept = []
+        for field in (mod.get("fields") or []):
+            old = legacy_fields.get(field.get("name"))
+            if not old:
+                continue
+            kept.append(field)
+            old_type = old.get("type")
+            if old_type and (_base_type_of(old_type) == field.get("type")
+                             or _base_type_of(old_type) not in FIELD_TYPES):
+                field["type"] = old_type
+                field["base_type"] = old.get("base_type") or _base_type_of(old_type)
+            elif field.get("nullable"):
+                field["type"] = "%s|null" % field.get("type")
+        mod["fields"] = kept
+    doc["groups"] = groups
+    return doc
+
+
+def legacy_schema_document():
+    """The legacy v3.1 schema document of the active project.
+
+    A project that carries its own scheme is rendered back into the v3.1
+    shape; a project without one serves its legacy file unchanged.  This is
+    the compatibility view of the deprecated ``/api/schema`` route.
+    """
+    raw = {}
+    try:
+        raw = project_context.raw_scheme() or {}
+    except Exception:  # noqa: BLE001
+        raw = {}
+    if raw:
+        doc = legacy_schema_view(project_scheme())
+        _restore_module_membership(doc, _legacy_document())
+        _restore_legacy_field_detail(doc, _legacy_document())
+        doc["source"] = "project scheme"
+    else:
+        doc = dict(_legacy_document())
+        doc["source"] = "legacy schema.json"
+    doc.setdefault("schema_version", "3.1")
+    return doc
+
+
+def _schema():
+    """The coding-schema index in the v3.1 shape, read from the project.
+
+    The document is rendered from the active project's scheme, so a rewritten
+    scheme is picked up without a restart and a re-root switches the scheme
+    with the project.
+    """
+    stamp = _scheme_stamp()
+    if _SCHEMA_CACHE["obj"] is None or _SCHEMA_CACHE.get("stamp") != stamp:
+        doc = legacy_schema_view(project_scheme())
+        _restore_legacy_field_detail(doc, _legacy_document())
+        _SCHEMA_CACHE["obj"] = doc
+        _SCHEMA_CACHE["stamp"] = stamp
     return _SCHEMA_CACHE["obj"]
 
 def _record_modules(rec):

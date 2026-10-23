@@ -71,6 +71,79 @@
 
 * { box-sizing: border-box; }
 
+/* ------------------------------------------------------------ motion */
+/* One vocabulary for the whole app, so a tab change, a dialog and a menu
+   feel like the same interface.  Short (120-200 ms), small (2-6 px), and
+   only on things that appear, open or are pressed - nothing loops, nothing
+   moves text the reader is looking at. */
+:root {
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur: 140ms;
+  --dur-slow: 200ms;
+}
+
+@keyframes view-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(6px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.99); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* A view fades in as it is revealed: `hidden` removes it from the layout, so
+   the animation restarts by itself every time the tab changes. */
+main.workspace:not([hidden]) { animation: view-in var(--dur-slow) var(--ease-out) both; }
+
+/* Dialogs and their backdrop */
+dialog.sheet[open] { animation: sheet-in var(--dur-slow) var(--ease-out) both; }
+dialog.sheet[open]::backdrop { animation: backdrop-in var(--dur) var(--ease) both; }
+
+/* Buttons: the press is felt, the hover is calm. */
+.btn { transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease),
+                    color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+                    transform 90ms var(--ease); }
+
+/* Rows, chips and small controls that respond to the pointer. */
+.chip, .paper, .pill, .tab, .viewtab { transition: background var(--dur) var(--ease),
+                    border-color var(--dur) var(--ease), color var(--dur) var(--ease); }
+
+/* Inputs: the focus ring arrives instead of snapping on. */
+.input, .select, .textarea { transition: border-color var(--dur) var(--ease),
+                    box-shadow var(--dur) var(--ease), background var(--dur) var(--ease); }
+
+/* Card surfaces in the tabs answer the pointer the same way. */
+.an-card, .kpi, .scheme-kind, .home-card, .home-metric, .ag-raters {
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+/* Menus that drop out of the top bar. */
+.coder-menu { animation: menu-in var(--dur) var(--ease-out) both; }
+
+/* Respect the reader who asked the system for less motion: the interface
+   still works, it just arrives. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
 html, body { height: 100%; margin: 0; }
 
 body {
@@ -131,7 +204,7 @@ a { color: var(--accent); }
 .pill.accent { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
 .pill.violet { background: color-mix(in srgb, var(--violet) 14%, transparent); color: var(--violet); border-color: transparent; }
 
-.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: 0 0 auto; }
 
 .field-inline { display: flex; align-items: center; gap: 7px; }
 .field-inline label { font-size: 11.5px; color: var(--muted); }
@@ -226,6 +299,22 @@ a { color: var(--accent); }
 }
 .pane-head h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; }
 .pane-body { flex: 1; min-height: 0; overflow: auto; }
+/* A toolbar may shrink: its own buttons must not be pushed out of the pane. */
+.pane-head, .pane-head > .seg { min-width: 0; }
+
+/* A pane may never force its content out of its own box: every part of it
+   can shrink, and the parts that scroll say so themselves. */
+.pane, .pane > *, .paper-list, .side-search { min-width: 0; }
+
+/* Narrow windows: the paper needs room to be readable, so the list and the
+   form give some of theirs back before it is squeezed to a strip.  The
+   gutters still let a reader overrule this by hand. */
+@media (max-width: 1180px) {
+  :root { --w-left: 264px; --w-mid: 44%; }
+}
+@media (max-width: 1000px) {
+  :root { --w-left: 232px; --w-mid: 42%; }
+}
 .pane-body.pad { padding: 12px; }
 
 /* narrow-layout minimise buttons (wide layout uses the draggable gutters) */
@@ -406,6 +495,69 @@ body.rationale-collapsed .gutter-h { display: none; }
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
 .btn.icon.active { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* ------------------------------------------------------- coder picker */
+/* An in-app dropdown, not a <datalist>: the browser draws a datalist itself,
+   so it cannot follow the theme, cannot mark who is selected, and has no row
+   for adding a coder. */
+.coder-pick { position: relative; display: inline-flex; align-items: center; }
+#coder-input { width: 118px; padding-right: 24px; }
+.coder-caret {
+  position: absolute; right: 3px; display: grid; place-items: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px;
+  background: none; color: var(--muted); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.coder-caret:hover { background: var(--panel-3); color: var(--ink); }
+.coder-caret svg { width: 11px; height: 11px; transform: rotate(90deg); transition: transform .15s; }
+.coder-pick.open .coder-caret svg { transform: rotate(-90deg); }
+
+.coder-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 70;
+  width: 268px; border: 1px solid var(--line-2); border-radius: var(--r);
+  /* In the dark theme every panel is black, so a floating menu needs a
+     little lift to read as floating: a touch of the ink colour over the
+     panel does that in both themes. */
+  background: color-mix(in srgb, var(--ink) 5%, var(--panel));
+  box-shadow: var(--shadow-2); overflow: hidden;
+}
+.coder-menu[hidden] { display: none !important; }
+.coder-menu-list { max-height: 276px; overflow: auto; padding: 5px; }
+.coder-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: var(--r-sm);
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.coder-opt:hover, .coder-opt.hl { background: var(--panel-3); }
+.coder-opt.on { background: var(--accent-soft); color: var(--accent-ink); }
+.coder-opt .coder-name {
+  flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coder-tag {
+  margin-left: 6px; font: 600 9.5px var(--mono); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--faint);
+}
+.coder-av {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: color-mix(in srgb, var(--ink) 9%, var(--panel));
+  color: var(--muted); font: 700 9.5px var(--mono); letter-spacing: .02em;
+}
+.coder-av.og { background: var(--accent-soft); color: var(--accent-ink); }
+.coder-menu-sep { height: 1px; margin: 5px 4px; background: var(--line); }
+.coder-menu-note { padding: 8px 9px; font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.coder-add {
+  display: flex; align-items: center; gap: 6px; padding: 7px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 65%, transparent);
+}
+.coder-add-label {
+  padding-left: 2px; font-size: 9.5px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--muted); white-space: nowrap;
+}
+.coder-add-input { width: 86px; min-height: 28px; padding: 4px 7px; font-size: 12px; }
+.coder-add-btn { min-height: 28px; padding: 0 10px; font-size: 11.5px; flex: none; }
+
 
 /* compare values: the comparison coder's answer, inline just LEFT of each control
    with a slight tinted background; the field grid/layout is otherwise unchanged */
@@ -615,7 +767,7 @@ body.coder-mode .dv-card.coder-open .dv-body { display: block; }
 .dv-reason.blank { color: var(--faint); font-style: italic; }
 
 /* pdf toolbar */
-.pdf-controls { display: flex; align-items: center; gap: 7px; }
+.pdf-controls { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .pdf-controls[hidden] { display: none; }
 .pagebox { display: flex; align-items: center; gap: 5px; }
 .pagebox .input { width: 62px; text-align: center; padding: 6px 4px; }

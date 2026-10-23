@@ -6,10 +6,15 @@ folder cannot corrupt startup (the legacy onefile build failed with
 ``Failed to extract PIL\\avif...: decompression resulted in return code -3``).
 Pass ``--onefile`` (or set ``CODINGSTUDIO_ONEFILE=1``) for the legacy single file.
 
+``--name NAME`` (or ``CODINGSTUDIO_NAME``) sets the distribution's name.  It is
+how a branch builds *beside* an installed app instead of over it — the finished
+folder is ``<name>/`` with ``<name>.exe`` in it, and the old
+``CodingStudio/`` is left alone.
+
 The finished distribution is also copied to the repo root (``CodingStudio/`` for
 onedir, ``CodingStudio.exe`` for onefile) so it can be launched beside ``Papers/``.
 
-Run:  python Scripts/build_coding_exe.py [--lite] [--onefile] [--version]
+Run:  python Scripts/build_coding_exe.py [--lite] [--onefile] [--name NAME] [--version]
 Out:  Scripts/coding_web/dist/<name>/  (and a copy at the repo root)
 """
 
@@ -50,13 +55,23 @@ def _remove(path):
         return False
 
 
+def _name_arg(argv):
+    """The requested distribution name: --name NAME, else $CODINGSTUDIO_NAME."""
+    for i, arg in enumerate(argv):
+        if arg == "--name" and i + 1 < len(argv):
+            return argv[i + 1].strip()
+        if arg.startswith("--name="):
+            return arg.split("=", 1)[1].strip()
+    return (os.environ.get("CODINGSTUDIO_NAME") or "").strip()
+
+
 def main():
     lite = "--lite" in sys.argv
     onefile = "--onefile" in sys.argv or os.environ.get("CODINGSTUDIO_ONEFILE") == "1"
     if "--version" in sys.argv or "-V" in sys.argv:
         print(f"CodingStudio source version: {_app_version()}")
         return 0
-    name = "CodingStudioLite" if lite else NAME
+    name = _name_arg(sys.argv) or ("CodingStudioLite" if lite else NAME)
     if not os.path.exists(SCHEMA):
         print("schema.json missing - running build_coding_schema.py first")
         subprocess.check_call([sys.executable, os.path.join(HERE, "build_coding_schema.py")])
@@ -82,11 +97,13 @@ def main():
     print(" ".join(cmd))
     print(f"version: {_app_version()}  |  mode: {'onefile' if onefile else 'onedir'}")
     env = dict(os.environ)
+    env["CODINGSTUDIO_NAME"] = name
     if lite:
         env["CODINGSTUDIO_LITE"] = "1"
         print("LITE build: no PyMuPDF (text falls back to Text/<Key>.txt)")
     if onefile:
         env["CODINGSTUDIO_ONEFILE"] = "1"
+    print(f"name: {name}")
     subprocess.check_call(cmd, cwd=APP_DIR, env=env)
 
     if onefile:
@@ -103,8 +120,25 @@ def main():
         shutil.copy2(built, dest)
     else:
         dest_dir = os.path.join(ROOT, name)
-        _remove(dest_dir)
+        # A running copy of the app locks its own files, and shutil.rmtree then
+        # half-deletes the folder before failing - the copy that follows dies
+        # with a bare FileExistsError and leaves a broken distribution behind.
+        # Say what to do instead.
+        if os.path.isdir(dest_dir) and not _remove(dest_dir):
+            print(f"\n! cannot replace {dest_dir}")
+            print("  a copy of the app is probably still running - close "
+                  f"{name}.exe and build again")
+            return 1
         shutil.copytree(os.path.join(DIST, name), dest_dir)
+        # the schemes travel NEXT TO the exe, not only inside _internal/, so a
+        # user can open and edit them in the app's own folder.  The revision
+        # history stays out of the distribution - it is local bookkeeping.
+        src_schemes = os.path.join(APP_DIR, "Schemes")
+        if os.path.isdir(src_schemes):
+            dst_schemes = os.path.join(dest_dir, "Schemes")
+            _remove(dst_schemes)
+            shutil.copytree(src_schemes, dst_schemes,
+                            ignore=shutil.ignore_patterns("history"))
         dest = os.path.join(dest_dir, name + ".exe" if os.name == "nt" else name)
         # A bare CodingStudio.exe at the repo root is a stray copy of the onedir
         # launcher: it looks for <root>/_internal and dies with "Failed to load

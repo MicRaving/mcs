@@ -1,12 +1,18 @@
 /* ============================================================
    Coding Studio — Abstract screening tab
-   Human abstract screening against C1-C4 + intervention type.
+   Human abstract screening against the inclusion criteria.
 
-   When an abstract loads, criteria whose keywords appear nowhere in the
-   title/abstract are pre-selected "Unsure" (C3 is pre-filled "Yes" by the
-   English detector).  Inclusion is driven by the Tab key: each Tab accepts
-   the focused criterion (leaving an existing verdict as-is) and advances;
-   on the last criterion the next Tab saves the record and loads the next
+   The criteria carry an **auto-approval rule set**: a dictionary of
+   named regular expressions that approve the criterion when the
+   abstract text matches.  A rule that matches pre-fills the
+   criterion's first pass value and the card says WHICH rule matched;
+   a criterion with no rules is never pre-filled.  The rules come from
+   the scheme's criteria (/api/criteria) - nothing is hardcoded here
+   any more.
+
+   Inclusion is driven by the Tab key: each Tab accepts the focused
+   criterion (leaving an existing verdict as-is) and advances; on the
+   last criterion the next Tab saves the record and loads the next
    abstract in the same place.
    N = No, U = Unsure, Shift+Tab = back.  Every completed abstract is
    written to Screening/<coder>.json immediately; "Merge to master"
@@ -24,6 +30,7 @@
     started: false,
     meta: null,
     criteria: [],
+    criteriaByKey: {},     // the scheme's criteria, by key
     rows: [],           // metadata for the current server-side filter
     byIdMeta: {},
     dec: {},            // human decisions already on disk for this coder
@@ -38,7 +45,8 @@
     values: {},
     critIdx: 0,
     c3Auto: false,      // C3 pre-filled "Yes" from the English-word detector
-    autoUnsure: new Set(),  // criteria pre-filled "Unsure" (no keyword evidence in title/abstract)
+    autoUnsure: new Set(),  // criteria pre-filled "Unsure" (no rule matched)
+    autoRules: new Map(),   // criteria pre-filled by a rule -> the rule names
     coderMode: false,   // mirrors the coding tab's coder mode: auto-advance to the next unfilled
     shuffleOn: false,
     viewer: "abstract",
@@ -115,10 +123,94 @@
     return englishShare(`${(rec && rec.title) || ""} ${(rec && rec.abstract) || ""}`) > 0.20;
   }
 
+  // ---------------------------------------------------------------- rules
+  // A criterion carries an auto-approval rule set: a dictionary of named
+  // regular expressions.  A rule approves the criterion when its
+  // expression matches anywhere in the title/abstract.  The matching is
+  // case-insensitive unless the expression starts with "(?-i)" - the same
+  // rule the criteria library (criteria_lib.py) applies, so the editor
+  // and the screening tab can never disagree.
+  function compileRule(pattern) {
+    const text = String(pattern == null ? "" : pattern);
+    let body = text;
+    let flags = "i";
+    if (body.startsWith("(?-i)")) { body = body.slice(4); flags = ""; }
+    if (!body.trim()) return { ok: false, error: "the expression is empty" };
+    try {
+      return { ok: true, regex: new RegExp(body, flags) };
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  }
+
+  /* the scheme's criterion that goes with a screening criterion (the
+     screening tab keys its criteria by their key, "C1" ...) */
+  function schemeCriterion(criterion) {
+    const key = criterion && (criterion.key || criterion.label);
+    return (key && S.criteriaByKey[key]) || null;
+  }
+
+  /* the rule set of a screening criterion: {} when it has none */
+  function ruleSetFor(criterion) {
+    const c = schemeCriterion(criterion);
+    const rules = c && c.auto_approve;
+    return (rules && typeof rules === "object") ? rules : {};
+  }
+
+  /* the value a criterion passes with: its first pass value */
+  function firstPassValue(criterion) {
+    const c = schemeCriterion(criterion);
+    const values = (c && Array.isArray(c.pass_values)) ? c.pass_values : [];
+    return values.length ? String(values[0]) : "Yes";
+  }
+
+  /* the text the rules are matched against */
+  function abstractText() {
+    const rec = S.cur;
+    if (!rec) return "";
+    return [rec.title, rec.abstract].filter(Boolean).join("\n");
+  }
+
+  /* the rules that match the text (a broken rule matches nothing) */
+  function matchRules(rules, text) {
+    const hits = [];
+    for (const name of Object.keys(rules || {})) {
+      const compiled = compileRule(rules[name]);
+      if (!compiled.ok) continue;
+      if (compiled.regex.test(text)) hits.push(name);
+    }
+    return hits;
+  }
+
+  /* does the criterion have evidence?  A criterion without rules has
+     nothing to check (so it is never held back), a criterion with rules
+     has evidence when one of them matches. */
+  function criterionHasRuleEvidence(criterion) {
+    const rules = ruleSetFor(criterion);
+    if (!Object.keys(rules).length) return true;
+    return matchRules(rules, abstractText()).length > 0;
+  }
+
   // ---------------------------------------------------------------- loading
   async function loadMeta() {
     S.meta = await api(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
     S.criteria = S.meta.criteria || [];
+    await loadCriteria();
+  }
+
+  /* The criteria of the active scheme: they carry the auto-approval
+     rules the pre-fill is driven by.  A failure here must not break the
+     tab - the criteria simply carry no rules then. */
+  async function loadCriteria() {
+    try {
+      const doc = await api("/api/criteria");
+      const list = (doc && Array.isArray(doc.abstract)) ? doc.abstract : [];
+      const byKey = {};
+      list.forEach((c) => { if (c && c.key) byKey[c.key] = c; });
+      S.criteriaByKey = byKey;
+    } catch (e) {
+      S.criteriaByKey = {};
+    }
   }
 
   async function loadList({ keepPos = false } = {}) {
@@ -165,17 +257,28 @@
         S.values.C3.verdict = "Yes";
         S.c3Auto = true;
       }
-      // Pre-select "Unsure" for every other criterion whose keywords appear
-      // nowhere in the title/abstract, so the coder sees the suggestion as soon
-      // as the abstract opens instead of having to Tab on it first.  Only blank
-      // criteria are touched: an already-coded verdict is never changed.  C3 is
-      // handled by the English detector above.
+      // Pre-fill from the criteria's auto-approval rules: a rule that
+      // matches the title/abstract approves the criterion, so its first
+      // pass value is pre-filled and the card says which rule matched.  A
+      // criterion with rules but no match is pre-selected "Unsure" (the
+      // text gives no evidence for it); a criterion WITHOUT rules is not
+      // pre-filled at all.  Only blank criteria are touched: an
+      // already-coded verdict is never changed.  C3 is handled by the
+      // English detector above.
       S.autoUnsure = new Set();
+      S.autoRules = new Map();
+      const text = abstractText();
       S.criteria.forEach((c) => {
-        if (c.label === "C3" || c.kind === "classify") return;
+        if (c.kind === "classify") return;
         const v = S.values[c.label] || (S.values[c.label] = { verdict: "", certainty: "", rationale: "" });
         if (v.verdict) return;
-        if (!criterionHasKeywordEvidence(c.label)) {
+        const rules = ruleSetFor(c);
+        if (!Object.keys(rules).length) return;
+        const hits = matchRules(rules, text);
+        if (hits.length) {
+          v.verdict = firstPassValue(c);
+          S.autoRules.set(c.label, hits);
+        } else {
           v.verdict = "Unsure";
           S.autoUnsure.add(c.label);
         }
@@ -220,13 +323,16 @@
         : "";
       const autoYes = c.label === "C3" && S.c3Auto;
       const autoUnsure = !!(S.autoUnsure && S.autoUnsure.has(c.label));
+      const autoRule = (S.autoRules && S.autoRules.get(c.label)) || [];
       const autoNote = autoYes
         ? `<div class="crit-auto">Pre-filled <b>Yes</b> — English words detected in the abstract</div>`
-        : (autoUnsure
-          ? `<div class="crit-auto">Pre-filled <b>Unsure</b> — no keywords for this criterion found in the title/abstract</div>`
-          : "");
+        : (autoRule.length
+          ? `<div class="crit-auto">Pre-filled <b>${esc(v.verdict || "")}</b> — the rule <b>${esc(autoRule[0])}</b> matched the title/abstract</div>`
+          : (autoUnsure
+            ? `<div class="crit-auto">Pre-filled <b>Unsure</b> — no auto-approval rule matched the title/abstract</div>`
+            : ""));
       const verd = String(v.verdict || "").trim().toLowerCase();
-      return `<div class="screen-crit crit-${esc(String(c.label).toLowerCase())}${verd ? " v-" + esc(verd) : ""}${(autoYes || autoUnsure) ? " auto" : ""}" data-label="${esc(c.label)}" data-i="${i}">
+      return `<div class="screen-crit crit-${esc(String(c.label).toLowerCase())}${verd ? " v-" + esc(verd) : ""}${(autoYes || autoUnsure || autoRule.length) ? " auto" : ""}" data-label="${esc(c.label)}" data-i="${i}">
         <div class="crit-head">
           <span class="crit-tag">${esc(c.label)}</span>
           <span class="crit-title">${esc(c.title)}</span>
@@ -267,7 +373,9 @@
       card.classList.add("v-" + String(value).toLowerCase());
     }
     // the verdict is now the coder's own: drop any "pre-filled" note/marker
-    const stillAuto = (label === "C3" && S.c3Auto) || (S.autoUnsure && S.autoUnsure.has(label));
+    const stillAuto = (label === "C3" && S.c3Auto)
+      || (S.autoUnsure && S.autoUnsure.has(label))
+      || (S.autoRules && S.autoRules.has(label));
     if (card && !stillAuto) {
       card.classList.remove("auto");
       const note = card.querySelector(".crit-auto");
@@ -316,14 +424,14 @@
     if ((S.values[c.label] || {}).verdict) return;
     if (c.kind === "classify") {
       setVal(c.label, "generic");
-    } else if (c.label !== "C3" && !criterionHasKeywordEvidence(c.label)) {
+    } else if (c.label !== "C3" && !criterionHasRuleEvidence(c)) {
       // Fallback for a blank criterion the load-time pre-selection missed (e.g.
       // its text was not available when the abstract opened): mark it "Unsure"
-      // rather than assume "Yes".  C3 is exempt (pre-filled "Yes" by the English
-      // detector and skipped in the walk).
+      // rather than assume the criterion passes.  C3 is exempt (pre-filled
+      // "Yes" by the English detector and skipped in the walk).
       setVal(c.label, "Unsure");
     } else {
-      setVal(c.label, "Yes");
+      setVal(c.label, firstPassValue(c));
     }
   }
 
@@ -454,66 +562,53 @@
     host.innerHTML = parts.join("");
   }
 
-  // ---------------------------------------------------------------- keyword highlighting
-  // Keywords that signal each abstract eligibility criterion.  The focused
-  // criterion's keywords are highlighted in the title and abstract, and the
-  // SAME sets drive the auto-unsure pre-selection below: a criterion whose
-  // keywords appear NOWHERE in the title+abstract is pre-selected "Unsure"
-  // when the abstract loads (and Tab will not push it to "Yes"), because a
-  // keyword-free abstract gives no evidence for the criterion.  The
-  // per-criterion sets (documented, used verbatim for both highlighting and
-  // the check):
-  //   C1 — misinformation-intervention content terms
-  //   C2 — control/comparison-group terms
-  //   C3 — sample/language terms (NOT used by the auto-unsure check: C3 is
-  //        pre-filled "Yes" by the English detector and skipped in the walk)
-  //   C4 — experimental-design / primary-quantitative terms
-  const CRIT_KEYWORDS = {
-    C1: ["misinformation", "disinformation", "fake news", "fake-news", "conspiracy",
-         "conspirac", "false", "falsely", "misleading", "misperception", "rumor", "rumour",
-         "hoax", "propaganda", "post-truth", "deepfake", "manipulat", "debunk", "prebunk",
-         "inoculat", "media literacy", "fact-check", "fact check", "correction", "vaccine",
-         "anti-vax", "climate change", "lateral reading", "source credibility", "accuracy",
-         "truth", "credibility", "headline"],
-    C2: ["control group", "control condition", "control", "comparison", "compared", "placebo",
-         "wait-list", "waitlist", "wait list", "baseline", "no intervention", "no treatment",
-         "treatment as usual", "business as usual", "sham", "randomi", "assigned", "condition",
-         "intervention group", "experimental group"],
-    C3: ["N =", "N=", "n =", "n=", "N:", "n:", "participants", "respondents", "subjects",
-         "sample", "recruited", "surveyed", "students", "adults", "MTurk", "Prolific",
-         "we surveyed", "we recruited", "sample size"],
-    C4: ["experiment", "experimental", "randomized", "randomised", "randomly assigned", "trial",
-         "field experiment", "online experiment", "survey experiment", "study", "studies",
-         "quasi-experimental", "pretest", "posttest", "pre-test", "post-test",
-         "between-subjects", "within-subjects", "ANOVA", "regression", "we conducted", "we ran"],
-  };
-
-  /* Auto-unsure: does any keyword of the given criterion appear in the title
-     or abstract?  Returns true when the check cannot run (no keywords defined /
-     no record loaded), so those cases fall back to the historical "Yes"
-     default.  A record with neither title nor abstract carries no evidence at
-     all, so it returns false and the criterion is pre-selected "Unsure". */
-  function criterionHasKeywordEvidence(label) {
-    const rec = S.cur;
-    if (!rec) return true;
-    const kws = CRIT_KEYWORDS[label] || [];
-    if (!kws.length) return true;
-    const hay = [rec.title, rec.abstract].filter(Boolean).join(" ").toLowerCase();
-    if (!hay) return false;
-    return kws.some((kw) => hay.includes(String(kw).toLowerCase()));
+  // ---------------------------------------------------------------- rule highlighting
+  // The focused criterion's auto-approval rules are highlighted in the
+  // title and the abstract, so the coder sees WHY the criterion was
+  // approved (or which text the rule looked for and did not find).
+  // A rule that does not compile highlights nothing - it approves
+  // nothing either.
+  function ruleSpans(rules, text) {
+    const spans = [];
+    for (const name of Object.keys(rules || {})) {
+      const compiled = compileRule(rules[name]);
+      if (!compiled.ok) continue;
+      const flags = compiled.regex.flags.indexOf("g") >= 0
+        ? compiled.regex.flags : compiled.regex.flags + "g";
+      const re = new RegExp(compiled.regex.source, flags);
+      let m = re.exec(text);
+      while (m !== null) {
+        if (!m[0].length) { re.lastIndex += 1; }
+        else { spans.push([m.index, m.index + m[0].length]); }
+        if (spans.length > 300) break;
+        m = re.exec(text);
+      }
+    }
+    return spans;
   }
 
-  function highlightKeywords(escaped) {
+  function highlightRules(raw) {
+    const text = String(raw == null ? "" : raw);
     const c = currentCriterion();
-    const kws = (c && CRIT_KEYWORDS[c.label]) || [];
-    if (!kws.length) return escaped;
-    let out = escaped;
-    kws.forEach((kw) => {
-      const safe = String(kw).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      try {
-        out = out.replace(new RegExp("(" + safe + ")", "gi"), '<mark class="kw">$1</mark>');
-      } catch { /* ignore */ }
-    });
+    const rules = ruleSetFor(c);
+    if (!text || !Object.keys(rules).length) return esc(text);
+    const spans = ruleSpans(rules, text);
+    if (!spans.length) return esc(text);
+    spans.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const span of spans) {
+      const last = merged[merged.length - 1];
+      if (last && span[0] <= last[1]) last[1] = Math.max(last[1], span[1]);
+      else merged.push([span[0], span[1]]);
+    }
+    let out = "";
+    let pos = 0;
+    for (const [from, to] of merged) {
+      out += esc(text.slice(pos, from));
+      out += `<mark class="kw">${esc(text.slice(from, to))}</mark>`;
+      pos = to;
+    }
+    out += esc(text.slice(pos));
     return out;
   }
 
@@ -523,7 +618,7 @@
     if (!host) return;
     if (!S.cur) { host.innerHTML = `<p class="side-hint" style="padding:16px">Select an abstract.</p>`; return; }
     const rec = S.cur;
-    const head = `<div class="screen-head"><div class="screen-title">${highlightKeywords(esc(rec.title || "(no title)"))}</div>` +
+    const head = `<div class="screen-head"><div class="screen-title">${highlightRules(rec.title || "(no title)")}</div>` +
       `<div class="screen-sub">${esc([rec.authors, rec.year, rec.source].filter(Boolean).join(" · ") || "—")}</div></div>`;
     if (S.viewer === "meta") {
       const rows = [["id", rec.an || rec.id], ["title", rec.title], ["authors", rec.authors],
@@ -547,7 +642,7 @@
       return;
     }
     host.innerHTML = head +
-      `<div class="screen-abstract"><span class="screen-abs-label">Abstract</span>${highlightKeywords(esc(rec.abstract || "(no abstract)"))}</div>`;
+      `<div class="screen-abstract"><span class="screen-abs-label">Abstract</span>${highlightRules(rec.abstract || "(no abstract)")}</div>`;
   }
 
   function updateStatus() {

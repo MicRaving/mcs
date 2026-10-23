@@ -1,0 +1,220 @@
+name: build
+
+# Builds the desktop app on every push, and on a `v*` tag also publishes the
+# installables as a GitHub release:
+#
+#   CodingStudioUni-windows-x64.zip       portable onedir (run CodingStudioUni.exe)
+#   CodingStudioUni-<ver>-windows-x64-setup.exe   Inno Setup installer
+#   CodingStudioUni-macos-<arch>.zip      portable .app bundle (arm64 and x86_64)
+#   CodingStudioUni-macos-<arch>.dmg      drag-to-install disk image
+#   CodingStudioUni-linux-x64.flatpak     single-file Flatpak bundle
+#
+# The research corpus is not in this repository (see .gitignore): a build is
+# software only.  A checkout with Papers/, Text/ and Extraction/ beside the
+# executable is what makes it a project.
+
+on:
+  push:
+    branches: [main, "feature/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: CodingStudioUni
+  PYTHON: "3.11"
+
+jobs:
+  # ---------------------------------------------------------------- windows
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}
+
+      - name: Package the portable zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "${{ env.APP_NAME }}" -DestinationPath "${{ env.APP_NAME }}-windows-x64.zip"
+          Get-Item "${{ env.APP_NAME }}-windows-x64.zip" | Select-Object Name, Length
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build the Windows installer
+        shell: pwsh
+        run: |
+          $ver = python -c "import sys; sys.path.insert(0,'Scripts/coding_web'); import studio_lib; print(studio_lib.APP_VERSION)"
+          $iscc = Get-ChildItem -Path "C:\Program Files (x86)\Inno Setup*\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup was not installed" }
+          & $iscc.FullName /Q /DMyAppVersion="$ver" packaging/windows/CodingStudioUni.iss
+          Get-ChildItem "${{ env.APP_NAME }}-*-windows-x64-setup.exe" | Select-Object -First 1 | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-windows-x64
+          path: |
+            ${{ env.APP_NAME }}-windows-x64.zip
+            ${{ env.APP_NAME }}-*-windows-x64-setup.exe
+          if-no-files-found: error
+
+  # ------------------------------------------------------------------ macOS
+  # PyInstaller cannot cross-compile, so each architecture gets its own runner.
+  macos:
+    name: macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15-intel
+            arch: x86_64
+          - runner: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build
+        run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}
+
+      - name: Package the portable zip
+        run: |
+          cd "Scripts/coding_web/dist"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "${{ env.APP_NAME }}.app" \
+            "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip"
+          ls -lh "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip"
+
+      - name: Package the disk image
+        run: |
+          cd "Scripts/coding_web/dist"
+          hdiutil create -srcfolder "${{ env.APP_NAME }}.app" \
+            -volname "CodingStudioUni" -ov -format UDZO \
+            "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
+          ls -lh "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-macos-${{ matrix.arch }}
+          path: |
+            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip
+            ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- flatpak
+  # The Flatpak runs the app from source against the GNOME runtime: that
+  # runtime ships python3, PyGObject and WebKitGTK, so pywebview opens a
+  # native window instead of falling back to the browser.  The build installs
+  # the pip dependencies into /app with the SDK's own python3, which is the
+  # same version the runtime has - no ABI guessing, no PyInstaller in the
+  # sandbox.
+  flatpak:
+    name: Linux (Flatpak x64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Flatpak and the runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --noninteractive flathub \
+            org.gnome.Platform//46 org.gnome.Sdk//46
+
+      - name: Assemble the bundle
+        run: |
+          set -eux
+          APP_ID=org.codingstudio.CodingStudio
+          flatpak build-init builddir "$APP_ID" \
+            org.gnome.Sdk org.gnome.Platform 46
+
+          mkdir -p builddir/files/codingstudio \
+                   builddir/files/bin \
+                   builddir/files/share/applications \
+                   builddir/files/share/icons/hicolor/256x256/apps
+          # copy the source tree (NOT the whole checkout - the checkout would
+          # include builddir itself and trip `cp` over)
+          cp -a Scripts packaging Project AGENTS.md README.md requirements.txt \
+            builddir/files/codingstudio/
+
+          # deps into /app with the SDK's python (== the runtime's python)
+          flatpak build --share=network builddir \
+            pip3 install --prefix=/app --no-cache-dir -r /app/codingstudio/requirements.txt
+
+          install -m755 packaging/flatpak/codingstudio.sh \
+            builddir/files/bin/codingstudio
+          install -m644 packaging/flatpak/org.codingstudio.CodingStudio.desktop \
+            builddir/files/share/applications/
+          install -m644 packaging/flatpak/org.codingstudio.CodingStudio.png \
+            builddir/files/share/icons/hicolor/256x256/apps/
+
+          flatpak build-finish builddir \
+            --command=codingstudio \
+            --share=network --share=ipc \
+            --socket=fallback-x11 --socket=wayland             --device=dri \
+            --filesystem=home \
+            --talk-name=org.freedesktop.portal.Desktop
+
+          flatpak build-export repo builddir
+          flatpak build-bundle repo \
+            "${{ env.APP_NAME }}-linux-x64.flatpak" "$APP_ID"
+          ls -lh "${{ env.APP_NAME }}-linux-x64.flatpak"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-linux-x64
+          path: ${{ env.APP_NAME }}-linux-x64.flatpak
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- release
+  # A tag is the one place the builds meet: publish them together.
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, flatpak]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
