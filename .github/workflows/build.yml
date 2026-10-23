@@ -166,7 +166,10 @@ jobs:
                    builddir/files/bin \
                    builddir/files/share/applications \
                    builddir/files/share/icons/hicolor/256x256/apps
-          cp -a . builddir/files/codingstudio/
+          # copy the source tree (NOT the whole checkout - the checkout would
+          # include builddir itself and trip `cp` over)
+          cp -a Scripts packaging Project AGENTS.md README.md requirements.txt \
+            builddir/files/codingstudio/
 
           # deps into /app with the SDK's python (== the runtime's python)
           flatpak build --share=network builddir \
