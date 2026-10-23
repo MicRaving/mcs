@@ -41,8 +41,11 @@ as a release on a `v*` tag:
 | Artifact | What it is |
 |---|---|
 | `CodingStudioUni-windows-x64.zip` | onedir build: unzip, run `CodingStudioUni.exe` |
+| `CodingStudioUni-<ver>-windows-x64-setup.exe` | Inno Setup installer (Windows) |
 | `CodingStudioUni-macos-arm64.zip` | `.app` bundle (Apple silicon) |
+| `CodingStudioUni-macos-arm64.dmg` | drag-to-install disk image |
 | `CodingStudioUni-macos-x86_64.zip` | `.app` bundle (Intel) |
+| `CodingStudioUni-macos-x86_64.dmg` | drag-to-install disk image |
 | `CodingStudioUni-linux-x64.flatpak` | `flatpak install --user <file>` |
 
 Each job installs `requirements.txt`, runs `Scripts/build_coding_exe.py` on a
