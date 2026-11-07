@@ -25,7 +25,7 @@
           -> { "ok": true, "projects": [ ...same shape... ] }
 
      POST /api/project/new      { "name": "My study", "parent": "<folder>",
-                                  "template": "blank" | "copy" }
+                                  "template": "blank" | "copy" | "scheme:<id>" }
           -> { "ok": true, "root": "<the new project root>",
                "project": { ...same shape as an entry... } }
           -> 400 { "ok": false, "error": "<why>" }
@@ -450,6 +450,26 @@
 
   /* ------------------------------------------------------------ actions */
 
+  /* The "Scheme" select of the new-project form: "blank" and "copy" (an
+     independent copy of the open project's scheme) come from the page; the
+     installed schemes of the app's library are added as "scheme:<id>" - the
+     new project then shares that scheme with every project that uses it. */
+  async function fillSchemeOptions() {
+    const sel = $("#home-new-template");
+    if (!sel) return;
+    let info = null;
+    try { info = await api("/api/scheme/source"); } catch { return; }
+    const list = (info && Array.isArray(info.schemes)) ? info.schemes : [];
+    sel.querySelectorAll("option[data-installed]").forEach((o) => o.remove());
+    for (const s of list) {
+      const o = document.createElement("option");
+      o.value = "scheme:" + s.id;
+      o.dataset.installed = "1";
+      o.textContent = "Use installed: " + (s.label || s.id) + " (" + s.id + ", shared)";
+      sel.appendChild(o);
+    }
+  }
+
   function showNewProject(on) {
     const form = $("#home-new-form");
     const btn = $("#home-new-toggle");
@@ -461,6 +481,7 @@
     }
     if (open) {
       prefillParent();
+      fillSchemeOptions();
       setTimeout(() => $("#home-new-name")?.focus({ preventScroll: true }), 0);
     } else {
       setError("");

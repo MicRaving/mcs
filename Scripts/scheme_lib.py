@@ -658,7 +658,10 @@ def normalise_scheme(raw):
             metric_fields.append(field)
 
     modules = {}
-    for key, mod in (book.get("modules") or {}).items():
+    # a hand-edited or foreign document may carry a list here: read it as
+    # "no modules" instead of crashing the import
+    raw_modules = book.get("modules") if isinstance(book.get("modules"), dict) else {}
+    for key, mod in raw_modules.items():
         if not isinstance(mod, dict):
             continue
         mod_fields = []
@@ -704,7 +707,9 @@ def normalise_scheme(raw):
         "modules": modules,
         "intervention_type_modules": (
             {str(k): [str(m) for m in v] for k, v in
-             (book.get("intervention_type_modules") or {}).items() if isinstance(v, list)}
+             (book.get("intervention_type_modules")
+              if isinstance(book.get("intervention_type_modules"), dict) else {}).items()
+             if isinstance(v, list)}
         ),
         "vocabularies": book.get("vocabularies") if isinstance(book.get("vocabularies"), dict) else {},
         "field_aliases": (book.get("field_aliases") if isinstance(book.get("field_aliases"), dict) else {}),

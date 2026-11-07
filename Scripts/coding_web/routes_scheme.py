@@ -7,7 +7,10 @@ edited through ``Scripts/scheme_lib.py`` (what is a scheme?).
 Rules of the road:
 
 * every write route validates the **whole** scheme before it touches the disk,
-  so a half-finished edit can never land in ``Project/scheme.json``;
+  so a half-finished edit can never land in the library's ``scheme.json`` (or
+  the project's portable copy in ``Project/``);
+* every read-modify-write route runs under ``project_context.WRITE_LOCK``, so
+  two concurrent edits cannot lose one another;
 * every failure is answered with a JSON body - never an HTML traceback;
 * the scheme is the project's, so re-rooting the app (``POST /api/root``)
   switches the scheme with the project.
@@ -20,7 +23,6 @@ scheme itself.
 import json
 import os
 import sys
-import tempfile
 
 from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import HTTPException
@@ -41,6 +43,22 @@ except Exception:  # pragma: no cover - source layout fallback
     import scheme_lib  # noqa: E402
 
 bp = Blueprint("scheme", __name__)
+
+
+def _locked(view):
+    """Run a read-modify-write route under the project layer's write lock.
+
+    The app serves requests on several threads: two field edits that both
+    read the scheme, change it and write it back would otherwise lose one of
+    the two edits.
+    """
+    import functools
+
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        with project_context.WRITE_LOCK:
+            return view(*args, **kwargs)
+    return wrapper
 
 
 # --------------------------------------------------------------------------- #
@@ -98,7 +116,9 @@ def _save(scheme):
     if _errors(problems):
         return _fail("the scheme has structural errors", 400, problems=problems)
     try:
-        project_context.write_scheme(scheme)
+        # a project that shows a legacy schema (or nothing) and names no
+        # scheme yet gets one in the library and is assigned to it
+        project_context.save_active_scheme(scheme)
     except ValueError as exc:
         return _fail(str(exc), 400, problems=problems)
     except OSError as exc:
@@ -154,6 +174,7 @@ def api_project():
         "root": root,
         "project_dir": paths["project_dir"],
         "manifest": project_context.manifest(root) or {},
+        "scheme_source": project_context.scheme_source(root),
         "scheme": {
             "id": scheme.get("id"),
             "name": scheme.get("name"),
@@ -188,16 +209,13 @@ def api_put_scheme():
         normalised = scheme_lib.normalise_scheme(doc)
     except Exception as exc:  # noqa: BLE001
         return _fail(f"the scheme could not be read: {exc}", 400)
+    with project_context.WRITE_LOCK:
+        failure = _save(normalised)
+    if failure:
+        return failure
     problems = _problems(normalised)
-    if _errors(problems):
-        return _fail("the scheme has structural errors", 400, problems=problems)
-    try:
-        project_context.write_scheme(normalised)
-    except ValueError as exc:
-        return _fail(str(exc), 400, problems=problems)
-    except OSError as exc:
-        return _fail(f"could not write the scheme: {exc}", 500, problems=problems)
-    return jsonify({"ok": True, "problems": problems, "scheme": normalised})
+    return jsonify({"ok": True, "problems": problems, "scheme": _scheme(),
+                    "source": project_context.scheme_source()})
 
 
 @bp.get("/api/scheme/blocks")
@@ -254,6 +272,7 @@ def _check_field_spec(spec, scheme):
 
 
 @bp.post("/api/scheme/fields")
+@_locked
 def api_scheme_fields():
     """Add a field, or update the field that already carries the name.
 
@@ -354,6 +373,7 @@ def api_scheme_fields():
 
 
 @bp.delete("/api/scheme/fields/<path:name>")
+@_locked
 def api_scheme_field_delete(name):
     """Remove a field (study, metric or module scope)."""
     scheme = _editable()
@@ -380,6 +400,7 @@ def api_scheme_field_delete(name):
 # --------------------------------------------------------------------------- #
 
 @bp.post("/api/scheme/blocks")
+@_locked
 def api_scheme_blocks_edit():
     """Add, rename, delete, reorder a group block, or set its condition.
 
@@ -482,6 +503,7 @@ def api_scheme_blocks_edit():
 # --------------------------------------------------------------------------- #
 
 @bp.post("/api/scheme/kinds")
+@_locked
 def api_scheme_kinds():
     """Add a kind (a user-defined variable type) or update the one with that id."""
     body = _body()
@@ -507,6 +529,7 @@ def api_scheme_kinds():
 
 
 @bp.delete("/api/scheme/kinds/<path:id>")
+@_locked
 def api_scheme_kind_delete(id):
     """Remove a kind (the fields that use it keep their name but lose the kind)."""
     scheme = _editable()
@@ -590,57 +613,13 @@ def api_scheme_bundle():
 # criteria
 # --------------------------------------------------------------------------- #
 
-def _criteria_file():
-    """The raw ``Project/criteria.json`` of the active project."""
-    path = project_context.criteria_path(project_context.active_scheme_id() or "")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        return doc if isinstance(doc, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
-def _normalise_criteria(doc):
-    """Normalise a criteria document (fallback while ``criteria_lib`` is absent)."""
-    doc = doc if isinstance(doc, dict) else {}
-    out = {"version": 1, "abstract": [], "fulltext": []}
-    try:
-        out["version"] = int(doc.get("version") or 1)
-    except (TypeError, ValueError):
-        out["version"] = 1
-    for key in ("abstract", "fulltext"):
-        items = doc.get(key)
-        if not isinstance(items, list):
-            continue
-        for item in items:
-            if isinstance(item, str):
-                item = {"label": item}
-            if not isinstance(item, dict):
-                continue
-            label = str(item.get("label") or item.get("criterion")
-                        or item.get("text") or "").strip()
-            if not label:
-                continue
-            out[key].append({
-                "label": label,
-                "code": str(item.get("code") or "").strip(),
-                "description": str(item.get("description") or "").strip(),
-            })
-    return out
-
-
 def _criteria():
-    """The active project's criteria, normalised."""
+    """The active project's criteria, normalised (``project_context`` resolves
+    them the same way it resolves the scheme)."""
     try:
         doc = project_context.criteria()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a broken project must not 500
         doc = None
-    if isinstance(doc, dict) and (doc.get("abstract") or doc.get("fulltext")):
-        return doc
-    raw = _criteria_file()
-    if raw:
-        return _normalise_criteria(raw)
     return doc if isinstance(doc, dict) else {"version": 1, "abstract": [],
                                               "fulltext": []}
 
@@ -652,6 +631,7 @@ def api_criteria():
 
 
 @bp.put("/api/criteria")
+@_locked
 def api_put_criteria():
     """Replace the project's criteria.
 
@@ -661,48 +641,177 @@ def api_put_criteria():
     criteria stay usable, the rule is ignored at match time, and the editor
     shows it as broken.
     """
+    import criteria_lib
+
     doc = _body()
     if not doc:
         return _fail("the request body must be the criteria document", 400)
+    normalised = criteria_lib.normalise_criteria(doc)
+    problems = criteria_lib.validate_criteria(normalised)
+    if [p for p in problems if p.get("level") == "error"]:
+        return _fail("the criteria have structural errors", 400, problems=problems)
     try:
-        import criteria_lib
-    except ImportError:  # pragma: no cover - criteria_lib is optional
-        criteria_lib = None
-    if criteria_lib is not None:
-        normalised = criteria_lib.normalise_criteria(doc)
-        problems = criteria_lib.validate_criteria(normalised)
-        errors = [p for p in problems if p.get("level") == "error"]
-        if errors:
-            return _fail("the criteria have structural errors", 400, problems=problems)
-    try:
-        project_context.write_criteria(doc)
+        # a project that names no scheme yet is assigned one first
+        project_context.save_active_criteria(doc)
         criteria = project_context.criteria()
-    except ImportError:
-        # ``criteria_lib`` is not available yet: normalise and write it here.
-        criteria = _normalise_criteria(doc)
-        path = project_context.criteria_path(project_context.active_scheme_id() or "")
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            fd, tmp = tempfile.mkstemp(suffix=".json",
-                                        dir=os.path.dirname(path))
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(criteria, fh, ensure_ascii=False, indent=1)
-                fh.write("\n")
-            from studio_lib import atomic_replace
-
-            atomic_replace(tmp, path)
-        except OSError as exc:
-            return _fail(f"could not write the criteria: {exc}", 500)
-        except Exception as exc:  # noqa: BLE001
-            return _fail(f"could not write the criteria: {exc}", 500)
     except ValueError as exc:
         return _fail(str(exc), 400)
     except OSError as exc:
         return _fail(f"could not write the criteria: {exc}", 500)
-    if criteria_lib is not None:
-        problems = criteria_lib.validate_criteria(criteria)
-        return jsonify({"ok": True, "criteria": criteria, "problems": problems})
-    return jsonify({"ok": True, "criteria": criteria})
+    return jsonify({"ok": True, "criteria": criteria,
+                    "problems": criteria_lib.validate_criteria(criteria)})
+
+
+# --------------------------------------------------------------------------- #
+# where the scheme comes from; loading and switching schemes
+# --------------------------------------------------------------------------- #
+
+#: The largest scheme file the import reads (a scheme is a few hundred KB).
+MAX_IMPORT_BYTES = 20 * 1024 * 1024
+
+
+def _source_payload():
+    root = project_context.active_root()
+    src = project_context.scheme_source(root)
+    scheme = _scheme()
+    return {
+        "ok": True,
+        "root": root,
+        "project_dir": project_context.project_dir(root),
+        "has_manifest": bool(project_context.manifest(root)),
+        "source": src,
+        "scheme": {"id": scheme.get("id"), "name": scheme.get("name"),
+                   "label": scheme.get("label")},
+        "active_id": project_context.active_scheme_id(root),
+        "schemes": project_context.schemes(),
+        "library": project_context.library_dirs(),
+        "writable_library": project_context.writable_schemes_dir(),
+    }
+
+
+@bp.get("/api/scheme/source")
+def api_scheme_source():
+    """Where the open project's scheme comes from, and the installed schemes."""
+    return jsonify(_source_payload())
+
+
+def parse_scheme_upload(doc):
+    """``(scheme, criteria_or_None, format)`` of an uploaded document.
+
+    Accepted: a scheme (``scheme.json``), a legacy v3.1 ``schema.json``, or
+    the bundle the app exports (``GET /api/scheme/bundle``: ``{"scheme",
+    "criteria", ...}``).  Anything else raises ``ValueError``.
+    """
+    if not isinstance(doc, dict) or not doc:
+        raise ValueError("the file is not a JSON object")
+    if isinstance(doc.get("scheme"), dict):
+        crit = doc.get("criteria")
+        return doc["scheme"], (crit if isinstance(crit, dict) else None), "bundle"
+    if project_context.is_legacy_schema(doc):
+        return doc, None, "legacy"
+    if any(k in doc for k in ("fields", "groups", "metrics", "modules",
+                              "scheme_version", "study_fields")):
+        return doc, None, "scheme"
+    if "abstract" in doc or "fulltext" in doc:
+        raise ValueError("this is a criteria file, not a scheme")
+    raise ValueError("the file is neither a scheme, a legacy schema.json "
+                     "nor an exported scheme bundle")
+
+
+@bp.post("/api/scheme/import")
+@_locked
+def api_scheme_import():
+    """Install a scheme from a file and assign it to the open project.
+
+    Body: ``{"document": {...}}`` (the parsed file, from a browser upload) or
+    ``{"path": "C:/.../scheme.json"}`` (from the desktop file dialog), plus
+    ``overwrite`` (replace an installed scheme with the same id), ``as_new``
+    (install under a fresh id instead) and ``assign`` (default true).
+
+    A different scheme already installed under the same id answers 409 with
+    ``conflict: true`` - nothing is written until the user decides.
+    """
+    body = _body()
+    doc = body.get("document")
+    name = str(body.get("filename") or "")
+    if doc is None and body.get("path"):
+        path = os.path.abspath(str(body.get("path")).strip().strip('"'))
+        name = name or path
+        if not path.lower().endswith(".json") or not os.path.isfile(path):
+            return _fail("choose a .json file (a scheme.json, a legacy "
+                         "schema.json or an exported bundle)", 400)
+        if os.path.getsize(path) > MAX_IMPORT_BYTES:
+            return _fail("the file is too large for a scheme", 400)
+        try:
+            with open(path, encoding="utf-8-sig") as fh:
+                doc = json.load(fh)
+        except (OSError, ValueError) as exc:
+            return _fail(f"the file could not be read as JSON: {exc}", 400)
+    try:
+        scheme_doc, crit, fmt = parse_scheme_upload(doc)
+    except ValueError as exc:
+        return _fail(str(exc), 400)
+    if fmt == "legacy":
+        import scheme_legacy
+        scheme_doc = scheme_legacy.convert(scheme_doc)
+    try:
+        normalised = scheme_lib.normalise_scheme(scheme_doc)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(f"the scheme could not be read: {exc}", 400)
+    problems = _problems(normalised)
+    if _errors(problems):
+        return _fail("the scheme has structural errors", 400, problems=problems)
+
+    wanted = str(body.get("scheme_id") or "").strip()
+    if wanted and not project_context.is_valid_scheme_id(wanted):
+        return _fail(f"'{wanted}' is not a usable scheme id", 400)
+    sid = wanted or project_context.slug_scheme_id(
+        normalised.get("id") or normalised.get("name") or normalised.get("label"))
+    if body.get("as_new"):
+        sid = project_context.unique_scheme_id(sid)
+    try:
+        sid = project_context.install_scheme(
+            normalised, crit, scheme_id=sid, overwrite=bool(body.get("overwrite")),
+            source=name)
+    except FileExistsError:
+        return _fail(f"a different scheme called '{sid}' is already installed",
+                     409, conflict=True, scheme_id=sid, format=fmt,
+                     suggested_id=project_context.unique_scheme_id(sid))
+    except ValueError as exc:
+        return _fail(str(exc), 400)
+    except OSError as exc:
+        return _fail(f"the scheme could not be installed: {exc}", 500)
+    if body.get("assign", True):
+        try:
+            project_context.assign_scheme(sid)
+        except (OSError, ValueError) as exc:
+            return _fail(f"the scheme was installed as '{sid}' but could not "
+                         f"be assigned to the project: {exc}", 500, scheme_id=sid)
+    out = _source_payload()
+    out.update({"scheme_id": sid, "format": fmt, "problems": problems})
+    return jsonify(out)
+
+
+@bp.post("/api/scheme/assign")
+@_locked
+def api_scheme_assign():
+    """Switch the open project to another installed scheme.
+
+    Body: ``{"scheme_id": "<id>"}``.  The previous scheme stays in the
+    library; only ``Project/project.json`` (and the project's copy) change.
+    """
+    sid = str(_body().get("scheme_id") or "").strip()
+    if not project_context.is_valid_scheme_id(sid):
+        return _fail("name an installed scheme (scheme_id)", 400)
+    if not project_context.scheme_installed(sid):
+        return _fail(f"the scheme '{sid}' is not installed", 404)
+    try:
+        project_context.assign_scheme(sid)
+    except (OSError, ValueError) as exc:
+        return _fail(f"the project could not be switched: {exc}", 500)
+    out = _source_payload()
+    out["scheme_id"] = sid
+    return jsonify(out)
 
 
 # --------------------------------------------------------------------------- #

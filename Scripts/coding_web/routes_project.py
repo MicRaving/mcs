@@ -132,11 +132,15 @@ def _slug(text):
 def _project_entry(path):
     """One entry of the project list."""
     path = os.path.abspath(path)
+    # the project's portable copy of its scheme names it; a project without
+    # one still names its scheme id in the manifest
     scheme = _read_json(os.path.join(path, "Project", "scheme.json"))
+    manifest = _read_json(os.path.join(path, "Project", "project.json"))
     return {
         "path": path,
         "name": os.path.basename(path) or path,
-        "scheme": str(scheme.get("name") or ""),
+        "scheme": str(scheme.get("name") or manifest.get("scheme") or ""),
+        "scheme_id": str(manifest.get("scheme") or ""),
         "label": str(scheme.get("label") or ""),
         "papers": _paper_count(path),
         "last_opened": recent_project_opened(path),
@@ -268,8 +272,8 @@ def _scheme_for(template, name):
     return _blank_scheme(name)
 
 
-def _manifest(name):
-    """The manifest of a new project."""
+def _manifest(name, scheme_id):
+    """The manifest of a new project: it names its scheme by library id."""
     slug = _slug(name)
     return {
         "id": slug,
@@ -277,37 +281,55 @@ def _manifest(name):
         "label": name,
         "description": "",
         "created": project_context.now(),
-        "scheme": project_context.SCHEME_FILENAME,
-        "criteria": project_context.CRITERIA_FILENAME,
+        "scheme": scheme_id,
+        "criteria": scheme_id,
     }
 
 
-def _create_project(root, name, template):
-    """Create the skeleton and the three project documents.
+def _create_project(root, name, template, scheme_id=""):
+    """Create the skeleton, install the scheme and write the manifest.
 
-    Everything is written *inside* ``root``; nothing outside it is touched.
+    ``scheme_id`` names an installed scheme the project shares; otherwise the
+    template decides: ``copy`` installs an independent copy of the active
+    project's scheme and criteria, ``blank`` an empty scheme.  The project
+    folder only receives its skeleton, its manifest and the portable copy of
+    the scheme; the scheme itself goes to the app's library.
     """
-    scheme = _scheme_for(template, name)
-    try:
-        normalised = scheme_lib.normalise_scheme(scheme)
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"the scheme could not be read: {exc}") from exc
-    problems = [p for p in scheme_lib.validate_scheme(normalised)
-                if p.get("level") == "error"]
-    if problems:
-        raise ValueError("the scheme has structural errors: " +
-                         "; ".join(p.get("message", "") for p in problems))
+    if scheme_id:
+        if not project_context.scheme_installed(scheme_id):
+            raise ValueError(f"the scheme '{scheme_id}' is not installed")
+        sid = scheme_id
+        normalised = project_context.scheme(scheme_id=sid)
+    else:
+        scheme = _scheme_for(template, name)
+        try:
+            normalised = scheme_lib.normalise_scheme(scheme)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"the scheme could not be read: {exc}") from exc
+        problems = [p for p in scheme_lib.validate_scheme(normalised)
+                    if p.get("level") == "error"]
+        if problems:
+            raise ValueError("the scheme has structural errors: " +
+                             "; ".join(p.get("message", "") for p in problems))
+        crit = (project_context.criteria() if template == "copy"
+                else criteria_lib.default_criteria())
+        # a fresh id: the new project must never edit another project's scheme
+        sid = project_context.unique_scheme_id(_slug(name))
+        normalised["id"] = sid
+        if template == "blank":
+            normalised["name"] = sid
 
     os.makedirs(root, exist_ok=True)
     for folder in SKELETON_DIRS:
         os.makedirs(os.path.join(root, folder), exist_ok=True)
     paths = project_context.project_paths(root)
     os.makedirs(paths["project_dir"], exist_ok=True)
-    os.makedirs(paths["history"], exist_ok=True)
 
-    project_context.write_scheme(normalised, root)
-    project_context.write_criteria(criteria_lib.default_criteria(), root)
-    project_context.write_manifest(_manifest(name), root)
+    if not scheme_id:
+        project_context.install_scheme(normalised, crit, scheme_id=sid,
+                                       source=f"new project {root}")
+    project_context.write_manifest(_manifest(name, sid), root)
+    project_context.assign_scheme(sid, root)
     # the project's own AGENTS.md: what an agent (or a new colleague) reads
     # before touching the folder.  It is a normal file the Settings view
     # edits afterwards - created once, never rewritten behind the user.
@@ -336,8 +358,20 @@ def api_project_new():
         return _fail(problem, 400)
 
     template = str(body.get("template") or "blank").strip().lower()
-    if template not in TEMPLATES:
-        return _fail("the template must be 'blank' or 'copy'", 400)
+    scheme_id = ""
+    if template.startswith("scheme:"):
+        # "scheme:<id>": the new project uses an installed scheme as it is
+        scheme_id = template.split(":", 1)[1].strip()
+        template = "scheme"
+    scheme_id = str(body.get("scheme_id") or scheme_id).strip()
+    if scheme_id:
+        if not project_context.is_valid_scheme_id(scheme_id):
+            return _fail(f"'{scheme_id}' is not a usable scheme id", 400)
+        if not project_context.scheme_installed(scheme_id):
+            return _fail(f"the scheme '{scheme_id}' is not installed", 400)
+    elif template not in TEMPLATES:
+        return _fail("the template must be 'blank', 'copy' or "
+                     "'scheme:<installed id>'", 400)
 
     parent = str(body.get("parent") or "").strip().strip('"')
     if not parent:
@@ -352,7 +386,8 @@ def api_project_new():
             return _fail("there is already something there", 400)
 
     try:
-        _create_project(root, name, template)
+        with project_context.WRITE_LOCK:
+            _create_project(root, name, template, scheme_id)
     except ValueError as exc:
         return _fail(str(exc), 400)
     except OSError as exc:

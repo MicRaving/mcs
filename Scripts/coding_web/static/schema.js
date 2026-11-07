@@ -830,6 +830,9 @@
       host.appendChild(screeningSummary());
       return;
     }
+    host.appendChild(section("source", "Project scheme", (body) => {
+      body.appendChild(sourceSection());
+    }));
     host.appendChild(section("scheme", "Scheme", (body) => {
       body.appendChild(metaSection());
     }));
@@ -891,6 +894,186 @@
     box.appendChild(el("div", "scheme-mode-hint",
       "The criteria are edited in the main window."));
     return box;
+  }
+
+  /* ---------------------------------------------------------- source */
+  /* Where the open project's scheme comes from (the app's library, the
+     project's own copy, its legacy schema.json, or nothing), plus the two
+     ways to change it: load a scheme from a file, or switch the project to
+     another installed scheme.  Both are answered by /api/scheme/source,
+     /api/scheme/import and /api/scheme/assign (routes_scheme.py). */
+  const SOURCE_LABEL = {
+    library: "from the app's scheme library",
+    project: "from the copy this project carries",
+    legacy: "converted from the project's legacy schema.json",
+    empty: "none - this project has no scheme yet",
+  };
+
+  function sourceSection() {
+    const stack = el("div", "scheme-stack scheme-source");
+    const info = state.source || {};
+    const src = info.source || {};
+    const kind = src.kind || "";
+    const head = el("div", "scheme-source-line");
+    const label = (state.draft && (state.draft.label || state.draft.name)) || "";
+    head.appendChild(el("b", "", kind === "empty" ? "No scheme" : (label || "Scheme")));
+    if (src.scheme_id) head.appendChild(el("span", "scheme-source-id", " (" + src.scheme_id + ")"));
+    stack.appendChild(head);
+    const badge = el("div", "scheme-source-kind" + (kind === "library" ? "" : " warn"),
+      SOURCE_LABEL[kind] || "unknown source");
+    stack.appendChild(badge);
+    if (src.message) stack.appendChild(el("div", "scheme-mode-hint", src.message));
+    if (info.root) stack.appendChild(el("div", "scheme-mode-hint", "Project: " + info.root));
+
+    const loadBtn = el("button", "btn", "Load scheme…");
+    loadBtn.type = "button";
+    loadBtn.title = "Install a scheme.json, a legacy schema.json or an exported bundle and use it for this project";
+    loadBtn.addEventListener("click", () => loadSchemeFromFile());
+    stack.appendChild(loadBtn);
+
+    const installed = Array.isArray(info.schemes) ? info.schemes : [];
+    if (installed.length) {
+      const current = info.active_id || "";
+      const opts = [{ value: "", label: current ? "Switch to…" : "Use an installed scheme…" }]
+        .concat(installed.map((s) => ({
+          value: s.id,
+          label: (s.label || s.id) + " (" + s.id + ")" + (s.id === current ? " - in use" : ""),
+        })));
+      let pick = "";
+      const sel = selectBox(opts, "", (v) => { pick = v; useBtn.disabled = !v || v === current; });
+      const useBtn = el("button", "btn", "Use");
+      useBtn.type = "button";
+      useBtn.disabled = true;
+      useBtn.addEventListener("click", () => { if (pick) switchScheme(pick); });
+      const row = el("div", "scheme-source-row");
+      row.appendChild(sel);
+      row.appendChild(useBtn);
+      stack.appendChild(labelled("Installed schemes", row));
+    }
+    return stack;
+  }
+
+  async function fetchSource() {
+    try {
+      state.source = await api("/api/scheme/source");
+    } catch (err) {
+      state.source = null;
+    }
+    return state.source;
+  }
+
+  async function postJson(path, body) {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (err) { data = null; }
+    return { ok: res.ok && !(data && data.ok === false), status: res.status, data: data || {} };
+  }
+
+  function replaceWarning() {
+    const src = (state.source && state.source.source) || {};
+    const parts = [];
+    if (src.kind && src.kind !== "empty") {
+      parts.push("The project currently uses " + (src.scheme_id ? "'" + src.scheme_id + "'" : "its "
+        + (src.kind === "legacy" ? "legacy schema.json" : "own copy"))
+        + "; that scheme stays installed, only the project's choice changes.");
+    }
+    if (isDirty() || state.criteriaDirty) parts.push("Your unsaved scheme changes are discarded.");
+    return parts.join(" ");
+  }
+
+  /* the file the user picks: the desktop dialog when the window offers one,
+     else a plain browser upload */
+  function pickFile() {
+    const desktop = window.pywebview && window.pywebview.api;
+    if (desktop && typeof desktop.choose_file === "function") {
+      return Promise.resolve(desktop.choose_file()).then((path) => (path ? { path: String(path) } : null));
+    }
+    return new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.style.display = "none";
+      document.body.appendChild(input);
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        input.remove();
+        if (!file) { resolve(null); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            resolve({ document: JSON.parse(String(reader.result || "")), filename: file.name });
+          } catch (err) {
+            toast("That file is not JSON", "err", file.name);
+            resolve(null);
+          }
+        };
+        reader.onerror = () => { toast("The file could not be read", "err", file.name); resolve(null); };
+        reader.readAsText(file);
+      }, { once: true });
+      input.click();
+    });
+  }
+
+  async function loadSchemeFromFile() {
+    const picked = await pickFile();
+    if (!picked) return;
+    const warn = replaceWarning();
+    if (warn) {
+      const ok = await confirmDialog("Load this scheme for the project?",
+        "The scheme is installed in the app's library and assigned to the open project. " + warn,
+        "Load scheme");
+      if (!ok) return;
+    }
+    let r = await postJson("/api/scheme/import", picked);
+    if (!r.ok && r.status === 409 && r.data.conflict) {
+      const id = r.data.scheme_id;
+      const replace = await confirmDialog("Replace the installed scheme?",
+        "A different scheme called '" + id + "' is already installed (other projects may use it). "
+        + "Replace it with the file's version? Choose Cancel to install the file as a new scheme instead.",
+        "Replace '" + id + "'");
+      if (replace) {
+        r = await postJson("/api/scheme/import", Object.assign({}, picked, { overwrite: true }));
+      } else {
+        const asNew = await confirmDialog("Install as a new scheme?",
+          "The file is installed as '" + (r.data.suggested_id || id + "-2")
+          + "' and the installed '" + id + "' is left as it is.", "Install as new");
+        if (!asNew) return;
+        r = await postJson("/api/scheme/import", Object.assign({}, picked, { as_new: true }));
+      }
+    }
+    if (!r.ok) {
+      if (Array.isArray(r.data.problems) && r.data.problems.length) showProblems(r.data.problems);
+      toast("The scheme was not loaded", "err", r.data.error || ("HTTP " + r.status));
+      return;
+    }
+    toast("Scheme loaded", "ok", "'" + r.data.scheme_id + "' (" + (r.data.format || "scheme") + ") is now the project's scheme");
+    await reloadAfterSchemeChange();
+  }
+
+  async function switchScheme(id) {
+    const warn = replaceWarning();
+    const ok = await confirmDialog("Switch the project's scheme?",
+      "The open project will use the installed scheme '" + id + "'. " + warn, "Switch scheme");
+    if (!ok) return;
+    const r = await postJson("/api/scheme/assign", { scheme_id: id });
+    if (!r.ok) {
+      toast("The scheme was not switched", "err", r.data.error || ("HTTP " + r.status));
+      return;
+    }
+    toast("Scheme switched", "ok", "The project now uses '" + id + "'");
+    await reloadAfterSchemeChange();
+  }
+
+  async function reloadAfterSchemeChange() {
+    state.loaded = false;
+    state.criteriaDirty = false;
+    await load();
+    // the coding form and the screening view read the scheme too
+    window.dispatchEvent(new CustomEvent("cs:scheme-saved"));
   }
 
   function metaSection() {
@@ -2450,6 +2633,10 @@
          are written through their own route - but they are saved with
          the scheme, by the same button. */
       const crit = await saveCriteria();
+      // the first save of a legacy (or carried) scheme installs it in the
+      // library and assigns it to the project: show the new source
+      await fetchSource();
+      state.loadedRoot = (state.source && state.source.root) || state.loadedRoot;
       state.baselineRev = state.rev;
       showProblems(problems.concat(crit.problems || []));
       renderAll();
@@ -2531,11 +2718,40 @@
     state.selected = null;
     state.pane = "field";
     state.loaded = true;
+    state.stale = false;
     showProblems([]);
+    await fetchSource();
+    state.loadedRoot = (state.source && state.source.root) || "";
     await loadRoles();
     await loadCriteria();
     renderAll();
-    if (note) note.textContent = "";
+    if (note) {
+      const src = (state.source && state.source.source) || {};
+      note.textContent = src.kind && src.kind !== "library" ? (SOURCE_LABEL[src.kind] || "") : "";
+    }
+  }
+
+  /* The scheme belongs to the open project: when the project changed since
+     the editor loaded (another tab switched it, or POST /api/root ran), the
+     editor reloads - asking first when it holds unsaved edits. */
+  async function reloadIfProjectChanged() {
+    const before = state.source || {};
+    const info = await fetchSource();
+    if (!info) return;
+    const was = before.source || {};
+    const now = info.source || {};
+    const changed = state.stale || info.root !== state.loadedRoot
+      || was.kind !== now.kind || was.scheme_id !== now.scheme_id;
+    if (!changed) { renderLeft(); return; }
+    if (isDirty() || state.criteriaDirty) {
+      const ok = await confirmDialog("The project changed",
+        "The open project (or its scheme) changed since the editor was loaded. "
+        + "Reload the scheme of " + info.root + " and discard your unsaved changes?", "Reload scheme");
+      if (!ok) return;
+    }
+    state.loaded = false;
+    renderLoading();
+    await load();
   }
 
   /* ---------------------------------------------------------- rendering */
@@ -2599,7 +2815,12 @@
     if (!isOpen() && window.CS && typeof window.CS.showView === "function") {
       window.CS.showView("scheme");
     }
-    if (state.loaded) return;     // already loaded - never reload over unsaved work
+    if (state.loaded) {
+      // already loaded: reload only when the project or its scheme changed
+      // (and never over unsaved work without asking)
+      reloadIfProjectChanged();
+      return;
+    }
     state.problems = [];
     renderLoading();
     load();
@@ -2636,6 +2857,12 @@
     // itself is the only entry point.
     const tab = document.querySelector('.viewtab[data-view="scheme"]');
     if (tab) tab.addEventListener("click", () => open());
+    // a project switch (the project dialog announces it) makes the loaded
+    // scheme stale; it is reloaded the next time the editor is shown
+    window.addEventListener("cs:root", () => {
+      state.stale = true;
+      if (isOpen()) reloadIfProjectChanged();
+    });
     // Remember where to go back to: the app announces every view change.
     // Leaving the editor with unsaved edits is allowed (the draft is kept),
     // but it is said out loud - the editor is a view now, so the user can

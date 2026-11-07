@@ -329,11 +329,14 @@ def test_visibility():
 
 def test_effective_values():
     section("effective values")
-    values = SL.effective_values({"N": 1, "T": "a"}, {"T": "b"})
+    record = {"N": 1, "T": "a"}
+    values = SL.effective_values(record, {"T": "b"})
     check("the record's values are the base", values["N"] == 1)
     check("an override wins", values["T"] == "b")
+    # keep the reference: comparing against a freshly built dict (``is not``)
+    # was always true, so the check could never fail
     check("the record is not mutated",
-          SL.effective_values({"T": "a"}, {"T": "b"}) is not {"T": "b"})
+          record == {"N": 1, "T": "a"} and values is not record)
 
 
 def _load_legacy():
