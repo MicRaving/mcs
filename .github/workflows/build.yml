@@ -49,6 +49,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      # The version lives in one place (studio_lib.APP_VERSION).  A tag that
+      # disagrees with it would publish an installer whose name, the app's own
+      # "current version" and the updater's comparison all differ - refuse it.
+      - name: Check the version against the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $ver = python -c "import sys; sys.path.insert(0,'Scripts/coding_web'); import studio_lib; print(studio_lib.APP_VERSION)"
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          if ($ver -ne $tag) { throw "tag v$tag does not match APP_VERSION $ver (Scripts/coding_web/studio_lib.py)" }
+
+      # Fail the build, not the user's first start, when the native backend is
+      # missing: pywebview must find WinForms (pythonnet) on this runner.
+      - name: Check the native window backend
+        run: python -c "import clr, webview.platforms.winforms as w; print('pywebview backend:', w.renderer)"
+
       - name: Build
         run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}
 
@@ -104,6 +120,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
+
+      # pywebview's Cocoa backend needs PyObjC; without it the app silently
+      # opens the browser instead of its window.
+      - name: Check the native window backend
+        run: python -c "import objc, AppKit, Foundation, WebKit; from PyObjCTools import AppHelper; print('pyobjc', objc.__version__)"
 
       - name: Build
         run: python Scripts/build_coding_exe.py --name ${{ env.APP_NAME }}

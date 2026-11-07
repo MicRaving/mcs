@@ -45,7 +45,25 @@ def api_settings_project():
         "exists": bool(path) and os.path.isfile(path),
         "text": project_doc.read(root) if root else "",
         "template": project_doc.template(root) if root else "",
+        # the version the editor started from, sent back on save
+        "stamp": project_doc.stamp(root) if root else "",
     })
+
+
+def _stale(root, body):
+    """A 409 answer when the file changed on disk since the editor loaded it.
+
+    An agent or a text editor may rewrite AGENTS.md while the Settings view is
+    open; saving the older copy over it would silently drop that change.
+    """
+    base = body.get("stamp")
+    if base is None:  # an old client: no check
+        return None
+    if str(base) != project_doc.stamp(root):
+        return jsonify({"ok": False, "conflict": True,
+                        "error": "AGENTS.md was changed on disk since it was opened; "
+                                 "reload it before saving"}), 409
+    return None
 
 
 @bp.post("/api/settings/project")
@@ -54,27 +72,40 @@ def api_settings_project_save():
     root = _root()
     if not root or not os.path.isdir(root):
         return jsonify({"ok": False, "error": "no project is open"}), 400
-    text = str(_body().get("text") or "")
+    body = _body()
+    # a request without a text (bad JSON, a wrong field name) must never
+    # truncate the file to nothing
+    if not isinstance(body.get("text"), str):
+        return jsonify({"ok": False, "error": "the request carries no text"}), 400
+    text = body["text"]
+    conflict = _stale(root, body)
+    if conflict:
+        return conflict
     try:
         path = project_doc.write(root, text)
     except OSError as exc:
         return jsonify({"ok": False, "error": f"the file could not be written: {exc}"}), 500
-    return jsonify({"ok": True, "path": path,
+    return jsonify({"ok": True, "path": path, "stamp": project_doc.stamp(root),
                     "bytes": len(text.encode("utf-8"))})
 
 
 @bp.post("/api/settings/project/reset")
 def api_settings_project_reset():
-    """Replace the AGENTS.md with a fresh template for this project."""
+    """Replace the AGENTS.md with a fresh template; the old one is archived."""
     root = _root()
     if not root or not os.path.isdir(root):
         return jsonify({"ok": False, "error": "no project is open"}), 400
+    conflict = _stale(root, _body())
+    if conflict:
+        return conflict
     text = project_doc.template(root)
     try:
+        backup = project_doc.archive(root)
         path = project_doc.write(root, text)
     except OSError as exc:
         return jsonify({"ok": False, "error": f"the file could not be written: {exc}"}), 500
-    return jsonify({"ok": True, "path": path, "text": text})
+    return jsonify({"ok": True, "path": path, "text": text, "backup": backup,
+                    "stamp": project_doc.stamp(root)})
 
 
 # --------------------------------------------------------------------------- #

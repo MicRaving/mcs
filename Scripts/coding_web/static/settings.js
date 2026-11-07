@@ -26,6 +26,8 @@
     section: "project",   // project | updates
     doc: "",              // the AGENTS.md on screen
     savedDoc: "",         // the last saved copy, for the dirty marker
+    stamp: "",            // the file version the editor holds (409 on a change)
+    docRoot: "",          // the project the editor's text belongs to
     update: null,         // the last /api/update/state answer
     poll: 0,              // the download poll timer
     busy: false,
@@ -66,7 +68,12 @@
     path.textContent = (info.exists ? "" : "(not created yet) ") + info.path;
   }
 
-  async function loadProjectDoc() {
+  function docDirty() {
+    const area = $("#st-doc");
+    return !!area && area.value !== state.savedDoc;
+  }
+
+  async function loadProjectDoc(force = false) {
     let info = null;
     try {
       info = await api("/api/settings/project");
@@ -74,6 +81,17 @@
       setDocStatus("The file could not be read: " + (err.message || err), "err");
       return;
     }
+    // Coming back to the tab must not throw away unsaved edits of the same
+    // project (the view reloads on every visit).
+    if (!force && docDirty() && info.root === state.docRoot) {
+      renderDocMeta(info);
+      if (info.stamp !== state.stamp) {
+        setDocStatus("Unsaved changes — and the file was changed on disk meanwhile", "err");
+      }
+      return;
+    }
+    state.stamp = info.stamp || "";
+    state.docRoot = info.root || "";
     state.doc = info.text || "";
     state.savedDoc = state.doc;
     const area = $("#st-doc");
@@ -94,10 +112,21 @@
       const r = await fetch("/api/settings/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: area.value }),
+        body: JSON.stringify({ text: area.value, stamp: state.stamp }),
       });
       const data = await r.json().catch(() => ({}));
+      if (r.status === 409 && data.conflict) {
+        state.busy = false;
+        setDocStatus("Not saved: the file was changed on disk", "err");
+        const reload = await confirmDialog(
+          "AGENTS.md changed on disk",
+          "Someone else (an agent, an editor) rewrote the file after you opened it. "
+          + "Reload it from disk? Your edits in this editor are discarded.", "Reload from disk");
+        if (reload) await loadProjectDoc(true);
+        return;
+      }
       if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      state.stamp = data.stamp || "";
       state.savedDoc = area.value;
       state.doc = area.value;
       renderDocMeta({ root: true, path: data.path, exists: true });
@@ -116,18 +145,26 @@
     const ok = await confirmDialog(
       "Restore the template?",
       "The current AGENTS.md is replaced by a fresh template for this project. "
-      + "Anything you wrote in it is lost.", "Restore template");
+      + "A copy of it is kept in the project's archive/ folder; unsaved edits "
+      + "in the editor are lost.", "Restore template");
     if (!ok) return;
     state.busy = true;
     try {
-      const r = await fetch("/api/settings/project/reset", { method: "POST" });
+      const r = await fetch("/api/settings/project/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stamp: state.stamp }),
+      });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
       state.doc = data.text || "";
       state.savedDoc = state.doc;
+      state.stamp = data.stamp || "";
       const area = $("#st-doc");
       if (area) area.value = state.doc;
-      setDocStatus("Template restored", "ok");
+      renderDocMeta({ root: true, path: data.path, exists: true });
+      setDocStatus(data.backup ? `Template restored — the old copy is ${data.backup}`
+        : "Template restored", "ok");
     } catch (err) {
       setDocStatus("Not restored: " + (err.message || err), "err");
     } finally {

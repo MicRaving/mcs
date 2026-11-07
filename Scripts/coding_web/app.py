@@ -156,8 +156,98 @@ class DesktopApi:
             log("choose_folder failed:\n" + traceback.format_exc())
             return ""
 
+    def choose_file(self):
+        """A native open-file dialog for a JSON file (the Scheme tab's
+        "Load scheme"); ``""`` when cancelled or unavailable."""
+        try:
+            import webview
+
+            windows = list(getattr(webview, "windows", []) or [])
+            if not windows:
+                return ""
+            # pywebview >= 5 names it FileDialog.OPEN; older builds OPEN_DIALOG
+            mode = getattr(getattr(webview, "FileDialog", None), "OPEN", None)
+            if mode is None:
+                mode = webview.OPEN_DIALOG
+            result = windows[0].create_file_dialog(
+                mode, allow_multiple=False,
+                file_types=("JSON files (*.json)", "All files (*.*)"))
+            if not result:
+                return ""
+            return str(result[0] if isinstance(result, (list, tuple)) else result)
+        except BaseException:  # noqa: BLE001
+            import traceback
+
+            log("choose_file failed:\n" + traceback.format_exc())
+            return ""
+
     def current_root(self):
         return S.ROOT
+
+
+#: The folders of the bundle that hold .NET assemblies (pythonnet's runtime,
+#: clr_loader's host shim and the WebView2 wrappers pywebview loads).
+_MANAGED_DIRS = (
+    os.path.join("pythonnet", "runtime"),
+    os.path.join("clr_loader", "ffi", "dlls"),
+    os.path.join("webview", "lib"),
+)
+
+
+def _unblock_bundle():
+    """Remove the Mark of the Web from the bundle's .NET assemblies (Windows).
+
+    A zip downloaded with a browser and extracted with Explorer marks every
+    file it contains as coming from the internet (an NTFS ``Zone.Identifier``
+    stream).  .NET Framework refuses to load such an assembly into the default
+    domain, so ``import clr`` dies with "Failed to resolve
+    Python.Runtime.Loader.Initialize", pywebview finds no WinForms backend and
+    the app ends up in the browser.  A locally built copy and the installer
+    carry no mark, which is why only the downloaded zip showed it.  Deleting
+    the stream is what ``Unblock-File`` does; it only ever touches the app's
+    own files, and a read-only install (Program Files) carries no mark anyway.
+    Returns the number of files unblocked.
+    """
+    if not (FROZEN and sys.platform == "win32"):
+        return 0
+    base = getattr(sys, "_MEIPASS", "") or os.path.dirname(os.path.abspath(sys.executable))
+    count = 0
+    for rel in _MANAGED_DIRS:
+        for dirpath, _dirs, files in os.walk(os.path.join(base, rel)):
+            for name in files:
+                if not name.lower().endswith(".dll"):
+                    continue
+                try:
+                    os.remove(os.path.join(dirpath, name) + ":Zone.Identifier")
+                    count += 1
+                except OSError:
+                    pass  # no mark (the normal case) or not ours to change
+    return count
+
+
+def _dist_version(name):
+    """The installed version of a distribution (``pywebview``, ``pythonnet``)."""
+    try:
+        from importlib import metadata
+
+        return metadata.version(name)
+    except Exception:  # noqa: BLE001 - the metadata is optional in a bundle
+        return "?"
+
+
+def _webview_backend():
+    """The GUI backend pywebview picked (``winforms/edgechromium``, ``cocoa``…)."""
+    try:
+        from webview import guilib
+
+        lib = getattr(guilib, "guilib", None)
+        if lib is None:
+            return "none"
+        name = lib.__name__.rsplit(".", 1)[-1]
+        renderer = getattr(lib, "renderer", "")
+        return f"{name}/{renderer}" if renderer else name
+    except Exception:  # noqa: BLE001
+        return "?"
 
 
 def run_app(host, port, url, mode="native"):
@@ -167,21 +257,30 @@ def run_app(host, port, url, mode="native"):
         return
     threading.Thread(target=serve, args=(host, port), daemon=True).start()
     if mode == "native":
+        unblocked = _unblock_bundle()
+        if unblocked:
+            log(f"native window: removed the download mark from {unblocked} bundled assemblies")
+        wanted = {"win32": "winforms (pythonnet " + _dist_version("pythonnet") + ")",
+                  "darwin": "cocoa (pyobjc " + _dist_version("pyobjc-core") + ")"}.get(
+                      sys.platform, "gtk/qt")
         try:
             import webview
 
-            log(f"native window: pywebview {getattr(webview, '__version__', '?')}")
+            log(f"native window: pywebview {_dist_version('pywebview')}, "
+                f"trying {wanted}")
             webview.create_window(
                 "Coding Studio", url, width=1460, height=940, min_size=(880, 600),
                 js_api=DesktopApi(),
             )
-            webview.start()
+            # ``func`` runs once the GUI loop is up: the moment the backend is known
+            webview.start(func=lambda: log(f"native window open (backend {_webview_backend()})"))
             log("native window closed")
             return
         except BaseException:  # noqa: BLE001 — SystemExit from the GUI layer included
             import traceback
 
-            log("native window failed:\n" + traceback.format_exc())
+            log(f"native window failed (tried {wanted}, backend "
+                f"{_webview_backend()}):\n" + traceback.format_exc())
     log("falling back to the default browser")
     try:
         webbrowser.open(url)

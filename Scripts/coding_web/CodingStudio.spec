@@ -88,6 +88,15 @@ hiddenimports += [
     "project_context", "scheme_lib", "scheme_legacy", "criteria_lib",
     # the agent bundle (the JSON Schema, the prompt and the MCP config)
     "scheme_export",
+    # Scripts/ modules the routes import lazily (inside a handler) and their
+    # own Scripts/ imports - listed so a lazy import can never be left out.
+    # Regenerate the list from the routes' imports when a route gains one.
+    "generate_repro_wrappers",                       # routes_repro
+    "harmonizer_template", "dv_polarity", "variable_assignments",  # routes_harmonizer
+    "repro_lib", "dv_dedup", "dv_veracity_split", "safe_replace",
+    "semhom_rules", "covariate_restriction",
+    "analysis_multiverse_meta",                      # via suite_common
+    "scheme_instructions",                           # via scheme_legacy
 ]
 
 # the native-window backend of this platform
@@ -96,7 +105,7 @@ if IS_WIN:
                       "webview.platforms.edgechromium"]
 elif IS_MAC:
     hiddenimports += ["webview.platforms.cocoa", "objc",
-                      "Foundation", "AppKit", "WebKit"]
+                      "Foundation", "AppKit", "WebKit", "PyObjCTools.AppHelper"]
 else:
     hiddenimports += ["webview.platforms.gtk"]
 

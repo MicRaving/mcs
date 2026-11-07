@@ -99,10 +99,36 @@ def _config_candidates():
 
 
 def config_path():
-    for c in _config_candidates():
+    """The existing config, else the first candidate whose folder is writable.
+
+    A copy installed under Program Files cannot write beside its exe; picking
+    that path anyway made every save fail silently (no recent projects, no
+    remembered folder).
+    """
+    candidates = _config_candidates()
+    for c in candidates:
         if os.path.exists(c):
             return c
-    return _config_candidates()[0]
+    for c in candidates[:-1]:
+        if _can_write_in(os.path.dirname(c)):
+            return c
+    return candidates[-1]
+
+
+def _can_write_in(folder):
+    """Whether a file can really be created in ``folder``.
+
+    ``os.access`` on Windows only reads the read-only attribute, not the ACL,
+    so it calls Program Files writable; a probe file is the honest test.
+    """
+    probe = os.path.join(folder, f".codingstudio-probe-{os.getpid()}")
+    try:
+        with open(probe, "w", encoding="utf-8"):
+            pass
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
 
 
 def load_config():
@@ -202,8 +228,18 @@ def record_recent_project(path):
 
 
 def default_root():
-    """Packaged: the folder the executable sits in. Source: the repo root above Scripts/coding_web."""
-    return EXE_DIR if FROZEN else REPO
+    """Source: the repo root above Scripts/coding_web.  Packaged: the project
+    the app sits in, else a per-user folder (never the app's own folder, which
+    an update replaces)."""
+    if not FROZEN:
+        return REPO
+    up = find_data_root(EXE_DIR)
+    if up:
+        return up
+    try:
+        return project_context.user_projects_dir()
+    except Exception:  # noqa: BLE001
+        return EXE_DIR
 
 
 def has_data(root):

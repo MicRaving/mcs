@@ -142,13 +142,53 @@ def read(root):
         return ""
 
 
+def stamp(root):
+    """A version stamp of the file ("" when it does not exist).
+
+    The modification time in nanoseconds plus the size: cheap, and it changes
+    whenever anything rewrites the file.
+    """
+    try:
+        st = os.stat(path_for(root))
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}:{st.st_size}"
+
+
+def archive(root):
+    """Copy the current AGENTS.md to ``archive/`` before it is replaced.
+
+    The project's rule is "never overwrite, move to archive/": restoring the
+    template must not destroy what someone wrote.  Returns the copy's path, or
+    "" when there was nothing to keep.
+    """
+    import shutil
+    from datetime import datetime
+
+    src = path_for(root)
+    if not os.path.isfile(src):
+        return ""
+    folder = os.path.join(root, "archive")
+    os.makedirs(folder, exist_ok=True)
+    dest = os.path.join(folder, f"AGENTS.{datetime.now():%Y%m%d-%H%M%S}.md")
+    shutil.copy2(src, dest)
+    return dest
+
+
 def write(root, text):
     """Write the project's AGENTS.md (never outside ``root``)."""
     path = path_for(root)
     tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.remove(tmp)  # never leave a half-written AGENTS.md.tmp behind
+        except OSError:
+            pass
+        raise
     return path
 
 

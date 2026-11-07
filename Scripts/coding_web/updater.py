@@ -120,16 +120,49 @@ def in_flatpak():
     return bool(os.environ.get("FLATPAK_ID"))
 
 
-def can_self_update():
-    """Only a frozen build that is not managed by Flatpak can replace itself."""
-    if in_flatpak():
+def installed_with_setup():
+    """Whether this copy was installed by the Windows (Inno Setup) installer.
+
+    The installer leaves its uninstaller (``unins000.exe``) beside the exe.
+    Such a copy usually sits under Program Files, where the folder swap would
+    need admin rights, and the uninstaller keeps a file list the swap would
+    invalidate - so it is updated by running the next installer instead.
+    """
+    if sys.platform != "win32" or not FROZEN:
         return False
-    return bool(FROZEN)
+    from studio_state import EXE_DIR
+
+    try:
+        return any(re.match(r"^unins\d{3}\.exe$", name, re.I)
+                   for name in os.listdir(EXE_DIR))
+    except OSError:
+        return False
 
 
-def _asset_name(tag):
-    """The release asset that belongs to this platform."""
-    return f"CodingStudioUni-{tag}." + ("flatpak" if tag.startswith("linux") else "zip")
+def can_self_update():
+    """Only a frozen Windows/macOS build can replace itself.
+
+    A Flatpak is updated by the system, and Linux has no zip release to swap in
+    (the only Linux asset is the ``.flatpak``).
+    """
+    if in_flatpak() or not FROZEN:
+        return False
+    return sys.platform in ("win32", "darwin")
+
+
+def _asset_matches(name, tag, installer=False):
+    """Whether the release asset ``name`` belongs to this platform.
+
+    The portable zips are ``CodingStudioUni-<tag>.zip``; the Windows installer
+    carries the version in its name (``CodingStudioUni-0.2.1-windows-x64-setup.exe``).
+    On macOS the zip is used even though a ``.dmg`` exists: the zip can be
+    unpacked without mounting anything.
+    """
+    name = str(name or "")
+    if installer:
+        return bool(re.match(rf"^CodingStudioUni-.+-{re.escape(tag)}-setup\.exe$", name, re.I))
+    ext = "flatpak" if tag.startswith("linux") else "zip"
+    return name == f"CodingStudioUni-{tag}.{ext}"
 
 
 # --------------------------------------------------------------------------- #
@@ -150,8 +183,9 @@ def _release_summary(release):
     tag = str(release.get("tag_name") or "").strip()
     assets = release.get("assets") or []
     tag_name = platform_tag()
-    wanted = _asset_name(tag_name)
-    asset = next((a for a in assets if a.get("name") == wanted), None)
+    installer = installed_with_setup()
+    asset = next((a for a in assets
+                  if _asset_matches(a.get("name"), tag_name, installer)), None)
     digest = ""
     if asset:
         digest = str(asset.get("digest") or "")
@@ -163,6 +197,7 @@ def _release_summary(release):
         "notes": str(release.get("body") or ""),
         "prerelease": bool(release.get("prerelease")),
         "platform": tag_name,
+        "installer": installer,
         "asset": ({
             "name": asset.get("name"),
             "size": int(asset.get("size") or 0),
@@ -231,6 +266,12 @@ def state():
     elif not FROZEN:
         note = ("This is a source run, so the app cannot replace itself. "
                 "Download the release for your platform instead.")
+    elif not can_self_update():
+        note = ("This build cannot replace itself. "
+                "Download the release for your platform instead.")
+    elif installed_with_setup():
+        note = ("This copy was installed with the Windows installer: the update "
+                "runs the new installer, which may ask for administrator rights.")
     else:
         note = ""
 
@@ -244,6 +285,7 @@ def state():
         "frozen": bool(FROZEN),
         "platform": platform_tag(),
         "can_self_update": can_self_update(),
+        "installer": installed_with_setup(),
         "note": note,
         "page_url": (result or {}).get("page_url") or PAGE_URL,
         "notes": (result or {}).get("notes") or "",
@@ -258,8 +300,25 @@ def state():
 # --------------------------------------------------------------------------- #
 
 def _updates_dir():
-    path = os.path.join(S.TEMP, "updates")
-    os.makedirs(path, exist_ok=True)
+    """The per-user download folder - never the project, never the app folder.
+
+    It used to be ``<project>/temp/updates``.  Without a project the project
+    *is* the app folder, so the staged build sat inside the folder the swap
+    moves away (and the move of the staged build then failed); with a project
+    the download landed in a research folder that is often cloud-synced.
+    """
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Caches")
+    else:
+        base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    path = os.path.join(base, "CodingStudio", "updates")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        path = os.path.join(S.TEMP, "updates")
+        os.makedirs(path, exist_ok=True)
     return path
 
 
@@ -331,8 +390,8 @@ def _download(asset):
 def _app_target():
     """The path the update replaces, and the executable to start afterwards.
 
-    Windows/Linux onedir: the folder holding the executable.  macOS: the
-    ``.app`` bundle around ``Contents/MacOS``.
+    Windows onedir: the folder holding the executable.  macOS: the ``.app``
+    bundle around ``Contents/MacOS``.
     """
     from studio_state import EXE_DIR
 
@@ -341,18 +400,45 @@ def _app_target():
         bundle = os.path.dirname(contents)               # .../X.app
         if bundle.endswith(".app"):
             return bundle, bundle
-        return EXE_DIR, os.path.join(EXE_DIR, "CodingStudioUni")
-    exe = os.path.join(EXE_DIR, "CodingStudioUni" + (".exe" if sys.platform == "win32" else ""))
-    return EXE_DIR, exe
+        return EXE_DIR, os.path.join(EXE_DIR, os.path.basename(sys.executable))
+    # the running executable's own name, so a renamed build restarts itself
+    return EXE_DIR, os.path.join(EXE_DIR, os.path.basename(sys.executable))
+
+
+def _fail(message):
+    log(f"update: {message}")
+    return {"ok": False, "restarting": False, "message": message}
+
+
+def _safe_extract(archive, staging):
+    """Unpack ``archive`` into ``staging``, refusing anything outside it.
+
+    macOS uses ``ditto``: the .app bundle holds symlinks and executable bits
+    that :mod:`zipfile` drops (the swapped-in app would not start).
+    """
+    root = os.path.realpath(staging)
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.namelist():
+            # a release asset comes from the network: no absolute paths, no
+            # drive letters, no ``..`` - nothing may land outside staging
+            target = os.path.realpath(os.path.join(root, member))
+            if os.path.isabs(member) or (target != root
+                                         and not target.startswith(root + os.sep)):
+                raise ValueError(f"the archive contains an unsafe path: {member}")
+        if sys.platform != "darwin":
+            zf.extractall(root)
+            return
+    subprocess.run(["/usr/bin/ditto", "-x", "-k", archive, root], check=True,
+                   capture_output=True)
 
 
 def apply():
-    """Unzip the download, write the swap script and quit into it.
+    """Install the download: swap the app folder, or run the installer.
 
     Returns ``{"ok": bool, "message": str, "restarting": bool}``.  Nothing is
     replaced by this process: a small script waits for the app to exit, swaps
-    the folder and starts the new build, so a running executable is never
-    overwritten on disk.
+    the folder (or runs the Windows installer) and starts the new build, so a
+    running executable is never overwritten on disk.
     """
     if not can_self_update():
         return {"ok": False, "restarting": False,
@@ -362,45 +448,124 @@ def apply():
     if download["status"] != "ready" or not download["path"]:
         return {"ok": False, "restarting": False, "message": "nothing has been downloaded"}
 
-    staging = os.path.join(_updates_dir(), "staged")
-    try:
-        if os.path.isdir(staging):
-            import shutil
-            shutil.rmtree(staging, ignore_errors=True)
-        os.makedirs(staging, exist_ok=True)
-        with zipfile.ZipFile(download["path"]) as zf:
-            for member in zf.namelist():
-                # refuse absolute paths and traversal: a release asset is
-                # downloaded from the network and must never write outside staging
-                target = os.path.normpath(os.path.join(staging, member))
-                if not target.startswith(os.path.normpath(staging) + os.sep):
-                    raise ValueError(f"the archive contains an unsafe path: {member}")
-            zf.extractall(staging)
-    except Exception as exc:  # noqa: BLE001
-        log(f"update staging failed: {exc}")
-        return {"ok": False, "restarting": False, "message": f"the download could not be unpacked: {exc}"}
-
-    new_dir = os.path.join(staging, "CodingStudioUni")
-    if not os.path.isdir(new_dir):
-        # the macOS zip carries the .app bundle directly
-        candidates = [os.path.join(staging, n) for n in os.listdir(staging)]
-        new_dir = next((c for c in candidates if c.endswith(".app")), "")
-        if not new_dir:
-            return {"ok": False, "restarting": False,
-                    "message": "the archive does not contain the application"}
-
     target, exe = _app_target()
-    script = _write_swap_script(target, new_dir, exe)
+    if download["path"].lower().endswith(".exe"):
+        # an installed copy: the next installer replaces it in place
+        script = _write_installer_script(download["path"], exe)
+    else:
+        if installed_with_setup():
+            return _fail("this copy was installed with the installer; "
+                         "check for updates again to download the installer")
+        if "/AppTranslocation/" in target:
+            return _fail("macOS runs this copy from a read-only quarantine folder; "
+                         "move CodingStudioUni.app to Applications and start it again")
+        new_dir = _stage(download["path"], target)
+        if isinstance(new_dir, dict):
+            return new_dir
+        script = _write_swap_script(target, new_dir, exe)
     if not script:
-        return {"ok": False, "restarting": False, "message": "the swap script could not be written"}
-    _start_detached(script)
+        return _fail("the update script could not be written")
+    if not _start_detached(script):
+        return _fail("the update script could not be started")
     threading.Timer(0.6, _quit).start()
     return {"ok": True, "restarting": True,
             "message": "the new version is being installed; the app will restart"}
 
 
+def _stage(archive, target):
+    """Unpack the zip and park the new build beside ``target``.
+
+    The new build has to be on the same volume as the app: a directory
+    ``move`` across volumes fails, and the download folder is often on
+    another drive than a portable copy.  Returns the parked path, or a
+    failure dict.
+    """
+    import shutil
+
+    staging = os.path.join(_updates_dir(), "staged")
+    try:
+        shutil.rmtree(staging, ignore_errors=True)
+        os.makedirs(staging, exist_ok=True)
+        _safe_extract(archive, staging)
+    except Exception as exc:  # noqa: BLE001
+        return _fail(f"the download could not be unpacked: {exc}")
+
+    new_dir = os.path.join(staging, os.path.basename(target))
+    if not os.path.isdir(new_dir):
+        candidates = [os.path.join(staging, n) for n in os.listdir(staging)]
+        want = ".app" if sys.platform == "darwin" else ""
+        new_dir = next((c for c in candidates
+                        if os.path.isdir(c) and c.endswith(want)), "")
+    if not new_dir or not os.path.isdir(new_dir):
+        return _fail("the archive does not contain the application")
+
+    parked = target + ".new"
+    try:
+        shutil.rmtree(parked, ignore_errors=True)
+        shutil.move(new_dir, parked)
+    except Exception as exc:  # noqa: BLE001 - e.g. no write access beside the app
+        return _fail(f"the new version could not be placed beside the app ({exc}); "
+                     "move the app to a folder you can write to, or install the new "
+                     "release by hand")
+    return parked
+
+
+def _cmd_quote(path):
+    """A path for a ``set "VAR=..."`` line of a batch file.
+
+    Inside double quotes ``&``, ``^`` and spaces are literal; only ``%`` is
+    still expanded in a batch file and must be doubled.
+    """
+    return str(path).replace("%", "%%")
+
+
+def _cmd_wait_lines():
+    """Batch lines that wait until this very process has exited.
+
+    Waiting on the PID, not the image name, so another running copy of the app
+    (or a second build beside it) cannot keep the update waiting forever.
+    """
+    pid = os.getpid()
+    return [
+        "ping -n 3 127.0.0.1 >nul",
+        ":wait",
+        f'tasklist /FI "PID eq {pid}" /NH 2>nul | find " {pid} " >nul',
+        "if not errorlevel 1 (",
+        "  ping -n 2 127.0.0.1 >nul",
+        "  goto wait",
+        ")",
+    ]
+
+
+def _write_installer_script(installer, exe):
+    """Windows, installed copy: wait, run the installer silently, restart.
+
+    ``start /wait`` goes through ShellExecute, so the installer's request for
+    administrator rights shows the UAC prompt (a plain ``CreateProcess`` of an
+    elevated program fails with error 740).
+    """
+    folder = _updates_dir()
+    path = os.path.join(folder, "apply-update.cmd")
+    body = "\r\n".join([
+        "@echo off",
+        "setlocal",
+        f'set "SETUP={_cmd_quote(installer)}"',
+        f'set "EXE={_cmd_quote(exe)}"',
+        *_cmd_wait_lines(),
+        'start "" /wait "%SETUP%" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS',
+        'if exist "%EXE%" start "" "%EXE%"',
+        "",
+    ])
+    return _write_script(path, body)
+
+
 def _write_swap_script(target, new_dir, exe):
-    """A script that waits for this process, swaps the folder and relaunches."""
+    """A script that waits for this process, swaps the folder and relaunches.
+
+    Every move is checked: when the old folder cannot be moved away (a file is
+    still locked) the new build is left parked and the old one restarted,
+    instead of the new folder being moved *into* the old one.
+    """
     folder = _updates_dir()
     if sys.platform == "win32":
         path = os.path.join(folder, "apply-update.cmd")
@@ -408,39 +573,43 @@ def _write_swap_script(target, new_dir, exe):
         body = "\r\n".join([
             "@echo off",
             "setlocal",
-            f'set "NEW={new_dir}"',
-            f'set "APP={target}"',
+            f'set "NEW={_cmd_quote(new_dir)}"',
+            f'set "APP={_cmd_quote(target)}"',
             'set "OLD=%APP%.old"',
-            "ping -n 3 127.0.0.1 >nul",
-            ":wait",
-            f'tasklist /FI "IMAGENAME eq {name}" 2>nul | find /I "{name}" >nul',
-            "if not errorlevel 1 (",
-            "  ping -n 2 127.0.0.1 >nul",
-            "  goto wait",
-            ")",
+            *_cmd_wait_lines(),
             'if exist "%OLD%" rmdir /s /q "%OLD%" 2>nul',
-            'move "%APP%" "%OLD%" >nul',
-            'move "%NEW%" "%APP%" >nul',
-            f'start "" "%APP%\\{name}"',
+            'move "%APP%" "%OLD%" >nul || goto restart',
+            'move "%NEW%" "%APP%" >nul || (move "%OLD%" "%APP%" >nul & goto restart)',
             'rmdir /s /q "%OLD%" 2>nul',
+            ":restart",
+            f'start "" "%APP%\\{_cmd_quote(name)}"',
             "",
         ])
     else:
+        import shlex
+
         path = os.path.join(folder, "apply-update.sh")
         body = "\n".join([
             "#!/bin/sh",
             "sleep 2",
-            f'while pgrep -f "{os.path.basename(exe)}" >/dev/null 2>&1; do sleep 1; done',
-            f'APP="{target}"',
-            f'NEW="{new_dir}"',
+            # the PID, not ``pgrep -f <name>``: the script's own command line
+            # contains the app's name once the download folder is named after it
+            f"while kill -0 {os.getpid()} 2>/dev/null; do sleep 1; done",
+            f"APP={shlex.quote(target)}",
+            f"NEW={shlex.quote(new_dir)}",
             'OLD="$APP.old"',
             'rm -rf "$OLD"',
-            'mv "$APP" "$OLD" || exit 1',
-            'mv "$NEW" "$APP" || { mv "$OLD" "$APP"; exit 1; }',
-            'if [ -d "$APP" ]; then open "$APP"; fi',
+            'if mv "$APP" "$OLD"; then',
+            '  mv "$NEW" "$APP" || mv "$OLD" "$APP"',
+            "fi",
+            'if [ -d "$APP" ]; then open "$APP"; else "$APP" & fi',
             'rm -rf "$OLD"',
             "",
         ])
+    return _write_script(path, body)
+
+
+def _write_script(path, body):
     try:
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(body)
@@ -448,12 +617,12 @@ def _write_swap_script(target, new_dir, exe):
             os.chmod(path, 0o755)
         return path
     except OSError as exc:
-        log(f"update swap script could not be written: {exc}")
+        log(f"update script could not be written: {exc}")
         return ""
 
 
 def _start_detached(script):
-    """Start the swap script so it outlives this process."""
+    """Start the update script so it outlives this process."""
     try:
         if sys.platform == "win32":
             flags = 0
@@ -464,8 +633,10 @@ def _start_detached(script):
         else:
             subprocess.Popen(["/bin/sh", script], start_new_session=True,
                              close_fds=True, cwd=os.path.dirname(script))
+        return True
     except Exception as exc:  # noqa: BLE001
         log(f"the update script could not be started: {exc}")
+        return False
 
 
 def _quit():
