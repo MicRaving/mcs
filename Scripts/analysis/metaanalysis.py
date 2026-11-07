@@ -488,7 +488,10 @@ def main():
             d[c] = d[c].map(lambda v: v.translate(_CTRL) if isinstance(v, str) else v)
         d.columns = [str(c).translate(_CTRL) for c in d.columns]
         return d
-    with pd.ExcelWriter(OUT, engine="openpyxl") as xl:
+    # Write to temp/ and move into place: an open-in-Excel workbook or a crash
+    # mid-write must not leave a truncated product (suite_common.publish_output).
+    _partial = SC.partial_output_path(OUT)
+    with pd.ExcelWriter(_partial, engine="openpyxl") as xl:
         safe(studies).to_excel(xl, sheet_name="Study_Level", index=False)
         safe(dvs).to_excel(xl, sheet_name="DV_Metrics", index=False)
         safe(effects).to_excel(xl, sheet_name="Effects", index=False)
@@ -500,6 +503,7 @@ def main():
         safe(pd.DataFrame(omnibus_skipped)).to_excel(xl, sheet_name="Omnibus_Guard", index=False)
         if len(excluded_tbl):
             safe(excluded_tbl).to_excel(xl, sheet_name="Excluded_Experiments", index=False)
+    SC.publish_output(_partial, OUT)
     print(f"studies: {len(studies)} | dv rows: {len(dvs)} | analysis dv rows: {len(analysis_dvs)} "
           f"| excluded experiments: {len(excluded_tbl)} | eligible contrasts with effects: {len(effects)} "
           f"| DiD guard dropped: {len(did_over)} | missing_metrics_reason dropped: {len(missing_drop)}")

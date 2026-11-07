@@ -697,7 +697,11 @@ def is_omnibus_eligible(dv):
     """
     if not isinstance(dv, dict) or dv.get("eligible_primary") != 1:
         return False
-    if str(dv.get("contrast_type") or "").strip() == "11":
+    # Compare numerically: a row that went through pandas/CSV carries 11.0, and
+    # str(11.0) == "11.0" slipped past a plain string test.
+    _ct = num(dv.get("contrast_type"))
+    if (_ct is not None and np.isfinite(_ct) and _ct == 11) \
+            or str(dv.get("contrast_type") or "").strip() == "11":
         return True
     if not has_multidf_omnibus(dv):
         return False
@@ -1287,6 +1291,38 @@ def derive_specs(df, layer):
 # printed by analysis_multiverse_meta.py, so it was deliberately left here this pass.
 NONREDUNDANCY_LOG = os.path.join(B, "Scripts", "NONREDUNDANCY_SUPPRESSED.csv")
 COMPONENTS_SPEC = os.path.join(TMP, "meta_specs_components.csv")
+
+
+def partial_output_path(path):
+    """Scratch twin under temp/ for an atomic write of ``path`` (same volume as
+    the project, so :func:`publish_output` can ``os.replace`` it)."""
+    stem, ext = os.path.splitext(os.path.basename(path))
+    os.makedirs(TMP, exist_ok=True)
+    return os.path.join(TMP, f"{stem}.partial{ext}")
+
+
+def publish_output(tmp, path, retries=6):
+    """Atomically move a finished product into place.
+
+    Writing a workbook in place has two failure modes: a crash mid-write leaves a
+    truncated product, and on Windows a workbook that is open in Excel raises
+    ``PermissionError`` -- after the whole analysis has run.  The product is
+    therefore written to ``tmp`` first and moved here, retrying a transient lock
+    (sync client, antivirus).  A lock that persists raises a clear error that
+    names the file and where the fresh results were left.
+    """
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    for attempt in range(retries):
+        try:
+            os.replace(tmp, path)
+            return path
+        except PermissionError:
+            if attempt == retries - 1:
+                raise PermissionError(
+                    f"{path} is locked (is it open in Excel?). Close it and re-run; "
+                    f"the new results were left in {tmp}") from None
+            time.sleep(0.5 * (attempt + 1))
+    return path
 
 
 def write_nonredundancy_log(rows, path=None):

@@ -582,6 +582,20 @@ def collect_datasets(no_excl, write_catalog=True):
         # analysis suite already reads both names (`condition`/`condition_raw`).
         if "condition" not in d.columns and "condition_raw" in d.columns:
             d = d.rename(columns={"condition_raw": "condition"})
+        # A harmonizer that omitted the `study_key` column (or left cells blank)
+        # crashed the per-cell groupby below (KeyError: 'study_key') or the final
+        # sorted() of study keys (float NaN vs str) -- both hit by the
+        # fully-within opt-in build in validate_fully_within.  The key IS the
+        # folder name, so only the missing cells are filled.
+        if "study_key" not in d.columns:
+            d["study_key"] = os.path.basename(folder)
+        else:
+            _sk_blank = d["study_key"].isna() | (d["study_key"].astype(str).str.strip() == "")
+            if _sk_blank.any():
+                # whole-column assignment: an all-blank column is float64 and
+                # pandas >= 3 refuses a str written into it through .loc
+                d["study_key"] = d["study_key"].astype(object).where(
+                    ~_sk_blank, os.path.basename(folder))
         dvcols = [c for c in d.columns if str(c).startswith("dv_") and str(c).endswith("_01")]
         # Confidence/certainty DVs are NOT outcomes (separate metacognition strand); drop them
         # from the catalogue and from the melt so they can never be pooled, not even as `other`.
@@ -985,13 +999,17 @@ def main():
         {"item": "freshness_guard_forced", "value": bool(force)},
         {"item": "freshness_window_seconds", "value": _fresh_window()},
     ])
-    with pd.ExcelWriter(OUT, engine="openpyxl") as xl:
+    # Atomic write (temp/ then move): an open-in-Excel reanalysis.xlsx or a crash
+    # mid-write must not leave a truncated product (suite_common.publish_output).
+    _partial = SC.partial_output_path(OUT)
+    with pd.ExcelWriter(_partial, engine="openpyxl") as xl:
         disc.to_excel(xl, sheet_name="Discrimination", index=False)
         level.to_excel(xl, sheet_name="Discrimination_level", index=False)
         res.to_excel(xl, sheet_name="MetaResults", index=False)
         res_restricted.to_excel(xl, sheet_name="MetaResults_restricted", index=False)
         domain_counts.to_excel(xl, sheet_name="Domain_Counts", index=False)
         audit.to_excel(xl, sheet_name="RunAudit", index=False)
+    SC.publish_output(_partial, OUT)
     print(f"wide datasets catalogued: {len(cat)} | intervention contrasts: {len(disc)} | "
           f"auxiliary level contrasts: {len(level)}")
     print(f"completeness: analysed {n_analysed}/{n_total} eligible dataset(s); "
