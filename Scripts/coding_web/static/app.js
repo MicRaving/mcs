@@ -622,7 +622,7 @@
     });
   }
 
-  async function loadSource(kind) {
+  async function loadSource(kind, seq) {
     const key = state.key;
     if (!key) return;
     if (kind === "blank") {
@@ -638,6 +638,10 @@
       const d = await api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`);
       records = d.records;
     }
+    // A slower answer for a paper (or coder) the user has already left must
+    // not land in the working copy: it would show paper A's coding under paper
+    // B's key, and the next Save would write A's records into B's file.
+    if (state.key !== key || (seq !== undefined && seq !== state.loadSeq)) return;
     if (!records || !records.length) {
       state.records = [blankRecord(key, 1)];
       return;
@@ -2856,7 +2860,7 @@
     renderCoderOptions();
     window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
     if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
-    await loadWorkingCopyForCoder();
+    if (!(await loadWorkingCopyForCoder())) return;   // superseded by a newer load
     state.records.forEach(ensureModuleFields);
     state.current = 0;
     state.selIntervention = -1;
@@ -2875,30 +2879,37 @@
   /* Working copy for the selected coder: their saved coding, else the canonical
      extraction, else blank.  "Original (OG)" always shows the extraction.  In
      blind mode the structure is seeded but every value stays hidden. */
+  /* Returns true while this load is still the latest one: a caller that awaited
+     it must not render (or reset the dirty flag) when a newer paper / coder
+     selection superseded it in the meantime. */
   async function loadWorkingCopyForCoder() {
+    const seq = (state.loadSeq = (state.loadSeq || 0) + 1);
     state.coderLoaded = state.coder;
-    const p = state.byKey[state.key] || {};
+    const key = state.key;
+    const p = state.byKey[key] || {};
     if (state.blind) {
       state.source = "blind";
       let records = null;
       if (p.has_extraction) {
-        try { const d = await api(`/api/extraction/${encodeURIComponent(state.key)}`); records = d.records; }
+        try { const d = await api(`/api/extraction/${encodeURIComponent(key)}`); records = d.records; }
         catch { records = null; }
       }
-      state.records = (records && records.length) ? blindSeedRecords(records) : [blankRecord(state.key, 1)];
-      return;
+      if (seq !== state.loadSeq || state.key !== key) return false;
+      state.records = (records && records.length) ? blindSeedRecords(records) : [blankRecord(key, 1)];
+      return true;
     }
+    let kind = "blank";
     if (isOriginalSource()) {
-      if (p.has_extraction) { state.source = "original"; return loadSource("original"); }
-      state.source = "blank";
-      return loadSource("blank");
+      if (p.has_extraction) kind = "original";
+    } else {
+      const mine = (p.codings || []).find(
+        (c) => c && c.coder && c.coder.toLowerCase() === state.coder.toLowerCase());
+      if (mine) kind = "coding:" + mine.coder;
+      else if (p.has_extraction) kind = "original";
     }
-    const mine = (p.codings || []).find(
-      (c) => c && c.coder && c.coder.toLowerCase() === state.coder.toLowerCase());
-    if (mine) { state.source = "coding:" + mine.coder; return loadSource(state.source); }
-    if (p.has_extraction) { state.source = "original"; return loadSource("original"); }
-    state.source = "blank";
-    return loadSource("blank");
+    state.source = kind;
+    await loadSource(kind, seq);
+    return seq === state.loadSeq && state.key === key;
   }
 
   /* Compare dropdown: another coder's coding, shown in a read-only side column. */
@@ -2933,12 +2944,19 @@
     if (kind === "original") state.compareCoder = "OG";
     else if (kind && kind.startsWith("coding:")) state.compareCoder = kind.slice(7);
     if (state.compareCoder && state.key) {
+      const key = state.key;
+      const who = state.compareCoder;
       try {
-        const d = state.compareCoder === "OG"
-          ? await api(`/api/extraction/${encodeURIComponent(state.key)}`)
-          : await api(`/api/coding/${encodeURIComponent(state.key)}/${encodeURIComponent(state.compareCoder)}`);
+        const d = who === "OG"
+          ? await api(`/api/extraction/${encodeURIComponent(key)}`)
+          : await api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(who)}`);
+        // a comparison for a paper / coder the user already left is dropped
+        if (state.key !== key || state.compareCoder !== who) return;
         state.compare = (d && d.records && d.records.length) ? d.records : null;
-      } catch { state.compare = null; }
+      } catch {
+        if (state.key !== key || state.compareCoder !== who) return;
+        state.compare = null;
+      }
     }
     renderCompareGutter();
   }
@@ -4046,7 +4064,20 @@
     state.pages = null;
     state.pageSize = null;
     state.pdfFailed = false;
-    await loadWorkingCopyForCoder();
+    // Until the new working copy is in, state.records still holds the previous
+    // paper's coding under the new key: Save refuses while this is set.
+    state.loadingKey = key;
+    let current;
+    try {
+      current = await loadWorkingCopyForCoder();
+    } catch (err) {
+      // loadingKey stays set: the form still shows the previous paper, so a
+      // Save must keep refusing until a paper loads properly
+      toast("Could not load this paper", "err", String(err.message || err));
+      return;
+    }
+    if (!current) return;           // a newer selection took over
+    state.loadingKey = null;
     state.records.forEach(ensureModuleFields);
     syncMissingOpen();
     renderPaperList();
@@ -4055,6 +4086,7 @@
     syncRationale();
     renderCompareSelect();
     await reloadCompare();
+    if (state.key !== key) return;  // left while the comparison loaded
     renderViewer();
     loadNotes();
     loadPdfInfo();
@@ -4066,6 +4098,7 @@
   /* ================================================================ dirty */
   function touch() {
     state.dirty = true;
+    state.editSeq = (state.editSeq || 0) + 1;
     updateDirty();
     const item = document.querySelector(".paper-item.active .dot");
     if (item) item.classList.add("dirty");
@@ -4104,6 +4137,10 @@
       toast("Select a paper first", "err");
       return false;
     }
+    if (state.loadingKey) {
+      toast("The paper is still loading", "err", "Save again once its coding is shown.");
+      return false;
+    }
     if (state.blind && !payloadHasContent()) {
       if (!quiet) toast("Nothing entered yet", "ok", "Blind coding is only saved once you enter variables.");
       return true;
@@ -4121,18 +4158,24 @@
     if (missing.length && !quiet) toast("Saving with required fields still empty", "err", missing.slice(0, 4).join(", "));
 
     state.busy = true;
+    // The paper and the edit count this save covers: the user may type on, or
+    // even open another paper, while the request is in flight.
+    const savedKey = state.key;
+    const savedEdit = state.editSeq || 0;
     try {
       const recordsOut = state.blind ? stripEmptyForBlind(state.records) : state.records;
       const res = await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: state.key, coder, records: recordsOut, blind: state.blind }),
+        body: JSON.stringify({ key: savedKey, coder, records: recordsOut, blind: state.blind }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "save failed");
-      state.dirty = false;
+      // only what was sent is saved: an edit made during the request keeps the
+      // working copy dirty, and another paper's flag is not this save's to clear
+      if (state.key === savedKey && (state.editSeq || 0) === savedEdit) state.dirty = false;
       updateDirty();
-      const meta = state.byKey[state.key];
+      const meta = state.byKey[savedKey];
       if (meta && !meta.codings.some((c) => c.coder.toLowerCase() === coder.toLowerCase())) {
         meta.codings.push({ coder, file: "", modified: new Date().toISOString() });
         meta.n_coders = meta.codings.length;
@@ -4189,7 +4232,7 @@
     if (!ok) return;
     if (state.blind) {
       // blind coding keeps the original's structure, so "clear" re-seeds it
-      await loadWorkingCopyForCoder();
+      if (!(await loadWorkingCopyForCoder())) return;
     } else {
       state.records = [blankRecord(state.key, 1)];
       state.source = "blank";
@@ -4216,7 +4259,7 @@
     // Blind coding hides every other coding, so the compare view is turned off.
     if (state.blind) { state.compare = null; state.compareCoder = ""; }
     if (state.key) {
-      await loadWorkingCopyForCoder();
+      if (!(await loadWorkingCopyForCoder())) return;   // superseded by a newer load
       state.records.forEach(ensureModuleFields);
       state.statChoice = {};
       state.selIntervention = -1;
@@ -4324,6 +4367,13 @@
   async function saveProjectRoot() {
     const path = $("#project-input").value.trim();
     if (!path) return;
+    // Switching project drops the working copy: never silently.
+    if (state.dirty) {
+      const ok = await confirmDialog("Discard unsaved changes?",
+        `The working copy for ${state.key} has unsaved edits. Switch project anyway?`,
+        "Discard & switch", true);
+      if (!ok) return;
+    }
     $("#project-status").textContent = "Switching project…";
     try {
       const r = await fetch("/api/root", {
@@ -4342,6 +4392,11 @@
       state.papers.forEach((p) => { state.byKey[p.key] = p; });
       state.key = null;
       state.records = [];
+      // a paper load still in flight belongs to the old project: drop it
+      state.loadSeq = (state.loadSeq || 0) + 1;
+      state.loadingKey = null;
+      state.compare = null;
+      state.compareCoder = "";
       state.current = 0;
       state.selIntervention = -1;
       state.openDv = new Set();
@@ -4358,6 +4413,8 @@
       renderViewer();
       updateDirty();
       toast("Project folder set", "ok", `${r.papers} papers · ${r.root}`);
+      // the scheme editor (schema.js) reloads the new project's scheme
+      window.dispatchEvent(new CustomEvent("cs:root", { detail: r.root }));
     } catch (err) {
       $("#project-status").textContent = String(err.message || err);
     }
@@ -4638,8 +4695,12 @@
       if (!state.coderMode || e.ctrlKey || e.metaKey || e.altKey) return;
       const view = document.querySelector(".viewtab.active");
       if (view && view.dataset.view !== "coding") return;
+      if (document.querySelector("dialog[open]")) return;   // Tab belongs to the dialog
       const tag = (e.target.tagName || "").toLowerCase();
       if (tag === "textarea") return;
+      // the paper search, coder name and field search sit outside the form:
+      // their arrows and Tab move the caret / focus, not the coding variable
+      if ((tag === "input" || tag === "select") && e.target.closest && !e.target.closest("#form")) return;
       // Tab / Shift+Tab step to the next / previous variable (like the paper screen);
       // number keys pick a level, arrows move, Shift+Tab goes back.
       if (e.key === "Tab") { e.preventDefault(); if (e.shiftKey) coderMove(-1); else coderAdvance(); return; }
@@ -4843,6 +4904,11 @@
       // saving a coding file, Insert/Ctrl+Enter advancing the paper, Ctrl+B
       // toggling blind, Ctrl+K focusing a hidden search box).
       if (window.CS.currentView() !== "coding") return;
+      // a modal (confirm sheet, project folder, facets) owns the keyboard: a
+      // shortcut behind it would save or open the next paper unseen
+      if (document.querySelector("dialog[open]")) return;
+      // a held key repeats: one "next paper" per press, not one per repeat
+      if (e.repeat && (e.key === "Insert" || e.key === "Enter")) return;
       if (e.key === "Insert") {
         e.preventDefault();
         goNext();
@@ -4850,29 +4916,40 @@
       }
       const meta = e.ctrlKey || e.metaKey;
       if (!meta) return;
-      if (e.key === "s") { e.preventDefault(); save(); }
+      // autofill fires keydown events without a key
+      const k = String(e.key || "").toLowerCase();
+      if (k === "s") { e.preventDefault(); save(); }
       else if (e.key === "Enter") { e.preventDefault(); goNext(); }
-      else if (e.key.toLowerCase() === "b") { e.preventDefault(); toggleBlind(); }
-      else if (e.key.toLowerCase() === "k") { e.preventDefault(); $("#search-input").focus(); $("#search-input").select(); }
+      else if (k === "b") { e.preventDefault(); toggleBlind(); }
+      else if (k === "k") { e.preventDefault(); $("#search-input").focus(); $("#search-input").select(); }
     });
 
     window.addEventListener("resize", syncWideLayout);
 
-    window.addEventListener("beforeunload", () => {
+    window.addEventListener("beforeunload", (e) => {
       // Auto-save any open edits when the app is closed.
       if (!state.dirty) return;
       if (document.body.classList.contains("view-screening")) return;
       if (document.body.classList.contains("view-reproduction")) return;
       const coder = state.coder.trim();
       if (!coder || !state.key) return;
+      // the same refusals as Save: the Original is read-only, and while a
+      // paper loads the working copy is still the previous paper's
+      if (isOriginalSource() || state.loadingKey) return;
       if (state.blind && !payloadHasContent()) return;   // nothing entered in blind mode
+      let sent = false;
       try {
         const recordsOut = state.blind ? stripEmptyForBlind(state.records) : state.records;
         const blob = new Blob([JSON.stringify({ key: state.key, coder, records: recordsOut })],
                               { type: "application/json" });
-        navigator.sendBeacon("/api/save", blob);
-        state.dirty = false;
-      } catch { /* ignore */ }
+        // sendBeacon refuses bodies over its quota (~64 KB) and says so only
+        // through its return value; a large coding was silently lost here.
+        sent = navigator.sendBeacon("/api/save", blob);
+      } catch { sent = false; }
+      if (sent) { state.dirty = false; return; }
+      // could not queue the save: ask before leaving rather than lose the edits
+      e.preventDefault();
+      e.returnValue = "";
     });
     // Open a paper from another tab (Summary/Coverage) in the coding view.
     window.addEventListener("cs:open-paper", (e) => {

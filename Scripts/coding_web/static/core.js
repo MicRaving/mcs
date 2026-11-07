@@ -213,7 +213,16 @@
       .replace(/__([^_]+)__/g, "<strong>$1</strong>")
       .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
       .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (all, text, href) =>
+        // Escaping the source stops tags, but not a `javascript:` (or `data:`,
+        // `vbscript:`) URL in a link target - a note or a project's own
+        // instructions could still run script on a click.  Only web, mail and
+        // in-page/relative targets become links; anything else stays text.
+        // (a relative target may not hold a colon at all: browsers drop leading
+        // control characters, so "\x01javascript:" would otherwise slip through)
+        (/^(https?:\/\/|mailto:|#)/i.test(href) || /^[\w.~\/-][^:]*$/.test(href))
+          ? `<a href="${href}" target="_blank" rel="noopener">${text}</a>`
+          : text);
   }
 
   function markdown(src) {

@@ -27,7 +27,10 @@ from studio_state import S, log
 # instead of feeding the page fields it no longer understands.
 SNAPSHOT_VERSION = 1
 
-_INDEX = {"stamps": None, "papers": None}
+# ``root`` pins the in-memory index to one project: a re-root (POST /api/root)
+# must not reuse the previous project's summaries, even for a study key that
+# both folders share.
+_INDEX = {"root": None, "stamps": None, "papers": None}
 
 
 def _listing(folder, suffix):
@@ -152,6 +155,9 @@ def papers_index(keys, build):
     """
     stamps = _corpus_stamps(keys)
 
+    if _INDEX["root"] != S.ROOT:
+        # another project: forget the old one and read this one's snapshot
+        _INDEX.update(root=S.ROOT, papers=None, stamps=None)
     papers = _INDEX["papers"]
     old_stamps = _INDEX["stamps"]
     if papers is None:
@@ -227,6 +233,25 @@ MAX_SNAPSHOT_BODY = 1_500_000
 _RESP = {}          # path + query -> (stamp, body)
 _RESP_LOADED = False
 _RESP_DIRTY = False
+_RESP_ROOT = None   # the project the entries above belong to
+_LAST_CORE = {}     # the last coding-folder stamp a miss saw (see _from_cache)
+
+
+def _follow_root():
+    """Drop the cached answers when the app was pointed at another project.
+
+    Without this a re-root kept serving the previous project's answers (two
+    empty or freshly-copied projects carry the same stamps), and the new
+    project's own snapshot was never read because the old one counted as
+    loaded.
+    """
+    global _RESP_LOADED, _RESP_DIRTY, _RESP_ROOT
+    if _RESP_ROOT == S.ROOT:
+        return
+    _RESP.clear()
+    _RESP_LOADED = False
+    _RESP_DIRTY = False
+    _RESP_ROOT = S.ROOT
 
 
 def _resp_snapshot_path():
@@ -278,27 +303,92 @@ def _save_resp_snapshot():
             pass
 
 
-def response_stamp():
-    """What the corpus-wide answers are derived from."""
-    return [
-        [list(x) for x in sorted(_listing(S.EXTRACTION, ".json").items())],
-        [list(x) for x in sorted(_listing(S.CODINGS, ".json").items())],
-        [list(x) for x in sorted(_listing(S.SCREENING, ".json").items())],
+def _file_stamp(path):
+    try:
+        st = os.stat(path)
+    except (OSError, TypeError):
+        return None
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _sorted_listing(folder, suffix):
+    return [list(x) for x in sorted(_listing(folder, suffix).items())]
+
+
+def response_stamp(path=None):
+    """What the corpus-wide answers are derived from.
+
+    Beyond the three coding folders: the project root (two projects never share
+    an answer), the scheme (the summary and agreement fields come from it) and
+    the screening master sheet (the abstract agreement reads it).  The paper
+    list also reads the PDFs, texts, notes, supplements and datasets - a PDF
+    added by hand must show up in the list, so those folders are part of its
+    stamp.
+    """
+    try:
+        from studio_lib import _scheme_stamp
+        scheme = _scheme_stamp()
+        scheme = list(scheme) if scheme else None
+    except Exception:  # noqa: BLE001 - a broken scheme must not break the cache
+        scheme = None
+    stamp = [
+        S.ROOT,
+        scheme,
+        _file_stamp(os.path.join(S.ROOT, "master_dataset.xlsx")),
+        _sorted_listing(S.EXTRACTION, ".json"),
+        _sorted_listing(S.CODINGS, ".json"),
+        _sorted_listing(S.SCREENING, ".json"),
     ]
+    if path == "/api/papers":
+        stamp += [
+            _sorted_listing(S.EXTRACTION, ".md"),
+            _sorted_listing(S.PAPERS, ""),
+            _sorted_listing(S.TEXT, ".txt"),
+            _sorted_listing(S.SUPPLEMENTS, ""),
+            [list(x) for x in sorted(_dir_listing(S.DATASETS).items())],
+        ]
+    return stamp
 
 
-def cached_body(key):
+def _drop_inner_caches():
+    """Forget the short-lived (time-based) caches the corpus-wide views keep.
+
+    The coding summary and the agreement tables keep their own 15-20 s cache.
+    When the files changed, the response cache asks the view again - and the
+    view would answer from that inner cache, computed BEFORE the change, and
+    the stale answer would then be stored under the NEW stamp, where it stayed
+    until the next change.  So a miss on a changed stamp clears them first.
+    """
+    try:
+        from studio_lib import _CODING_INDEX
+        _CODING_INDEX["data"] = None
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from agreement_lib import _invalidate_agreement
+        _invalidate_agreement()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def cached_body(key, stamp=None):
     """The stored body for ``key``, or None when it is stale or absent."""
+    _follow_root()
     _load_resp_snapshot()
     hit = _RESP.get(key)
     if not hit:
         return None
-    return hit[1] if hit[0] == response_stamp() else None
+    if stamp is None:
+        stamp = response_stamp(key.split("?", 1)[0])
+    return hit[1] if hit[0] == stamp else None
 
 
-def store_body(key, body):
+def store_body(key, body, stamp=None):
     global _RESP_DIRTY
-    _RESP[key] = (response_stamp(), body)
+    _follow_root()
+    if stamp is None:
+        stamp = response_stamp(key.split("?", 1)[0])
+    _RESP[key] = (stamp, body)
     _RESP_DIRTY = True
 
 
@@ -306,13 +396,27 @@ def register_response_cache(app):
     """Serve the corpus-wide GETs from the cache, and fill it on the way out."""
     from flask import Response, request
 
+    from flask import g
+
     @app.before_request
     def _from_cache():
         if request.method != "GET" or request.path not in RESPONSE_PATHS:
             return None
         key = request.path + "?" + request.query_string.decode("utf-8", "replace")
-        body = cached_body(key)
+        # The stamp is taken BEFORE the view runs and stored with its answer: a
+        # file written while the view was computing then leaves the entry stale
+        # (recomputed next time) instead of marking an old answer as current.
+        stamp = response_stamp(request.path)
+        g.cs_cache_stamp = stamp
+        body = cached_body(key, stamp)
         if body is None:
+            # the coding-folder part of the stamp (everything bar the paper
+            # list's extra folders) is what the inner caches depend on
+            core = stamp[:6]
+            if _LAST_CORE.get("root") != S.ROOT or _LAST_CORE.get("stamp") != core:
+                if _LAST_CORE.get("stamp") is not None:
+                    _drop_inner_caches()
+                _LAST_CORE.update(root=S.ROOT, stamp=core)
             return None
         resp = Response(body, mimetype="application/json")
         resp.headers["X-CodingStudio-Cache"] = "hit"
@@ -327,6 +431,6 @@ def register_response_cache(app):
         body = resp.get_data(as_text=True)
         if body and len(body) <= MAX_BODY:
             key = request.path + "?" + request.query_string.decode("utf-8", "replace")
-            store_body(key, body)
+            store_body(key, body, getattr(g, "cs_cache_stamp", None))
             _save_resp_snapshot()
         return resp

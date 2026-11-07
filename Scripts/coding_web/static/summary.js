@@ -231,9 +231,14 @@
   function rowId(row) {
     return String(row.experiment_id) + (state.kind === "dv" ? "#" + row.dv_index : "");
   }
-  const editVal = (study, id, field, base) => {
-    const st = state.edits[study] && state.edits[study][String(id)];
-    return st && field in st ? st[field] : (base || "");
+  // The pending edit of one row's field, else its coded value.  Edits are kept
+  // per experiment, and a DV edit sits under that experiment's ``__dvs`` (see
+  // setEdit) - looking a DV row up by its "exp#index" row id found nothing, so a
+  // re-rendered DV list showed the old value while the edit was still pending.
+  const editVal = (study, row, field, base) => {
+    const ex = state.edits[study] && state.edits[study][String(row.experiment_id)];
+    const st = state.kind === "dv" ? ex && ex.__dvs && ex.__dvs[row.dv_index] : ex;
+    return st && field in st ? st[field] : (base ?? "");
   };
   function setEdit(row, field, value) {
     const study = row.study_key, ex = String(row.experiment_id);
@@ -269,7 +274,7 @@
         editCell = `<div><span class="sm-val">${esc(joined === "" ? "—" : joined)}</span></div>`;
       } else if (tooMany) {
         // Free-text field: no level list, edit as plain text.
-        const cur = editVal(study, id, state.selDim, row[state.selDim]);
+        const cur = editVal(study, row, state.selDim, row[state.selDim]);
         const cv = cur === null || cur === undefined ? "" : String(cur);
         editCell = `<div><input class="input sm-edit${edited ? " overridden" : ""}" ` +
           `data-study="${esc(study)}" data-exp="${esc(String(row.experiment_id))}" ` +
@@ -277,7 +282,7 @@
           `value="${esc(cv)}" autocomplete="off" spellcheck="false"></div>`;
       } else if (editCol) {
         const opts = state.fieldOptions || [];
-        const cur = editVal(study, id, state.selDim, row[state.selDim]);
+        const cur = editVal(study, row, state.selDim, row[state.selDim]);
         const cv = cur === null || cur === undefined ? "" : String(cur);
         if (opts.length) {
           let list = opts.slice();
@@ -400,16 +405,37 @@
     const coder = (coderEl ? coderEl.value : state.coder || "").trim();
     if (!coder) { toast("Enter your coder name before saving", "err"); if (coderEl) coderEl.focus(); return; }
     state.coder = coder;
+    if (state.saving) return;
+    // Hand the pending edits to the request and start a fresh set: an edit
+    // made while the save is in flight belongs to the NEXT save (clearing the
+    // edits after the response dropped it silently).
+    const sent = state.edits;
+    state.edits = {};
+    state.saving = true;
     try {
       const r = await api("/api/summary/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coder, edits: state.edits }),
+        body: JSON.stringify({ coder, edits: sent }),
       });
-      state.edits = {}; setDirty();
+      setDirty();
       await loadDimensions(); await loadRows();
       toast("Coding edits saved", "ok", `${r.studies} study file(s) · ${r.fields} field(s)`);
     } catch (e) {
+      // put the unsent edits back, under any made since (those are newer)
+      for (const [study, byExp] of Object.entries(sent)) {
+        const into = state.edits[study] = state.edits[study] || {};
+        for (const [ex, fields] of Object.entries(byExp)) {
+          const now = into[ex] || {};
+          const dvs = Object.assign({}, fields.__dvs || {});
+          for (const [i, f] of Object.entries(now.__dvs || {})) dvs[i] = Object.assign({}, dvs[i] || {}, f);
+          into[ex] = Object.assign({}, fields, now);
+          if (Object.keys(dvs).length) into[ex].__dvs = dvs;
+        }
+      }
+      setDirty();
       toast("Save failed", "err", String(e.message || e));
+    } finally {
+      state.saving = false;
     }
   }
 
@@ -482,6 +508,13 @@
       table.addEventListener("input", onEditInput);
     }
     document.addEventListener("cs:view", (e) => { if (e.detail === "summary") ensureStarted(); });
+    // Summary edits live only in this page until Save: closing the window
+    // dropped them without a word.
+    window.addEventListener("beforeunload", (e) => {
+      if (!isDirty()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
     window.addEventListener("keydown", (e) => {
       const v = $("#view-summary");
       if (!v || v.hidden) return;

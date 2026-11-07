@@ -33,6 +33,16 @@ def api_set_root():
     configure(path)
     save_config({"root": S.ROOT})
     refresh_keys()
+    # The time-based caches of the corpus-wide views are not keyed by project:
+    # without this the summary and agreement tabs answered from the previous
+    # project for up to 20 s (and the response cache then kept that answer).
+    try:
+        from studio_lib import _CODING_INDEX
+        _CODING_INDEX["data"] = None
+        from agreement_lib import _invalidate_agreement
+        _invalidate_agreement()
+    except Exception:  # noqa: BLE001 - a re-root must never fail over a cache
+        pass
     log(f"root changed -> {S.ROOT} ({len(S.KEYS)} papers)")
     return jsonify({"ok": True, "root": S.ROOT, "papers": len(S.KEYS),
                     "has_papers": os.path.isdir(S.PAPERS)})
@@ -438,6 +448,12 @@ def api_save():
         return jsonify({"ok": False, "error": "unknown paper key"}), 400
     if not coder or not str(coder).strip():
         return jsonify({"ok": False, "error": "coder name is required"}), 400
+    # The original (reference) coding is Extraction/<Key>.json and is read-only
+    # from the app; a coder file named after it would shadow it in every
+    # comparison, so the reserved names are refused here and not only in the UI.
+    if str(coder).strip().lower() in ("og", "original (og)", "original"):
+        return jsonify({"ok": False, "error": "the original coding is read-only; "
+                        "save under your own coder name"}), 400
     if not isinstance(records, list) or not records:
         return jsonify({"ok": False, "error": "no coding records to save"}), 400
 

@@ -589,6 +589,14 @@ def _scheme_stamp():
     """A cheap fingerprint of the scheme source, so a rewrite is noticed."""
     paths = []
     try:
+        # the file the scheme is actually read from (library, the project's own
+        # Project/scheme.json, or the legacy schema), so an edit there counts
+        src = project_context.scheme_source() or {}
+        if src.get("path"):
+            paths.append(src["path"])
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         paths.append(project_context.scheme_path(project_context.active_scheme_id() or ""))
         paths.append(project_context.legacy_schema_path())
     except Exception:  # noqa: BLE001
@@ -998,7 +1006,10 @@ def _observed_levels(rows, names):
 def coding_index():
     """Per-experiment and per-DV rows for every coded paper, plus field metadata."""
     now = time.time()
-    if _CODING_INDEX["data"] is not None and now - _CODING_INDEX["at"] < 20:
+    # the index belongs to one project: after a re-root it is rebuilt at once,
+    # not served from the previous project for the rest of its 20 s
+    if (_CODING_INDEX["data"] is not None and now - _CODING_INDEX["at"] < 20
+            and _CODING_INDEX.get("root") == S.ROOT):
         return _CODING_INDEX["data"]
     common, dvfields = _summary_field_lists()
     cnames = [f["name"] for f in common]
@@ -1032,7 +1043,7 @@ def coding_index():
             "common_names": set(cnames), "dv_names": set(dnames),
             "common_observed": _observed_levels(exps, cnames),
             "dv_observed": _observed_levels(dvs, dnames)}
-    _CODING_INDEX.update(at=now, data=data)
+    _CODING_INDEX.update(at=now, data=data, root=S.ROOT)
     return data
 
 def _field_by_name(name):
