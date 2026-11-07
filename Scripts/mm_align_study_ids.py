@@ -137,10 +137,12 @@ def simulate(plan, mm_owners):
     """Owners after the rewrite; also report ids that would be new/unknown."""
     owners = {sid: set(keys) for sid, keys in mm_owners.items()}
     for key, pairs in plan.items():
-        mapping = dict(pairs)
-        for sid, keys in list(owners.items()):
-            if key in keys:
-                owners[sid] = (keys - {key}) or {key}
+        # Release only the ids this key actually renames.  Releasing every id
+        # the key owns would hide a collision on an id it keeps, and the
+        # "ids still shared after the rewrite" refusal below would pass.
+        for old, new in pairs:
+            if old != new and old in owners:
+                owners[old].discard(key)
         for old, new in pairs:
             if old != new:
                 owners.setdefault(new, set()).add(key)
