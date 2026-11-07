@@ -68,11 +68,21 @@
     return v;
   };
 
+  /* The live decision pill, by the same rule the server stores
+     (screening_lib._decide): every decided GATING criterion must pass by
+     its own pass values; one failing criterion excludes.  The pill stays
+     "Incomplete" until every gating criterion has a verdict. */
   function currentDecision() {
-    const verdicts = ["C1", "C2", "C3", "C4"].map((l) => (S.values[l] || {}).verdict || "");
-    if (verdicts.some((v) => v === "No")) return "Exclude";
-    if (verdicts.every((v) => v === "Yes")) return "Include";
-    return "";
+    const gating = S.criteria.filter((c) => c.gating !== false && c.kind !== "classify");
+    const passes = (c, v) => (c.pass_values && c.pass_values.length ? c.pass_values : ["Yes"])
+      .some((p) => String(p).trim().toLowerCase() === String(v).trim().toLowerCase());
+    let complete = true;
+    for (const c of gating) {
+      const v = String((S.values[c.label] || {}).verdict || "").trim();
+      if (!v) { complete = false; continue; }
+      if (!passes(c, v)) return "Exclude";
+    }
+    return (complete && gating.length) ? "Include" : "";
   }
 
   function decisionPill(value) {
@@ -192,10 +202,48 @@
   }
 
   // ---------------------------------------------------------------- loading
+  /* fetch JSON and surface the server's own error text (the shared api()
+     only says "HTTP 400", which tells the coder nothing) */
+  async function call(path, opts) {
+    const r = await fetch(path, opts);
+    let body = null;
+    try { body = await r.json(); } catch { body = null; }
+    if (!r.ok || (body && body.ok === false)) {
+      const msg = (body && body.error) || `${path} → HTTP ${r.status}`;
+      throw new Error(msg);
+    }
+    return body;
+  }
+
+  /* A missing workbook or a missing title column used to look like an empty
+     list ("No abstracts match").  Say what is wrong and where. */
+  function workbookProblem() {
+    const m = S.meta;
+    if (!m) return "";
+    if (!m.available) return m.error || `${m.master || "master_dataset.xlsx"} was not found in the project folder.`;
+    if (m.error) return m.error;
+    if (!m.total) return `${m.master} has no data rows${m.sheet ? ` (sheet '${m.sheet}')` : ""}.`;
+    return "";
+  }
+
+  function renderProblem(text) {
+    const host = $("#screen-list");
+    if (host) host.innerHTML = `<div class="empty">${icon("i-alert")}<b>Cannot load the screening workbook</b><p>${esc(text)}</p></div>`;
+    const form = $("#screen-form");
+    if (form) form.innerHTML = `<p class="side-hint">${esc(text)}</p>`;
+  }
+
   async function loadMeta() {
-    S.meta = await api(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
+    S.meta = await call(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
     S.criteria = S.meta.criteria || [];
     await loadCriteria();
+    const rec = S.meta.missing_recommended || [];
+    if (S.meta.available && !S.meta.error && rec.length) {
+      toast("Screening workbook: column(s) not found", "err",
+        `${rec.join(", ")} — ` + (rec.includes("id")
+          ? "records are identified by their row number, so do not re-sort the workbook."
+          : "the abstract text will be empty."));
+    }
   }
 
   /* The criteria of the active scheme: they carry the auto-approval
@@ -214,8 +262,12 @@
   }
 
   async function loadList({ keepPos = false } = {}) {
+    const problem = workbookProblem();
+    if (problem) { S.rows = []; S.keys = []; S.cur = null; renderProblem(problem); return; }
+    const host = $("#screen-list");
+    if (host && !S.keys.length) host.innerHTML = `<div class="empty"><b>Loading abstracts…</b><p>${esc(String((S.meta && S.meta.total) || ""))} records in ${esc((S.meta && S.meta.master) || "the workbook")}</p></div>`;
     const q = new URLSearchParams({ coder: coderName(), filter: S.filter, search: S.search });
-    const d = await api(`/api/screening/list?${q.toString()}`);
+    const d = await call(`/api/screening/list?${q.toString()}`);
     S.rows = d.rows || [];
     S.byIdMeta = {};
     S.rows.forEach((r) => { S.byIdMeta[r.i] = r; });
@@ -235,7 +287,7 @@
     if (!uid) return;
     if (!force && S.cur && S.cur.id === uid) { renderList(); return; }
     try {
-      const d = await api(`/api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
+      const d = await call(`/api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
       S.cur = d.record;
       S.ai = d.record.ai || {};
       S.values = blankValues();
@@ -253,7 +305,8 @@
       // Pre-fill C3 "Yes" when the abstract is detected as English, unless the
       // coder already answered it.  C3 is then skipped when moving past C2.
       S.c3Auto = false;
-      if (!S.values.C3.verdict && looksEnglish(S.cur)) {
+      // (a scheme without a "C3" criterion has nothing to pre-fill)
+      if (S.values.C3 && !S.values.C3.verdict && looksEnglish(S.cur)) {
         S.values.C3.verdict = "Yes";
         S.c3Auto = true;
       }
@@ -485,14 +538,14 @@
     if (S.saving) return false;
     S.saving = true;
     try {
-      const r = await api("/api/screening/decision", {
+      const r = await call("/api/screening/decision", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder, id: S.cur.id, criteria: S.values }),
       });
       S.dec[S.cur.id] = { criteria: JSON.parse(JSON.stringify(S.values)), decision: r.decision };
       if (S.meta) S.meta.screened = r.screened;
       const meta = S.byIdMeta[S.cur.id];
-      if (meta) { meta.h = r.decision; }
+      if (meta) { meta.h = r.decision; meta.d = 1; }
       updateProgress();
       renderList();
       setSaved(true);
@@ -688,7 +741,7 @@
   function nextPos() {
     if (S.shuffleOn) {
       const pool = S.keys.map((uid, i) => i)
-        .filter((i) => i !== S.pos && !S.dec[S.keys[i]]);
+        .filter((i) => i !== S.pos && !S.dec[S.keys[i]] && !(S.byIdMeta[S.keys[i]] || {}).d);
       if (!pool.length) return -1;
       return pool[Math.floor(Math.random() * pool.length)];
     }
@@ -708,7 +761,7 @@
       "This cannot be undone from the app.");
     if (!ok) return;
     try {
-      const r = await api("/api/screening/merge", {
+      const r = await call("/api/screening/merge", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder }),
       });
@@ -773,9 +826,12 @@
     // coder (shared top-bar field)
     window.addEventListener("cs:coder", (e) => {
       S.coder = String(e.detail || "");
+      S.dec = {};     // this session's saves belong to the previous coder
       try { localStorage.setItem("cs.coder", S.coder); } catch { /* ignore */ }
       clearTimeout(S.timer);
-      S.timer = setTimeout(() => loadList({ keepPos: true }).catch(() => {}), 350);
+      // the meta carries this coder's "screened" count: reload it with the list
+      S.timer = setTimeout(() => loadMeta().then(() => loadList({ keepPos: true }))
+        .catch((err) => toast("Load failed", "err", String(err.message || err))), 350);
     });
 
     // shuffle (top-bar toggle): when on, Next/Tab advances to a random unscreened abstract

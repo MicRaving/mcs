@@ -232,7 +232,10 @@ def gwet_ac(case_ratings, categories, weights=None):
                     s += w(k, l) * nk * nl
         sum_q.append(s - ri[i])
     pa = sum(sum_q[i] / (ri[i] * (ri[i] - 1)) for i in range(n) if ri[i] >= 2) / n2
-    pi = [sum((agree[i][k] / ri[i]) for i in range(n) if ri[i] >= 1) / n for k in range(q)]
+    # irrCAC drops subjects nobody rated in a scored category (e.g. only an
+    # out-of-vocabulary "Unscreened"): pi_k is the mean over RATED subjects.
+    n1 = sum(1 for r in ri if r >= 1)
+    pi = [sum((agree[i][k] / ri[i]) for i in range(n) if ri[i] >= 1) / n1 for k in range(q)]
     sum_w = sum(w(k, l) for k in range(q) for l in range(q))
     pe = (sum_w * sum(pi[k] * (1 - pi[k]) for k in range(q))) / (q * (q - 1)) if q >= 2 else 0.0
     coeff = (pa - pe) / (1 - pe) if pe < 1 else None
@@ -637,12 +640,30 @@ def _abstract_agreement_index():
     out = {}
     if not S.SCREENING or not os.path.isdir(S.SCREENING):
         return out
+    # The criteria are normalised from the scheme on every abstract_fields()
+    # call: read them ONCE here, never inside the 30k-record loops below (that
+    # made the abstract agreement take minutes).
+    labels = [lab for lab, _ in abstract_fields()]
+    from screening_lib import ai_entry, load_screening_decisions
+    try:
+        idx = screening_index()
+    except Exception:  # noqa: BLE001
+        idx = {}
+    # a decision file may key a duplicate-accession record by its row
+    # ("row-30348") while another uses "X#2": compare them as ONE record
+    alias = (idx.get("info") or {}).get("alias") or {}
+    # "yes" / "YES " and "Yes" are one category (the workbook and hand edits
+    # differ in case); anything else is kept as written
+    cats = {c.lower(): c for c in _ABSTRACT_CATS}
+
+    def canon(v):
+        v = str(v).strip()
+        return cats.get(v.lower(), v)
     for p in sorted(glob.glob(os.path.join(S.SCREENING, "*.json"))):
         coder = os.path.splitext(os.path.basename(p))[0]
         try:
-            with open(p, encoding="utf-8") as fh:
-                dec = json.load(fh)
-        except Exception:
+            dec = load_screening_decisions(coder)    # cached by file stamp
+        except Exception:  # noqa: BLE001
             continue
         if not isinstance(dec, dict):
             continue
@@ -650,28 +671,24 @@ def _abstract_agreement_index():
         for uid, rec in dec.items():
             crits = (rec or {}).get("criteria") or {}
             vals = {}
-            for lab, _ in abstract_fields():
+            for lab in labels:
                 v = (crits.get(lab) or {}).get("verdict")
-                if v:
-                    vals[lab] = str(v).strip()
+                if v and str(v).strip():
+                    vals[lab] = canon(v)
             if vals:
-                by_uid[str(uid)] = vals
+                by_uid[alias.get(str(uid), str(uid))] = vals
         if by_uid:
             out[coder] = by_uid
     # The original LLM abstract codings: the master workbook's C1–C4 verdicts
     # (the AI screening reference) are included as a rater.
-    try:
-        idx = screening_index()
-    except Exception:
-        idx = {}
     llm = {}
     for rec in (idx.get("rows") or []):
         ai = rec.get("ai") or {}
         vals = {}
-        for lab, _ in abstract_fields():
-            v = str((ai.get(lab) or {}).get("verdict") or "").strip()
+        for lab in labels:
+            v = str(ai_entry(ai, lab).get("verdict") or "").strip()
             if v:
-                vals[lab] = v
+                vals[lab] = canon(v)
         if vals:
             llm[str(rec.get("id"))] = vals
     if llm:
@@ -684,7 +701,8 @@ def _abstract_case_maps(index):
     for rater, by_uid in index.items():
         for uid, vals in by_uid.items():
             for lab, v in vals.items():
-                maps[lab].setdefault(uid, {})[rater] = v
+                if lab in maps:
+                    maps[lab].setdefault(uid, {})[rater] = v
     return maps
 
 
