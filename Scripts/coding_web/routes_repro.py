@@ -36,7 +36,6 @@ GET  /api/repro/run/status        streamed log + ok/finished flags
 from datetime import datetime
 from flask import Blueprint, abort, jsonify, request
 import csv
-import glob
 import json
 import os
 import shutil
@@ -62,6 +61,18 @@ _STATUS_NORM = {
     "not reproducible": "not_reproducible",
     "crashed": "crashed",
     "not run": "not_run",
+    # Already-normalised spellings map to themselves, so a value that went
+    # through this table once (or a dossier written with underscores) is stable.
+    "not_reproduced": "not_reproduced",
+    "not_reproducible": "not_reproducible",
+    "not_run": "not_run",
+    # repro_dossier_lib._statuses() writes "unknown" when neither machine facts
+    # nor a report verdict exist, and the report parser speaks yes/no.  The tab
+    # has no "unknown" filter or KPI, so such a study silently vanished from
+    # every count except "all"; it has no verdict, i.e. it is "not run".
+    "unknown": "not_run",
+    "yes": "reproduced",
+    "no": "not_reproduced",
 }
 RUN_KINDS = ("generate", "harmonizers", "reproducers")
 
@@ -759,28 +770,27 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
     flags = _study_flags(key, ds)
     h = harm_by_key.get(key, {})
     r = repro_by_key.get(key, {})
-    facts = None
-    if not r:
-        # no workbook row: the study's own facts stand in for it
-        facts = _facts_row(key, ds)
-        if facts:
-            r = facts
-        elif flags["has_report"]:
-            # documented in Reproduction/<Key>.md, never machine-checked
-            r = {"key": key, "status": "reported_only"}
-
-    raw_status = _s(r.get("status"))
-    status = _STATUS_NORM.get(raw_status, raw_status or "not_run")
-    if not flags["has_reproducer"] and not raw_status:
-        status = "not_run"
-
-    # dossier (Results/repro_dossier/) -- the reproduction source of truth
+    # dossier (Results/repro_dossier/) -- consulted before the bare report
     idx = _dossier_index().get(key, {})
     dossier = _load_dossier_cached(key)
-    if not raw_status and dossier:
-        ds_status = _s(dossier.get("status"))
-        if ds_status:
-            status = _STATUS_NORM.get(ds_status, ds_status)
+
+    # Status precedence: workbook row -> the study's repro_facts.json -> the
+    # dossier -> "reported_only" when only Reproduction/<Key>.md exists.  The
+    # report placeholder used to be filled in *before* the dossier was looked at,
+    # so a study with a report never showed its dossier verdict.
+    source = "workbook" if r else ""
+    facts = None
+    if not r:
+        facts = _facts_row(key, ds)
+        if facts:
+            r, source = facts, "facts"
+    raw_status = _s(r.get("status"))
+    if not raw_status and dossier and _s(dossier.get("status")):
+        raw_status, source = _s(dossier.get("status")), "dossier"
+    if not raw_status and flags["has_report"]:
+        # documented in Reproduction/<Key>.md, never machine-checked
+        raw_status, source = "reported_only", "report"
+    status = _STATUS_NORM.get(raw_status.lower(), raw_status.lower() or "not_run")
 
     inv = (dossier or {}).get("file_inventory") or []
     n_files_raw, n_files_scripts, n_files_products = _file_counts(inv)
@@ -819,10 +829,7 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
         # reproduction summary (workbook)
         "repro_status": raw_status,
         "status": status,
-        "status_source": ("workbook" if repro_by_key.get(key) else
-                           "dossier" if dossier else
-                           "facts" if facts else
-                           "report" if status == "reported_only" else ""),
+        "status_source": source,
         "success": _s(r.get("success")),
         "machine_status": _s(r.get("machine_status")),
         "documented_status": _s(r.get("documented_status")),
@@ -869,7 +876,9 @@ def api_repro_overview():
     def _count(pred):
         return sum(1 for s in studies if pred(s))
 
-    generator = _generator_script()
+    gen_ok, gen_name = _generator_available()
+    # Only a packaged app has to look for a Python; from source it is this one.
+    py_exe, py_note = _interpreter()
     return jsonify({
         "root": S.ROOT,
         "datasets": ds,
@@ -877,8 +886,10 @@ def api_repro_overview():
         "reproduction_xlsx": os.path.isfile(os.path.join(S.ROOT, "Results", REPRO_XLSX)),
         "mapping_available": bool(harm),
         "reproduction_available": bool(repro),
-        "generator_available": bool(generator),
-        "generator_name": os.path.basename(generator) if generator else "",
+        "generator_available": gen_ok,
+        "generator_name": gen_name,
+        "python_available": bool(py_exe),
+        "python_note": py_note,
         "scripts_available": {
             "harmonizers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")),
             "reproducers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_reproducers.py")),
@@ -957,6 +968,9 @@ def _mapping_for(key):
 
 @bp.get("/api/repro/study/<path:key>")
 def api_repro_study(key):
+    # ".." would pass the isdir() test below (Datasets/.. is the project root).
+    if not _safe_key(key):
+        abort(400)
     ds = _datasets_dir()
     known = key in _study_keys()
     folder = os.path.join(ds, key)
@@ -987,7 +1001,10 @@ def api_repro_study(key):
     harm_by_key = {_s(r.get("study_key")): r for r in _harmonization_summary()}
     repro_by_key = {_s(r.get("key")): r for r in _reproduction_rows()}
     h = harm_by_key.get(key, {})
-    r = repro_by_key.get(key, {})
+    # Same fallback as the overview: without the workbook, the study's own
+    # repro_facts.json carries the verdict (else the detail said "not run" while
+    # the overview row said "reproduced").
+    r = repro_by_key.get(key) or _facts_row(key, ds) or {}
     summary = {
         "raw_status": _s(r.get("status")),
         "status": _STATUS_NORM.get(_s(r.get("status")), _s(r.get("status")) or "not_run"),
@@ -1250,23 +1267,106 @@ _repro_run = {"running": False, "kind": None, "log": "", "ok": None,
               "cached": False}
 
 
+_INTERP_CACHE = {"at": 0.0, "value": (None, "")}
+_INTERP_TTL = 300  # seconds; a Python installed while the app runs is found again
+
+
+def _probe_python(exe):
+    """True when ``exe`` is a real Python that can import what the runners need.
+
+    The Windows "App execution alias" ``python.exe`` in WindowsApps is a stub
+    that opens the Store instead of running anything, and a bare system Python
+    without pandas would crash every harmonizer; both fail this probe."""
+    try:
+        r = subprocess.run([exe, "-c", "import pandas, numpy"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
+                           creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+                                          if os.name == "nt" else 0))
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _interpreter():
+    """(python executable or None, human-readable note).
+
+    From source the app's own interpreter runs the runners.  A packaged app has
+    no Python of its own (``sys.executable`` is the app), so it looks for one:
+    ``CODING_STUDIO_PYTHON`` first, then ``py`` / ``python`` / ``python3`` on
+    PATH, keeping the first that can import pandas.  The result is cached for a
+    few minutes because the probe starts a process."""
     if not FROZEN:
-        return sys.executable
-    for name in ("python", "python3", "py"):
+        return sys.executable, ""
+    now = time.time()
+    if _INTERP_CACHE["value"][0] and now - _INTERP_CACHE["at"] < _INTERP_TTL:
+        return _INTERP_CACHE["value"]
+    if not _INTERP_CACHE["value"][0] and now - _INTERP_CACHE["at"] < 30:
+        return _INTERP_CACHE["value"]  # do not re-probe on every overview poll
+    candidates = []
+    env_py = os.environ.get("CODING_STUDIO_PYTHON", "").strip()
+    if env_py:
+        candidates.append(env_py)
+    for name in ("py", "python", "python3"):
         exe = shutil.which(name)
-        if exe:
-            return exe
-    return None
+        if exe and exe not in candidates:
+            candidates.append(exe)
+    value = (None, ("no Python with pandas found: the packaged app cannot run the "
+                    "harmonizers/reproducers itself. Install Python with pandas "
+                    "(or set CODING_STUDIO_PYTHON to its python executable) and reopen "
+                    "this tab."))
+    for exe in candidates:
+        if _probe_python(exe):
+            value = (exe, f"using the system Python at {exe}")
+            break
+    _INTERP_CACHE.update(at=now, value=value)
+    return value
+
+
+def _generator_module():
+    """The wrapper generator shipped with the app (``Scripts/generate_repro_wrappers.py``).
+
+    It is imported, not executed: it needs only the standard library, so it runs
+    in-process in the worker thread and works in a packaged app that has no
+    Python interpreter.  ``Scripts/`` is on ``sys.path`` (studio_state puts it
+    there for ``project_context``); a frozen build bundles the module because the
+    spec's ``pathex`` includes ``Scripts/`` and this is a static import."""
+    try:
+        import generate_repro_wrappers  # noqa: PLC0415
+        return generate_repro_wrappers
+    except Exception as e:  # noqa: BLE001 - fall back to a script on disk
+        log(f"repro: generator module not importable: {e}")
+        return None
 
 
 def _generator_script():
-    for p in (os.path.join(S.TEMP, "generate_repro_wrappers.py"),
-              os.path.join(S.ROOT, "Scripts", "generate_repro_wrappers.py"),
-              os.path.join(S.ROOT, "generate_repro_wrappers.py")):
+    """A generator script on disk, for an app build that predates the bundled
+    module: the project's own ``Scripts/`` copy, then the legacy ``temp/`` one."""
+    for p in (os.path.join(S.ROOT, "Scripts", "generate_repro_wrappers.py"),
+              os.path.join(S.TEMP, "generate_repro_wrappers.py")):
         if os.path.isfile(p):
             return p
     return None
+
+
+def _generator_available():
+    """(available, label) for the overview's Generate button."""
+    if _generator_module() is not None:
+        return True, "generate_repro_wrappers.py (built in)"
+    gen = _generator_script()
+    if gen:
+        return True, os.path.basename(gen)
+    return False, ""
+
+
+def _run_generator_inprocess(mod, only, emit):
+    """Run the bundled generator in this (worker) thread; returns the exit code."""
+    emit(f"$ generate_repro_wrappers --root {S.ROOT}"
+         + (f" --only {only}" if only else "") + "\n")
+    try:
+        return mod.generate(S.ROOT, only=only or None, out=lambda line: emit(line + "\n"))
+    except Exception as e:  # noqa: BLE001 - report, never kill the server thread
+        emit(f"! generator failed: {type(e).__name__}: {e}\n")
+        return 1
 
 
 def _run_plan(kind, only):
@@ -1275,8 +1375,12 @@ def _run_plan(kind, only):
         gen = _generator_script()
         if not gen:
             return None, None, ("the reproduction-script generator is not available "
-                                "(expected temp/generate_repro_wrappers.py)")
-        return [gen], S.ROOT, None
+                                "(Scripts/generate_repro_wrappers.py is missing)")
+        args = [gen, "--root", S.ROOT]
+        # The legacy temp/ copy predates --only; passing it would be an argparse error.
+        if only and os.path.dirname(gen) != S.TEMP:
+            args += ["--only=" + only]
+        return args, S.ROOT, None
     if kind == "harmonizers":
         script = os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")
     elif kind == "reproducers":
@@ -1287,7 +1391,8 @@ def _run_plan(kind, only):
         return None, None, f"missing runner: {os.path.basename(script)}"
     args = [script]
     if only and kind in ("harmonizers", "reproducers"):
-        args += ["--only", only]
+        # "--only=<v>" so a filter that starts with "-" is not read as an option.
+        args += ["--only=" + only]
     return args, S.ROOT, None
 
 
@@ -1304,12 +1409,22 @@ def _repro_worker(kind, only):
         state["running"] = False
         state["finished"] = datetime.now().isoformat(timespec="seconds")
 
-    exe = _interpreter()
+    if kind == "generate":
+        mod = _generator_module()
+        if mod is not None:
+            rc = _run_generator_inprocess(mod, only, emit)
+            emit(f"[exit {rc}]\n")
+            log(f"repro run kind=generate (in-process) only={only!r} rc={rc}")
+            done(rc == 0, "" if rc == 0 else f"generator exited {rc}")
+            return
+
+    exe, note = _interpreter()
     if exe is None:
-        emit("! no Python interpreter found (packaged app); run the runner scripts "
-             "from a Python environment\n")
-        done(False, "no Python interpreter found")
+        emit("! " + note + "\n")
+        done(False, "no Python with pandas found (packaged app)")
         return
+    if note:
+        emit(note + "\n")
 
     args, cwd, err = _run_plan(kind, only)
     if err:
@@ -1364,8 +1479,20 @@ def start_repro_run(kind, only=""):
                           only=only or "", cached=False,
                           started=datetime.now().isoformat(timespec="seconds"),
                           finished=None)
-    threading.Thread(target=_repro_worker, args=(kind, only or ""), daemon=True).start()
+    threading.Thread(target=_repro_worker_guarded, args=(kind, only or ""), daemon=True).start()
     return "started"
+
+
+def _repro_worker_guarded(kind, only):
+    """Any unexpected exception must still clear ``running``; otherwise every later
+    run is refused with 409 until the app restarts."""
+    try:
+        _repro_worker(kind, only)
+    except Exception as e:  # noqa: BLE001
+        log(f"repro run kind={kind} crashed: {e}")
+        _repro_run["log"] = (_repro_run.get("log") or "") + f"! run crashed: {e}\n"
+        _repro_run.update(ok=False, error=f"run crashed: {e}", running=False,
+                          finished=datetime.now().isoformat(timespec="seconds"))
 
 
 @bp.post("/api/repro/run")
