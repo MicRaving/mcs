@@ -6,8 +6,8 @@ import os
 import re
 import tempfile
 from datetime import datetime
-from studio_lib import APP_VERSION, PAGE_SCALE, _PAGE_NUM, _pdf_text, atomic_replace, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records
-from studio_state import FROZEN, S, SCHEMA, STATIC, config_path, configure, log, paper_keys, refresh_keys, save_config
+from studio_lib import APP_VERSION, PAGE_SCALE, _PAGE_NUM, _pdf_text, atomic_replace, legacy_schema_document, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records
+from studio_state import FROZEN, S, STATIC, config_path, configure, log, paper_keys, refresh_keys, save_config
 
 bp = Blueprint("core", __name__)
 
@@ -33,6 +33,16 @@ def api_set_root():
     configure(path)
     save_config({"root": S.ROOT})
     refresh_keys()
+    # The time-based caches of the corpus-wide views are not keyed by project:
+    # without this the summary and agreement tabs answered from the previous
+    # project for up to 20 s (and the response cache then kept that answer).
+    try:
+        from studio_lib import _CODING_INDEX
+        _CODING_INDEX["data"] = None
+        from agreement_lib import _invalidate_agreement
+        _invalidate_agreement()
+    except Exception:  # noqa: BLE001 - a re-root must never fail over a cache
+        pass
     log(f"root changed -> {S.ROOT} ({len(S.KEYS)} papers)")
     return jsonify({"ok": True, "root": S.ROOT, "papers": len(S.KEYS),
                     "has_papers": os.path.isdir(S.PAPERS)})
@@ -79,16 +89,31 @@ def static_files(path):
 
 @bp.get("/api/schema")
 def api_schema():
-    with open(SCHEMA, encoding="utf-8") as fh:
-        return jsonify(json.load(fh))
+    """The coding schema in the legacy v3.1 shape (deprecated).
+
+    The scheme itself is served by ``/api/scheme`` (the ``scheme`` blueprint);
+    this route stays because the agent routes and the manuscript report still
+    read the v3.1 shape.  A project that carries its own scheme is rendered
+    back into that shape, so the response shape never changes.
+    """
+    doc = legacy_schema_document()
+    resp = jsonify(doc)
+    resp.headers["Deprecation"] = "true"
+    resp.headers["X-Schema-Deprecated"] = (
+        "use /api/scheme for the coding scheme; /api/schema renders it in the "
+        "legacy v3.1 shape")
+    return resp
 
 @bp.get("/api/papers")
 def api_papers():
     from fulltext_lib import load_agreed
+    from studio_cache import papers_index
     agreed = load_agreed()
+    # The summaries are cached against the files: a study is re-read only when
+    # one of its own files changed (on disk or in the app).
     papers = []
-    for k in paper_keys():
-        s = summarise(k)
+    for s in papers_index(paper_keys(), summarise):
+        k = s["key"]
         ex = agreed.get(k)
         s["fulltext_excluded"] = bool(ex)
         s["fulltext_criterion"] = (ex or {}).get("criterion_label") or ""
@@ -423,6 +448,12 @@ def api_save():
         return jsonify({"ok": False, "error": "unknown paper key"}), 400
     if not coder or not str(coder).strip():
         return jsonify({"ok": False, "error": "coder name is required"}), 400
+    # The original (reference) coding is Extraction/<Key>.json and is read-only
+    # from the app; a coder file named after it would shadow it in every
+    # comparison, so the reserved names are refused here and not only in the UI.
+    if str(coder).strip().lower() in ("og", "original (og)", "original"):
+        return jsonify({"ok": False, "error": "the original coding is read-only; "
+                        "save under your own coder name"}), 400
     if not isinstance(records, list) or not records:
         return jsonify({"ok": False, "error": "no coding records to save"}), 400
 

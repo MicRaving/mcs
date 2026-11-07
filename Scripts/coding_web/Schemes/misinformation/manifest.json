@@ -1,0 +1,8 @@
+{
+ "id": "misinformation",
+ "name": "misinformation-interventions",
+ "label": "Misinformation Interventions (v3.1)",
+ "description": "Coding scheme for the misinformation-intervention meta-analysis: study metadata, sample, open-science and design, the intervention modules, and the per-contrast effect sizes.",
+ "created": "2026-10-21T14:43:20",
+ "default": true
+}

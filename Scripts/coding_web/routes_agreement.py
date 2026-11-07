@@ -6,8 +6,8 @@ import json
 import os
 import re
 import tempfile
-from agreement_lib import AGREEMENT_REFERENCE, DV_MIN_COVERAGE, DV_MIN_MATCHED, _ABSTRACT_CATS, _ABSTRACT_FIELDS, _LABEL_MAX_LEVELS, _abstract_agreement_index, _abstract_case_maps, _agreement_field_defs, _agreement_index, _canon_level, _dv_agreement_defs, _dv_alignment_for, _field_case_map, _field_value, _invalidate_agreement, _linear_weights, _norm_dv_name, _rater_sort_key, dv_alignment_summary, dv_conflict_cases, dv_field_cases, dv_field_categories, gwet_ac, insufficient_note, load_resolutions, pool_gwet, record_resolution, resolution_value
-from screening_lib import ai_screen_decision, human_screen_decision, load_screening_decisions, save_screening_decisions, screening_index
+from agreement_lib import AGREEMENT_REFERENCE, DV_MIN_COVERAGE, DV_MIN_MATCHED, _ABSTRACT_CATS, _LABEL_MAX_LEVELS, abstract_fields, _abstract_agreement_index, _abstract_case_maps, _agreement_field_defs, _agreement_index, _canon_level, _dv_agreement_defs, _dv_alignment_for, _field_case_map, _field_value, _invalidate_agreement, _linear_weights, _norm_dv_name, _rater_sort_key, dv_alignment_summary, dv_conflict_cases, dv_field_cases, dv_field_categories, gwet_ac, insufficient_note, load_resolutions, pool_gwet, record_resolution, resolution_value
+from screening_lib import ScreeningFileError, _scheme_criteria, ai_screen_decision, human_screen_decision, load_screening_decisions, screening_index, update_screening_decisions
 from studio_lib import _values, atomic_replace, load_extraction, safe_token
 from studio_state import S
 
@@ -349,7 +349,7 @@ def api_agreement_abstract_reliability():
     maps = _abstract_case_maps(index)
     fields = []
     wsum = acc = 0.0
-    for lab, name in _ABSTRACT_FIELDS:
+    for lab, name in abstract_fields():
         cmap = maps[lab]
         case_ratings = []
         for v in cmap.values():
@@ -393,16 +393,22 @@ def api_agreement_abstract_conflicts():
     except (TypeError, ValueError):
         offset = 0
     title_of = {}
+    alias = {}
     try:
-        for rec in (screening_index().get("rows") or []):
+        sidx = screening_index()
+        alias = (sidx.get("info") or {}).get("alias") or {}
+        for rec in (sidx.get("rows") or []):
             title_of[str(rec.get("id"))] = rec.get("title") or str(rec.get("id"))
     except Exception:
         title_of = {}
     index = _abstract_agreement_index()
     maps = _abstract_case_maps(index)
     master_dec = load_screening_decisions(master) if master else {}
+    if alias and master_dec:
+        # the master's file may key a duplicate record by its row alias
+        master_dec = {alias.get(k, k): v for k, v in master_dec.items()}
     rows, counts, studies = [], [], {}
-    for lab, name in _ABSTRACT_FIELDS:
+    for lab, name in abstract_fields():
         if field_filter and lab != field_filter:
             continue
         open_n = settled_n = 0
@@ -456,32 +462,56 @@ def api_agreement_abstract_resolve():
     value = payload.get("value")
     if not master:
         return jsonify({"ok": False, "error": "master name is required"}), 400
-    if lab not in [l for l, _ in _ABSTRACT_FIELDS]:
+    if lab not in [l for l, _ in abstract_fields()]:
         return jsonify({"ok": False, "error": "unknown criterion"}), 400
     if not uid:
         return jsonify({"ok": False, "error": "record id is required"}), 400
-    dec = load_screening_decisions(master)
-    rec = dec.get(uid) or {"id": uid, "an": uid, "coder": master, "criteria": {},
-                           "decision": "",
-                           "saved_at": datetime.now().isoformat(timespec="seconds")}
-    crits = rec.setdefault("criteria", {})
-    entry = dict(crits.get(lab) or {})
-    entry["verdict"] = "" if value in (None, "") else str(value).strip()
-    crits[lab] = entry
-    rec["decision"] = human_screen_decision(rec)
-    rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
-    dec[uid] = rec
-    save_screening_decisions(master, dec)
-    return jsonify({"ok": True, "window": "abstract"})
+    # Written ONLY to the master's own Screening/<master>.json, under the
+    # screening lock (a locked read-modify-write: a parallel save by the same
+    # coder in the Screening tab cannot be lost), never to the workbook or
+    # Extraction/.
+    an = alt = ""
+    try:
+        srec = (screening_index().get("by_id") or {}).get(uid) or {}
+        an, alt = srec.get("an") or "", srec.get("alt") or ""
+        uid = srec.get("id") or uid          # a row alias resolves to the record id
+    except Exception:  # noqa: BLE001
+        pass
+
+    def mutate(dec):
+        old = (dec.get(uid) or (dec.pop(alt, None) if alt else None)
+               or {"id": uid, "an": an or uid, "coder": master,
+                   "criteria": {}, "decision": ""})
+        if alt:
+            dec.pop(alt, None)
+        old = dict(old, id=uid)
+        rec = dict(old)
+        crits = dict(rec.get("criteria") or {})
+        entry = dict(crits.get(lab) or {})
+        entry["verdict"] = "" if value in (None, "") else str(value).strip()
+        crits[lab] = entry
+        rec["criteria"] = crits
+        rec["decision"] = ""          # re-derived from the criteria below
+        rec["decision"] = human_screen_decision(rec)
+        rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
+        dec[uid] = rec
+        return rec["decision"]
+
+    try:
+        _, decision = update_screening_decisions(master, mutate)
+    except ScreeningFileError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    return jsonify({"ok": True, "window": "abstract", "decision": decision})
 
 @bp.get("/api/agreement/abstract/llm-excluded")
 def api_agreement_abstract_llm_excluded():
     """Records the LLM abstract screen excluded but at least one human rater would include."""
     idx = screening_index()
     index = _abstract_agreement_index()
+    crits = _scheme_criteria()          # once, not per record
     rows = []
     for rec in (idx.get("rows") or []):
-        if ai_screen_decision(rec) != "Exclude":
+        if ai_screen_decision(rec, crits) != "Exclude":
             continue
         uid = str(rec.get("id"))
         raters = {}
@@ -492,7 +522,7 @@ def api_agreement_abstract_llm_excluded():
             if not vals:
                 continue
             decision = human_screen_decision(
-                {"criteria": {lab: {"verdict": v} for lab, v in vals.items()}})
+                {"criteria": {lab: {"verdict": v} for lab, v in vals.items()}}, crits)
             if decision:
                 raters[coder] = decision
         include_raters = sorted(c for c, v in raters.items() if v == "Include")

@@ -305,7 +305,8 @@
                     agreement: $("#view-agreement"),
                     coverage: $("#view-coverage"),
                     summary: $("#view-summary"), analysis: $("#view-analysis"),
-                    reproduction: $("#view-reproduction") };
+                    reproduction: $("#view-reproduction"),
+                    scheme: $("#view-scheme"), settings: $("#view-settings") };
     Object.entries(views).forEach(([name, el]) => { if (el) el.hidden = name !== view; });
     $$(".viewtab").forEach((b) => {
       const active = b.dataset.view === view;
@@ -318,10 +319,18 @@
     document.body.classList.toggle("view-agreement", view === "agreement");
     document.body.classList.toggle("view-summary", view === "summary");
     document.body.classList.toggle("view-reproduction", view === "reproduction");
+    document.body.classList.toggle("view-scheme", view === "scheme");
+    document.body.classList.toggle("view-settings", view === "settings");
     document.dispatchEvent(new CustomEvent("cs:view", { detail: view }));
     if (view === "analysis" && !state.overview) refresh();
     if (view === "analysis") window.dispatchEvent(new Event("resize"));
+    // the tab in use keeps its label, so the strip has to be measured again
+    if (window.CS && typeof window.CS.fitTopbar === "function") window.CS.fitTopbar();
   }
+
+  // The scheme editor is a view of its own, and it needs to come back to
+  // whatever view the user came from.
+  window.CS.showView = showView;
 
   // ---------------------------------------------------------------- selects
   function fillSelect(el, values, current, labeler = (v) => v) {
@@ -545,10 +554,22 @@
     return p;
   }
 
+  // The prior controls apply to every Bayesian pool on the page, not only to
+  // /bayes: without them /subgroup and /pooled silently used the default prior.
+  function priorParams(p) {
+    p.set("mu_sd", String(state.muSd));
+    p.set("tau_sd", String(state.tauSd));
+    p.set("tau_prior", state.tauPrior);
+    return p;
+  }
+
   async function fetchSubgroup(by, bayes = false) {
+    // scope: the subgroup rows must come from the same (restricted/unrestricted)
+    // row set as the pooled estimate shown beside them.
     const p = new URLSearchParams({ by, layer: state.layer, spec: state.spec,
-                                    exclusions: state.exclusions });
-    if (bayes) p.set("model", "bayes");
+                                    exclusions: state.exclusions,
+                                    scope: (state.cred ? "restricted" : "unrestricted") });
+    if (bayes) { p.set("model", "bayes"); priorParams(p); }
     filterParams(p);
     try { return await api(`/api/analysis/subgroup?${p}`); } catch { return { rows: [] }; }
   }
@@ -557,6 +578,7 @@
     const p = new URLSearchParams({ layer: state.layer, spec: state.spec,
                                     exclusions: state.exclusions,
                                     scope: (state.cred ? "restricted" : "unrestricted") });
+    priorParams(p);
     filterParams(p);
     try { return await api(`/api/analysis/pooled?${p}`); } catch { return null; }
   }
@@ -1127,10 +1149,13 @@
         `<td class="num">${ci}</td><td${sig}>${esc(bfFmt(t.bf10))}</td>` +
         `<td class="num">${esc(fmt(t.prob_gt0, 3))}</td></tr>`;
     }
-    const sig = Number(t.p) < 0.05 ? ' class="num p-sig"' : ' class="num"';
+    // A non-estimable term carries p/z = null (the backend never sends NaN):
+    // Number(null) is 0, which would print "0.00" and mark the term significant.
+    const pn = num(t.p);
+    const sig = (pn !== null && pn < 0.05) ? ' class="num p-sig"' : ' class="num"';
     return `<tr><td>${esc(humanTerm(t.term))}</td><td class="num">${kk}</td>` +
       `<td class="num">${est}</td><td class="num">${se}</td>` +
-      `<td class="num">${ci}</td><td class="num">${esc(Number(t.z).toFixed(2))}</td>` +
+      `<td class="num">${ci}</td><td class="num">${esc(fmt(t.z, 2))}</td>` +
       `<td${sig}>${esc(fmtP(t.p))}</td></tr>`;
   }
 

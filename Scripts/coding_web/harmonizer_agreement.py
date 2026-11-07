@@ -19,11 +19,13 @@ while still surfacing every deliberate divergence.
 from __future__ import annotations
 import os
 import json
+import tempfile
 from datetime import datetime
 
 from studio_state import S
+from studio_lib import atomic_replace, safe_token
 from routes_harmonizer import (harmonizer_coder_files, load_harmonized_variables,
-                               load_harmonizer_overrides, _HARM_FIELDS)
+                               load_harmonizer_overrides, safe_study_key, _HARM_FIELDS)
 
 BASE_RATER = "LLM/base"          # the canonical harmonized sidecar
 MASTER_CODER = "master"         # where a resolved value is written
@@ -86,31 +88,19 @@ def _gwet_ac1(units):
     extraction layer report the same statistic.  Blank entries are "not rated" and are
     dropped per unit; a unit with < 2 ratings is skipped.
     """
-    from collections import Counter
-    total_n = 0
-    pa_num = 0.0
-    cat_pi = Counter()
-    cat_n = 0
-    for vals in units:
-        vals = [v for v in vals if v != ""]
-        n = len(vals)
-        if n < 2:
-            continue
-        total_n += 1
-        counts = Counter(vals)
-        agree = sum(c * (c - 1) for c in counts.values())
-        pa_num += agree / (n * (n - 1))
-        for c, k in counts.items():
-            cat_pi[c] += k
-            cat_n += k
-    if total_n == 0 or cat_n == 0:
+    # One implementation of AC1: this used to compute its own chance agreement
+    # as sum(p_k^2) (Scott's pi / Fleiss' kappa), not Gwet's
+    # sum(p_k(1 - p_k)) / (q - 1), so the two tabs disagreed on the same data.
+    from agreement_lib import gwet_ac
+    cases = [[v for v in vals if v != ""] for vals in units]
+    cases = [c for c in cases if len(c) >= 2]
+    if not cases:
         return None
-    pa = pa_num / total_n
-    q = len(cat_pi)
-    if q <= 1:
+    cats = sorted({v for c in cases for v in c}, key=str)
+    if len(cats) <= 1:
         return 1.0
-    pe = sum((v / cat_n) ** 2 for v in cat_pi.values())
-    return (pa - pe) / (1 - pe) if (1 - pe) else None
+    res = gwet_ac(cases, cats)
+    return res["coeff"] if res else None
 
 
 def reliability(key):
@@ -159,6 +149,12 @@ def resolve(key, uniform_variable, field, value, coder=MASTER_CODER):
     """Write one resolved value into the master coder's override file (never the sidecar)."""
     if field not in RATED_FIELDS:
         return {"ok": False, "error": f"unknown field {field!r}"}
+    # Both the key and the coder name come from the request body and form the
+    # file name: refuse a traversal key and sanitise the coder the same way the
+    # harmonizer save does, so the write can only land in Codings/.
+    if not safe_study_key(key):
+        return {"ok": False, "error": "invalid study key"}
+    coder = safe_token(coder)
     path = os.path.join(S.CODINGS, f"{key} - harmonizer - {coder}.json")
     data = {}
     if os.path.isfile(path):
@@ -172,8 +168,16 @@ def resolve(key, uniform_variable, field, value, coder=MASTER_CODER):
     data["coder"] = coder
     data["key"] = key
     data["updated"] = datetime.now().isoformat(timespec="seconds")
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=1, ensure_ascii=False)
+    # temp file + atomic replace: a crash mid-write must not truncate the
+    # master's override file (every earlier resolution lives in it).
+    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP or None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=1, ensure_ascii=False)
+        atomic_replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
     return {"ok": True, "file": os.path.basename(path), "overrides": len(ov)}
 
 
@@ -188,16 +192,16 @@ bp = Blueprint("harmonizer_agreement", __name__)
 @bp.get("/api/harmonizer_agreement/reliability")
 def api_harmonizer_reliability():
     key = (request.args.get("key") or "").strip()
-    if not key:
-        return jsonify({"ok": False, "error": "key required"}), 400
+    if not key or not safe_study_key(key):
+        return jsonify({"ok": False, "error": "a valid study key is required"}), 400
     return jsonify({"ok": True, "key": key, **reliability(key)})
 
 
 @bp.get("/api/harmonizer_agreement/conflicts")
 def api_harmonizer_conflicts():
     key = (request.args.get("key") or "").strip()
-    if not key:
-        return jsonify({"ok": False, "error": "key required"}), 400
+    if not key or not safe_study_key(key):
+        return jsonify({"ok": False, "error": "a valid study key is required"}), 400
     fields = [f for f in (request.args.get("fields") or "").split(",") if f.strip()]
     return jsonify({"ok": True, "key": key, **conflicts(key, fields or None)})
 

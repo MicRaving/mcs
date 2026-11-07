@@ -44,6 +44,10 @@ _MARK_STATE = {"running": False, "last": None, "marked": [], "error": "", "finis
 
 _MAP_CACHE = {"mtime": None, "map": None, "info": None}
 
+# Serialises every read-modify-write of a coder file and of the agreed list,
+# so two quick saves (or two coders saving at once) cannot lose one.
+_DECISIONS_LOCK = threading.RLock()
+
 
 def criteria():
     return {"criteria": FULLTEXT_CRITERIA, "agree_min": AGREE_MIN}
@@ -54,7 +58,9 @@ def decision_path(coder):
     return os.path.join(S.SCREENING, f"fulltext - {safe_token(coder)}.json")
 
 
-def load_decisions(coder):
+def load_decisions(coder, strict=False):
+    """The coder's decisions; *strict* raises instead of returning ``{}`` for
+    an unreadable file, so a writer never replaces a file it could not read."""
     if not coder or not str(coder).strip():
         return {}
     path = decision_path(coder)
@@ -63,9 +69,16 @@ def load_decisions(coder):
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        if strict:
+            raise ValueError(f"{os.path.basename(path)} cannot be read ({exc}); fix or move "
+                             "it before recording more decisions") from exc
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        if strict:
+            raise ValueError(f"{os.path.basename(path)} does not hold a JSON object")
+        return {}
+    return data
 
 
 def save_decisions(coder, decisions):
@@ -103,7 +116,14 @@ def save_decision(coder, key, exclude, criterion, note):
         raise ValueError("coder name is required")
     if not key:
         raise ValueError("study key is required")
-    decisions = load_decisions(coder)
+    with _DECISIONS_LOCK:
+        decisions = load_decisions(coder, strict=True)
+        _store_decision(decisions, key, exclude, criterion, note)
+        save_decisions(coder, decisions)
+        return recompute_agreed()
+
+
+def _store_decision(decisions, key, exclude, criterion, note):
     if exclude:
         crit = str(criterion or "other").strip() or "other"
         decisions[key] = {
@@ -119,8 +139,6 @@ def save_decision(coder, key, exclude, criterion, note):
             "note": str(note or "").strip(),
             "saved_at": datetime.now().isoformat(timespec="seconds"),
         }
-    save_decisions(coder, decisions)
-    return recompute_agreed()
 
 
 def compute_agreed():
@@ -179,16 +197,17 @@ def save_agreed(agreed):
 
 def recompute_agreed(mark=True):
     """Recompute the agreed list and mark newly-agreed studies in the master."""
-    agreed = compute_agreed()
-    previous = load_agreed()
-    now = datetime.now().isoformat(timespec="seconds")
-    merged = {}
-    for key, info in agreed.items():
-        prior = previous.get(key) or {}
-        merged[key] = dict(info)
-        merged[key]["marked_at"] = prior.get("marked_at") or now
-        merged[key]["master"] = prior.get("master") or ""
-    save_agreed(merged)
+    with _DECISIONS_LOCK:
+        agreed = compute_agreed()
+        previous = load_agreed()
+        now = datetime.now().isoformat(timespec="seconds")
+        merged = {}
+        for key, info in agreed.items():
+            prior = previous.get(key) or {}
+            merged[key] = dict(info)
+            merged[key]["marked_at"] = prior.get("marked_at") or now
+            merged[key]["master"] = prior.get("master") or ""
+        save_agreed(merged)
     newly = [k for k in merged if not (previous.get(k) or {}).get("master")]
     if mark and newly:
         start_marking(newly)
@@ -311,14 +330,37 @@ def _mark_master(keys):
     os.makedirs(backup_dir, exist_ok=True)
     shutil.copy2(master, os.path.join(backup_dir, os.path.basename(master)))
 
+    # The screening merge rewrites the same workbook: hold the shared lock so
+    # neither replaces the file with a copy that lacks the other's changes.
+    from screening_lib import MASTER_WRITE_LOCK
+    with MASTER_WRITE_LOCK:
+        _mark_master_locked(openpyxl, master, keys, agreed, mapping, marked, missing)
+    # record marking outcome on the agreed entries
+    with _DECISIONS_LOCK:
+        cur = load_agreed()
+        now = datetime.now().isoformat(timespec="seconds")
+        for key in keys:
+            if key in cur:
+                cur[key]["master"] = "marked" if key in marked else "not_found"
+                cur[key]["marked_at"] = now
+        save_agreed(cur)
+    _MAP_CACHE.update(mtime=None, map=None)
+    _MARK_STATE.update(marked=marked)
+    log(f"fulltext merge marked={len(marked)} missing={len(missing)}")
+
+
+def _mark_master_locked(openpyxl, master, keys, agreed, mapping, marked, missing):
     wb = openpyxl.load_workbook(master)
     try:
         ws = wb.worksheets[0]
         head = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
-        H = {h: i + 1 for i, h in enumerate(head)}   # 1-based column indexes
+        # 1-based column indexes, matched case-/space-insensitively
+        H = {}
+        for i, h in enumerate(head):
+            H.setdefault(_norm(h), i + 1)
 
         def setcell(row, name, value):
-            col = H.get(name)
+            col = H.get(_norm(name))
             if col is not None:
                 ws.cell(row=row, column=col, value=value)
 
@@ -332,7 +374,7 @@ def _mark_master(keys):
             setcell(row, "Fulltext_Exclusion_Criterion", info.get("criterion_label") or "Coder agreement")
             note = "; ".join(info.get("notes") or []) or f"Excluded by coders: {', '.join(info.get('coders') or [])}"
             setcell(row, "Fulltext_Reason", note)
-            if "Effective_Verdict" in H:
+            if _norm("Effective_Verdict") in H:
                 setcell(row, "Effective_Verdict", "Exclude")
             marked.append(key)
         tmp = os.path.join(S.TEMP, "master_dataset.fulltext.xlsx")
@@ -342,14 +384,3 @@ def _mark_master(keys):
     except Exception:
         wb.close()
         raise
-    # record marking outcome on the agreed entries
-    cur = load_agreed()
-    now = datetime.now().isoformat(timespec="seconds")
-    for key in keys:
-        if key in cur:
-            cur[key]["master"] = "marked" if key in marked else "not_found"
-            cur[key]["marked_at"] = now
-    save_agreed(cur)
-    _MAP_CACHE.update(mtime=None, map=None)
-    _MARK_STATE.update(marked=marked)
-    log(f"fulltext merge marked={len(marked)} missing={len(missing)}")

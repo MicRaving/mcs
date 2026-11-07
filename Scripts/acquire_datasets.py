@@ -318,7 +318,9 @@ def fetch_dryad(doi, dest):
         d = "10.5061/dryad." + d
     r = req(f"https://datadryad.org/api/v2/datasets/{d}")
     if r is None or r.status_code != 200:
-        r = req(f"https://datadryad.org/api/v2/search", params={"q": d})
+        # Report the dataset lookup's own status.  (A search request used to
+        # overwrite `r` here and its result was never read, so the logged
+        # status was the search's, not the failure's.)
         return [{"filename": "", "status": f"err:{getattr(r,'status_code','?')}", "bytes": 0, "link": doi}]
     for f in r.json().get("_embedded", {}).get("stash:files", []):
         url = f.get("_links", {}).get("stash:download", {}).get("href")

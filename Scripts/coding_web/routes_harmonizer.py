@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import threading
-from studio_lib import DOMAIN_VOCAB, atomic_replace, safe_token
+from studio_lib import atomic_replace, domain_vocab, safe_token
 from studio_state import S
 
 bp = Blueprint("harmonizer", __name__)
@@ -26,6 +26,25 @@ bp = Blueprint("harmonizer", __name__)
 _HARM_IDX = re.compile(r"(_i?\d+)+$")
 
 _HARM_FIELDS = ("role", "dv_domain", "veracity", "timepoint", "dv_polarity")
+
+
+def safe_study_key(key):
+    """True for a key that names one folder/file stem and nothing else.
+
+    Study keys come from URLs (``<path:key>`` also accepts "/") and request
+    bodies, and they are joined into ``Datasets/<Key>/`` and ``Codings/<Key> - ...``
+    paths that are then *written*.  ``..`` would make ``Datasets/..`` the project
+    root (``isdir`` is true, so the existence checks pass), so a key with a
+    separator or a ``..`` is refused before any join."""
+    if not isinstance(key, str):
+        return False
+    k = key.strip()
+    if not k or k != key or k in (".", ".."):
+        return False
+    if "/" in k or "\\" in k or ".." in k or "\x00" in k or os.path.isabs(k):
+        return False
+    return os.path.basename(k) == k
+
 
 def harmonized_paths(key):
     folder = os.path.join(S.DATASETS or "", key)
@@ -92,6 +111,8 @@ def load_harmonized_variables(key):
     return {"variables": rows, "has_wide": os.path.isfile(wide)}
 
 def _harmonizer_known(key):
+    if not safe_study_key(key):
+        return False
     return key in S.KEYS or os.path.isfile(harmonized_paths(key)[0])
 
 def _harmonizer_context(key):
@@ -239,7 +260,7 @@ def api_harmonizer_index():
 
 def _harmonizer_options():
     return {"role": ["dv", "covariate", ""],
-            "dv_domain": list(DOMAIN_VOCAB) + [""],
+            "dv_domain": list(domain_vocab()) + [""],
             "veracity": ["true", "false", ""],
             "timepoint": ["pre", "post", "followup", ""],
             "dv_polarity": ["higher_is_better", "higher_is_worse", "ambiguous", ""]}
@@ -363,6 +384,8 @@ def _study_folder(key):
 
 
 def _known_study(key):
+    if not safe_study_key(key):
+        return False
     return os.path.isdir(_study_folder(key))
 
 

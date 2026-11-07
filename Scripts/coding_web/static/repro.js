@@ -919,6 +919,16 @@
   async function loadOverview() {
     const d = await api("/api/repro/overview");
     S.overview = d;
+    // Say where the verdicts come from.  The workbook is the campaign's own
+    // summary; without it the tab reads each study's repro_facts.json, and a
+    // reader should not have to guess that from the numbers.
+    const sub = $("#rp-sub");
+    if (sub) {
+      if (!sub.dataset.base) sub.dataset.base = sub.innerHTML;
+      sub.innerHTML = sub.dataset.base + (d.reproduction_available ? "" :
+        " <b>reproduction_summary.xlsx</b> is not in this project, so the verdicts " +
+        "are read from each study's <code>repro_facts.json</code> and its report.");
+    }
     renderKpis();
     renderFilters();
     renderTable();
@@ -928,13 +938,22 @@
     if (gb) {
       gb.disabled = !d.generator_available;
       gb.title = d.generator_available
-        ? "Generate the thin per-study reproduction wrappers (idempotent)"
-        : "Generator not available — expected temp/generate_repro_wrappers.py";
+        ? "Generate the missing per-study reproduction wrappers (never overwrites an existing script; honours the filter)"
+        : "Generator not available — Scripts/generate_repro_wrappers.py is missing";
     }
-    const hb = $("#rp-harm");
-    if (hb) hb.disabled = !sa.harmonizers;
-    const rb = $("#rp-repro");
-    if (rb) rb.disabled = !sa.reproducers;
+    // The runners need a Python with pandas; a packaged app has none of its own
+    // and says so here instead of failing after the click.
+    const pyOk = d.python_available !== false;
+    const pyWhy = pyOk ? "" : (d.python_note || "no Python with pandas found");
+    const runBtn = (el, present, missing) => {
+      if (!el) return;
+      if (el.dataset.baseTitle === undefined) el.dataset.baseTitle = el.title || "";
+      el.disabled = !present || !pyOk;
+      el.title = !present ? missing : (pyWhy || el.dataset.baseTitle);
+    };
+    runBtn($("#rp-harm"), sa.harmonizers, "Scripts/analysis/run_harmonizers.py is missing");
+    runBtn($("#rp-repro"), sa.reproducers, "Scripts/analysis/run_reproducers.py is missing");
+    if (!pyOk && !S.pyWarned) { S.pyWarned = true; toast("Harmonizers/reproducers cannot run", "err", pyWhy); }
     if (runbar) runbar.title = `dossier index: ${(d.dossier || {}).index_present ? "yes" : "no"} · mapping: ${d.mapping_xlsx ? "yes" : "no"} · summary: ${d.reproduction_xlsx ? "yes" : "no"}`;
     if (d.run && d.run.running && !S.polling) {
       setRunning(true, KIND_LABEL[d.run.kind] || "Running…");

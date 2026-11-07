@@ -2366,10 +2366,22 @@ def _subgroup_rows(by, layer, spec, exclusions, scope="unrestricted"):
     out.sort(key=lambda x: -x["k"])
     return out
 
+def _export_name(layer, spec, exclusions, stamp, ext):
+    """Export file path under temp/.  ``layer``/``spec``/``exclusions`` come
+    straight from the query string, so they are reduced to a safe token: a spec
+    such as ``../../x`` must not write outside temp/."""
+    def tok(s):
+        return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(s or "")).strip(".-")[:60] or "x"
+    temp = os.path.join(S.ROOT, "temp")
+    os.makedirs(temp, exist_ok=True)
+    return os.path.join(temp, f"analysis_export_{tok(layer)}_{tok(spec)}_"
+                              f"{tok(exclusions)}_{stamp}.{ext}")
+
+
 def _export_xlsx(layer, spec, exclusions, scope, stamp):
     from openpyxl import Workbook
     temp = os.path.join(S.ROOT, "temp")
-    out = os.path.join(temp, f"analysis_export_{layer}_{spec}_{exclusions}_{stamp}.xlsx")
+    out = _export_name(layer, spec, exclusions, stamp, "xlsx")
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -2378,8 +2390,15 @@ def _export_xlsx(layer, spec, exclusions, scope, stamp):
         ws = wb.create_sheet(safe or "sheet")
         if cols:
             ws.append([str(c) for c in cols])
+
+        def cell(v):
+            # openpyxl writes a float NaN/inf as <v>nan</v>, which Excel reports
+            # as a corrupt workbook ("We found a problem with some content").
+            if isinstance(v, float) and not math.isfinite(v):
+                return None
+            return v
         for r in rows:
-            ws.append([r.get(c) for c in cols])
+            ws.append([cell(r.get(c)) for c in cols])
 
     for key, fname, label in ANALYSIS_TABLES:
         path = os.path.join(temp, fname)
@@ -2402,7 +2421,7 @@ def _export_xlsx(layer, spec, exclusions, scope, stamp):
 def _export_pptx(layer, spec, exclusions, scope, stamp):
     from pptx import Presentation
     from pptx.util import Inches, Pt
-    out = os.path.join(S.ROOT, "temp", f"analysis_export_{layer}_{spec}_{exclusions}_{stamp}.pptx")
+    out = _export_name(layer, spec, exclusions, stamp, "pptx")
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(10), Inches(7.5)
     blank = prs.slide_layouts[6]
@@ -2458,14 +2477,49 @@ def _export_pptx(layer, spec, exclusions, scope, stamp):
     prs.save(out)
     return out
 
+_INTERP_CACHE = {}
+
+
 def _python_interpreter():
+    """The interpreter that runs the pipeline scripts.
+
+    From source this is ``sys.executable``.  In the frozen (PyInstaller) build
+    ``sys.executable`` is CodingStudio.exe itself, so a system Python is looked
+    up.  The candidate must actually be usable: on Windows ``python.exe`` is
+    often the Microsoft Store *stub* under ``WindowsApps`` (it opens the Store),
+    and a bare Python without numpy/pandas/scipy fails on the first import of
+    ``suite_common``.
+    """
     if not FROZEN:
         return sys.executable
-    for name in ("python", "python3", "py"):
-        exe = shutil.which(name)
-        if exe:
-            return exe
-    return None
+    # ONE lookup for both tabs: the Reproduction tab's validated finder
+    # (CODING_STUDIO_PYTHON, then py/python/python3, first that imports
+    # pandas+numpy, cached) -- so the Analysis and Reproduction tabs can never
+    # pick different interpreters in a packaged build.  Imported lazily: it is
+    # only needed in the frozen build.
+    try:
+        from routes_repro import _interpreter as _repro_interpreter
+    except Exception:  # noqa: BLE001
+        return None
+    exe, _note = _repro_interpreter()
+    if not exe:
+        return None
+    # The analysis scripts additionally need scipy (stat_core) and openpyxl
+    # (the workbooks); check once per interpreter so a run fails with a clear
+    # message instead of an ImportError traceback half-way through.
+    if _INTERP_CACHE.get("checked") != exe:
+        try:
+            kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                  "stderr": subprocess.DEVNULL, "timeout": 60}
+            if os.name == "nt":
+                kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            ok = subprocess.run([exe, "-c", "import scipy, openpyxl"], **kw).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        if not ok:
+            return None   # not cached: the user may install the packages and retry
+        _INTERP_CACHE["checked"] = exe
+    return exe
 
 def _analysis_worker(kind, force=False, include_fully_within=False):
     state = _analysis_run
@@ -2479,8 +2533,12 @@ def _analysis_worker(kind, force=False, include_fully_within=False):
         state["log"] = "".join(log_lines)[-20000:]
 
     if exe is None:
-        state.update(ok=False, error="no Python interpreter found (packaged app); "
-                                     "run Scripts/publication_bias.py from a Python environment")
+        state.update(ok=False, error="no usable Python interpreter found (packaged app): "
+                                     "install Python 3 with numpy, pandas, scipy and openpyxl "
+                                     "on PATH (or set CODING_STUDIO_PYTHON to its python "
+                                     "executable), or run Scripts/publication_bias.py from a "
+                                     "Python environment")
+        emit("! " + state["error"] + "\n")   # the run-log panel shows only `log`
         state["running"] = False
         state["finished"] = datetime.now().isoformat(timespec="seconds")
         return
@@ -2488,6 +2546,7 @@ def _analysis_worker(kind, force=False, include_fully_within=False):
     missing = [s for s in wanted if not os.path.exists(os.path.join(scripts_dir, s))]
     if missing:
         state.update(ok=False, error="missing script(s): " + ", ".join(missing))
+        emit("! " + state["error"] + "\n")
         state["running"] = False
         state["finished"] = datetime.now().isoformat(timespec="seconds")
         return
@@ -2591,8 +2650,25 @@ def start_background_run(kind="essential", force=False, include_fully_within=Non
                              cached=False, fully_within=include,
                              started=datetime.now().isoformat(timespec="seconds"),
                              finished=None)
-    threading.Thread(target=_analysis_worker, args=(kind, force, include), daemon=True).start()
+    threading.Thread(target=_analysis_worker_safe, args=(kind, force, include),
+                     daemon=True).start()
     return "started"
+
+
+def _analysis_worker_safe(kind, force=False, include_fully_within=False):
+    """Run the worker so that an unexpected exception can never leave
+    ``running=True`` behind -- that would block every later run with a 409
+    ("a run is already in progress") until the app is restarted."""
+    try:
+        _analysis_worker(kind, force, include_fully_within)
+    except Exception as e:  # noqa: BLE001
+        _analysis_run.update(ok=False, error=f"analysis run crashed: {type(e).__name__}: {e}")
+        _analysis_run["log"] = (_analysis_run.get("log") or "") + f"! {_analysis_run['error']}\n"
+        log(f"analysis run kind={kind} crashed: {e!r}")
+    finally:
+        if _analysis_run.get("running"):
+            _analysis_run["running"] = False
+            _analysis_run["finished"] = datetime.now().isoformat(timespec="seconds")
 
 def autorun_if_stale():
     """Regenerate stale analysis tables in the background (called at server start)."""
