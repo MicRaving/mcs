@@ -104,6 +104,14 @@ def api_schema():
         "legacy v3.1 shape")
     return resp
 
+@bp.get("/api/papers/progress")
+def api_papers_progress():
+    """Progress of the (first, uncached) papers index build, polled by the
+    start-up screen while /api/papers is still running."""
+    from studio_cache import papers_progress
+    return jsonify(papers_progress())
+
+
 @bp.get("/api/papers")
 def api_papers():
     from fulltext_lib import load_agreed
@@ -453,6 +461,13 @@ def api_save():
     # comparison, so the reserved names are refused here and not only in the UI.
     if str(coder).strip().lower() in ("og", "original (og)", "original"):
         return jsonify({"ok": False, "error": "the original coding is read-only; "
+                        "save under your own coder name"}), 400
+    # "Consensus" is the settlement route's name for Extraction/<Key>.json and a
+    # leading underscore / "harmonizer" marks store and override files: none of
+    # them may become a coder, or the agreement tab would score it as a rater.
+    _c = str(coder).strip().lower()
+    if _c == "consensus" or _c.startswith("_") or _c.startswith("harmonizer"):
+        return jsonify({"ok": False, "error": "this coder name is reserved; "
                         "save under your own coder name"}), 400
     if not isinstance(records, list) or not records:
         return jsonify({"ok": False, "error": "no coding records to save"}), 400

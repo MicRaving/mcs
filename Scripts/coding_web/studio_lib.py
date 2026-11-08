@@ -379,6 +379,9 @@ def coder_files(key):
         if " - harmonizer - " in base:
             continue
         coder = base[len(key) + 3:]
+        # "Consensus" and "_*" are the settlement route's names, not coders.
+        if not coder or coder == "Consensus" or coder.startswith("_"):
+            continue
         try:
             stamp = datetime.fromtimestamp(os.path.getmtime(f)).isoformat(timespec="seconds")
         except OSError:

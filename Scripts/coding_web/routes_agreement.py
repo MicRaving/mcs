@@ -1,347 +1,340 @@
-"""Agreement routes: reliability, conflicts, resolutions and LLM-excluded lists."""
+"""Agreement routes: reliability, conflicts, settlements and LLM-excluded lists.
 
-from datetime import datetime
-from flask import Blueprint, jsonify, request
-import json
-import os
-import re
-import tempfile
-from agreement_lib import AGREEMENT_REFERENCE, DV_MIN_COVERAGE, DV_MIN_MATCHED, _ABSTRACT_CATS, _LABEL_MAX_LEVELS, abstract_fields, _abstract_agreement_index, _abstract_case_maps, _agreement_field_defs, _agreement_index, _canon_level, _dv_agreement_defs, _dv_alignment_for, _field_case_map, _field_value, _invalidate_agreement, _linear_weights, _norm_dv_name, _rater_sort_key, dv_alignment_summary, dv_conflict_cases, dv_field_cases, dv_field_categories, gwet_ac, insufficient_note, load_resolutions, pool_gwet, record_resolution, resolution_value
-from screening_lib import ScreeningFileError, _scheme_criteria, ai_screen_decision, human_screen_decision, load_screening_decisions, screening_index, update_screening_decisions
-from studio_lib import _values, atomic_replace, load_extraction, safe_token
-from studio_state import S
+Raters are the original coder files; the consensus (``Extraction/<Key>.json``)
+is what a settlement writes into; every decision is recorded in
+``Codings/_settlements.json`` (see ``agreement_lib``).
+"""
+
+from flask import Blueprint, Response, jsonify, request
+
+from agreement_lib import (AGREEMENT_REFERENCE, CONSENSUS, no_majority_fields,
+                           PSEUDO_DV_FIELDS, SETTLEMENTS_NAME,
+                           _ABSTRACT_CATS, _KEY_CACHE, _abstract_agreement_index,
+                           _abstract_case_maps, _agreement_index, abstract_fields,
+                           abstract_settlements, clear_settlement, gwet_ac, load_settlements,
+                           majority_value, masters, reliability_rows, set_study_status,
+                           settle_abstract, settle_cases, settlements_csv, SettleError,
+                           SettlementIndex, study_conflicts)
+from screening_lib import ai_screen_decision, human_screen_decision, screening_index
+from studio_state import S, log, paper_keys
 
 bp = Blueprint("agreement", __name__)
+
+#: {key: (file signature, conflicts)} - conflicts per paper, rebuilt with the index.
+_CONFLICTS = {}
+
+
+def _int_arg(name, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(request.args.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
+def _paper_conflicts(data, key):
+    d = data["by_key"].get(key)
+    if d is None:
+        return []
+    sig = (_KEY_CACHE.get(key) or (None,))[0]
+    hit = _CONFLICTS.get(key)
+    if hit and hit[0] == sig and hit[1] is d:
+        return hit[2]
+    cases = study_conflicts(d)
+    _CONFLICTS[key] = (sig, d, cases)
+    return cases
+
+
+def _store_or_error():
+    try:
+        return load_settlements(), None
+    except RuntimeError as exc:
+        log(f"agreement: {exc}")
+        return None, (jsonify({"ok": False, "error": str(exc)}), 500)
 
 
 @bp.get("/api/agreement/reliability")
 def api_agreement_reliability():
     exclude = {x.strip() for x in (request.args.get("exclude") or "").split(",") if x.strip()}
     data = _agreement_index()
-    rows = []
-    wsum1 = wsum2 = acc1 = acc2 = 0.0
+    rows, overall, summary = reliability_rows(data, exclude)
+    return jsonify({"reference": AGREEMENT_REFERENCE if data.get("ext_rater") else None,
+                    "consensus": CONSENSUS, "extraction_role": ("rater" if data.get("ext_rater")
+                                                                 else "consensus"),
+                    "anchor_rater": data.get("anchor"), "exclude": sorted(exclude),
+                    "raters": data["rater_names"], "rater_summary": data["rater_summary"],
+                    "fields": rows, "overall": overall, "dv_alignment": summary})
 
-    def _add_row(f, ac1, ac2, extra=None):
-        nonlocal acc1, acc2, wsum1, wsum2
-        if ac1 and ac1.get("coeff") is not None:
-            acc1 += ac1["coeff"] * ac1.get("n2", 0)
-            wsum1 += ac1.get("n2", 0)
-        if ac2 and ac2.get("coeff") is not None:
-            acc2 += ac2["coeff"] * ac2.get("n2", 0)
-            wsum2 += ac2.get("n2", 0)
-        row = {
-            "name": f["name"], "label": f["label"], "group": f["group"], "kind": f["kind"],
-            "multi": f["multi"], "ordered": f["ordered"],
-            "n_levels": len(f["levels"]), "n_items": 0, "n_multi": 0, "n_raters": 0,
-            "ac1": ac1["coeff"] if ac1 else None, "ac1_pa": ac1.get("pa") if ac1 else None,
-            "ac1_pe": ac1.get("pe") if ac1 else None,
-            "ac2": ac2["coeff"] if ac2 else None, "ac2_pa": ac2.get("pa") if ac2 else None,
-            "ac2_pe": ac2.get("pe") if ac2 else None,
-            "matched_pairs": None, "unmatched": None, "coverage": None,
-            "insufficient": False, "note": None,
-        }
-        if extra:
-            row.update(extra)
-        rows.append(row)
-        return row
 
-    # ---- experiment-level labels (case = one experiment, position-independent)
-    for f in data["fields"]:
-        if f["kind"] != "experiment":
-            continue
-        cmap = _field_case_map(data["raters"], f["name"], exclude)
-        observed = set()
-        case_ratings = []
-        raters_seen = set()
-        for vals in (v for cases in cmap.values() for v in cases.values()):
-            observed.update(vals.values())
-            raters_seen.update(vals.keys())
-            case_ratings.append(list(vals.values()))
-        if f["multi"]:
-            cats = sorted(observed)
-        else:
-            cats = list(f["levels"]) + [v for v in sorted(observed) if v not in f["levels"]]
-        ac1 = ac2 = None
-        if 2 <= len(cats) < _LABEL_MAX_LEVELS and sum(1 for v in case_ratings if len(v) >= 2):
-            res1 = gwet_ac(case_ratings, cats)
-            if res1:
-                ac1 = res1
-            if f["ordered"] and all(re.fullmatch(r"-?\d+", c) for c in cats):
-                res2 = gwet_ac(case_ratings, cats, _linear_weights(len(cats)))
-                if res2:
-                    ac2 = res2
-        row = _add_row(f, ac1, ac2)
-        row["n_levels"] = len(cats)
-        row["n_items"] = len(case_ratings)
-        row["n_multi"] = sum(1 for v in case_ratings if len(v) >= 2)
-        row["n_raters"] = len(raters_seen)
+@bp.get("/api/agreement/masters")
+def api_agreement_masters():
+    return jsonify(masters())
 
-    # ---- DV-level labels (canonical two-stage alignment, closed labels only)
-    blocks, studies = _dv_alignment_for(data, exclude)
-    summary = dv_alignment_summary(blocks, studies)
-    study_pass = [s for s in studies if s.get("gate")]
-    passing_keys = {s["key"] for s in study_pass}
-    passing_blocks = [b for b in blocks if b["key"] in passing_keys]
-    if passing_blocks:
-        pass_summary = dv_alignment_summary(passing_blocks, study_pass)
-        pooled_cov = pass_summary["coverage"]
-        pooled_unmatched = pass_summary["unmatched"]
-    else:
-        pooled_cov = summary["coverage"]
-        pooled_unmatched = summary["unmatched"]
-    for f in _dv_agreement_defs():
-        cases_by_study = {}
-        for block in passing_blocks:
-            cases = dv_field_cases(block, f["name"])
-            if cases:
-                cases_by_study.setdefault(block["key"], []).extend(cases)
-        cats = dv_field_categories(f, cases_by_study)
-        res1 = res2 = None
-        if 2 <= len(cats) < _LABEL_MAX_LEVELS and cases_by_study:
-            pooled = pool_gwet(cases_by_study, cats)
-            if pooled["coeff"] is not None:
-                res1 = pooled
-            if f["ordered"] and all(re.fullmatch(r"-?\d+", c) for c in cats):
-                pooled2 = pool_gwet(cases_by_study, cats, _linear_weights(len(cats)))
-                if pooled2["coeff"] is not None:
-                    res2 = pooled2
-        matched_pairs = res1["n_multi"] if res1 else 0
-        insufficient = bool(matched_pairs < DV_MIN_MATCHED or pooled_cov < DV_MIN_COVERAGE)
-        note = insufficient_note(pooled_cov, matched_pairs) if insufficient else None
-        if insufficient:
-            res1 = res2 = None
-        row = _add_row(f, res1, res2, extra={
-            "n_levels": len(cats),
-            "n_items": (res1["n_items"] if res1 else
-                        sum(len(c) for c in cases_by_study.values())),
-            "n_multi": matched_pairs,
-            "n_raters": len({r["rater"] for b in passing_blocks for r in b["raters"]}),
-            "matched_pairs": matched_pairs,
-            "unmatched": pooled_unmatched,
-            "coverage": pooled_cov,
-            "insufficient": insufficient,
-            "note": note,
-        })
-        row["n_levels"] = len(cats)
 
-    overview = {
-        "ac1": (acc1 / wsum1) if wsum1 else None,
-        "ac2": (acc2 / wsum2) if wsum2 else None,
-        "n_fields": len([r for r in rows if r["ac1"] is not None]),
-        "n_items_total": sum(r["n_multi"] for r in rows),
+def _row_json(c, entry, state="open"):
+    f = c["fdef"]
+    span = c.get("span") or {}
+    t = c.get("target") or {}
+    return {
+        "key": c["key"], "study_id": c["study_id"], "case_id": c["case_id"],
+        "dv_index": t.get("dv_index"), "dv_name": c.get("dv_name"),
+        "dv_names": c.get("dv_names"),
+        "field": f["name"], "field_label": f["label"], "group": f["group"],
+        "kind": f["kind"], "multi": f["multi"], "derived": f["name"] in PSEUDO_DV_FIELDS,
+        "levels": f.get("levels") or [], "labels": f.get("labels") or {},
+        "values": c["values"], "majority": c.get("majority") or None,
+        "consensus_value": c.get("consensus_value"), "has_target": bool(c.get("target")),
+        "state": state,
+        "settled": state == "settled",
+        "rater_only": state == "rater_only",
+        "resolution": (entry.get("value") if entry
+                       else (c.get("consensus_value") or None) if state == "settled" else None),
+        "settled_by": entry.get("master") if entry else None,
+        "settled_at": entry.get("decided_at") if entry else None,
+        "applied": entry.get("applied") if entry else None,
+        "apply_note": entry.get("apply_note") if entry else None,
+        "source_page": span.get("page"), "source_quote": span.get("quote"),
+        "source_coder": span.get("coder"), "source_rects": span.get("rects") or [],
     }
-    rater_summary = data.get("rater_summary") or []
-    return jsonify({"reference": AGREEMENT_REFERENCE, "exclude": sorted(exclude),
-                    "raters": data["rater_names"], "rater_summary": rater_summary,
-                    "fields": rows, "overall": overview,
-                    "dv_alignment": summary})
+
 
 @bp.get("/api/agreement/conflicts")
 def api_agreement_conflicts():
-    master = (request.args.get("master") or "").strip()
     field_filter = (request.args.get("field") or "").strip()
     kind_filter = (request.args.get("kind") or "").strip()
     study_filter = (request.args.get("study") or "").strip()
     status = (request.args.get("status") or "open").strip().lower()
-    try:
-        limit = max(1, min(2000, int(request.args.get("limit", 300))))
-    except (TypeError, ValueError):
-        limit = 300
-    try:
-        offset = max(0, int(request.args.get("offset", 0)))
-    except (TypeError, ValueError):
-        offset = 0
+    limit = _int_arg("limit", 300, 1, 2000)
+    offset = _int_arg("offset", 0, 0, 10 ** 9)
     data = _agreement_index()
-    resolutions = load_resolutions(master) if master else {}
-
-    cases = []
-    field_order = []
-    count_defs = {}
-
-    def _note_field(fdef):
-        if fdef["name"] not in count_defs:
-            field_order.append(fdef["name"])
-            count_defs[fdef["name"]] = fdef
-
-    def _case(fdef, key, study_id, case_id, values, master_value=None,
-              dv_index=None, dv_name=None):
-        return {"fdef": fdef, "key": key, "study_id": study_id, "case_id": case_id,
-                "values": values, "master_value": master_value,
-                "dv_index": dv_index, "dv_name": dv_name}
-
-    # ---- experiment-level labels: one case per Study_ID (position-free already)
-    if not kind_filter or kind_filter == "experiment":
-        for f in data["fields"]:
-            if f["kind"] != "experiment":
+    store, err = _store_or_error()
+    if err:
+        return err
+    sidx = SettlementIndex(store)
+    study_state = store.get("studies") or {}
+    counts, field_order, studies, rows = {}, [], {}, []
+    for key in data["by_key"]:
+        for c in _paper_conflicts(data, key):
+            if kind_filter and c["kind"] != kind_filter:
                 continue
+            f = c["fdef"]
+            if f["name"] not in counts:
+                field_order.append(f["name"])
+                counts[f["name"]] = {"name": f["name"], "label": f["label"], "kind": f["kind"],
+                                     "group": f["group"], "multi": f["multi"],
+                                     "open": 0, "settled": 0, "rater_only": 0}
+            state, entry = conflict_state(c, sidx)
+            st = studies.setdefault(key, {"key": key, "label": key, "n_open": 0,
+                                         "n_settled": 0, "n_rater_only": 0, "fields": set()})
+            st["n_" + state] += 1
+            st["fields"].add(f["name"])
+            if study_filter and key != study_filter:
+                continue
+            # field counts describe the selected study, whatever field is selected
+            counts[f["name"]][state] += 1
             if field_filter and f["name"] != field_filter:
                 continue
-            _note_field(f)
-            cmap = _field_case_map(data["raters"], f["name"], {master} if master else ())
-            for key, by_case in cmap.items():
-                for case, vals in by_case.items():
-                    if len(set(vals.values())) < 2:
-                        continue
-                    ordered = {r: vals[r] for r in sorted(
-                        vals, key=lambda r: _rater_sort_key(r, AGREEMENT_REFERENCE))}
-                    cases.append(_case(f, key, case[0], "exp:" + str(case[0]), ordered))
-
-    # ---- DV-level labels: aligned exactly like the reliability coefficients, so
-    #      two raters listing their DVs in a different order cannot fabricate
-    #      hundreds of phantom conflicts.  The Master is a resolver, not a rater,
-    #      so their own (often cloned) coding never distorts the alignment.
-    if not kind_filter or kind_filter == "dv":
-        blocks = data.get("dv_blocks") or []
-        if master:
-            blocks, _ = _dv_alignment_for(data, {master})
-        dv_defs = {f["name"]: f for f in _dv_agreement_defs()}
-        for c in dv_conflict_cases({"dv_blocks": blocks}, master,
-                                   field_names=[field_filter] if field_filter else None):
-            fdef = dv_defs.get(c["field"]) or {
-                "name": c["field"], "label": c["field_label"], "group": c["group"],
-                "kind": "dv", "multi": c["multi"], "levels": c["levels"],
-                "labels": c["labels"],
-            }
-            _note_field(fdef)
-            cases.append(_case(fdef, c["key"], c["study_id"], c["case_id"],
-                               c["values"], c["master_value"],
-                               c["dv_index"], c["dv_name"]))
-
-    counts = {name: {"name": name, "label": count_defs[name]["label"],
-                     "kind": count_defs[name]["kind"], "group": count_defs[name]["group"],
-                     "multi": count_defs[name]["multi"], "open": 0, "settled": 0}
-              for name in field_order}
-    rows, studies = [], {}
-    for fc in cases:
-        f = fc["fdef"]
-        name = f["name"]
-        res = resolution_value(resolutions, fc["key"], fc["case_id"], name)
-        settled = bool(res)
-        counts[name]["settled" if settled else "open"] += 1
-        st = studies.setdefault(fc["key"], {"key": fc["key"], "label": fc["key"],
-                                            "n_open": 0, "n_settled": 0, "fields": set()})
-        st["n_settled" if settled else "n_open"] += 1
-        st["fields"].add(name)
-        if status == "open" and settled:
-            continue
-        if status == "settled" and not settled:
-            continue
-        if study_filter and fc["key"] != study_filter:
-            continue
-        rows.append({
-            "key": fc["key"], "study_id": fc["study_id"], "case_id": fc["case_id"],
-            "dv_index": fc["dv_index"], "dv_name": fc["dv_name"],
-            "field": name, "field_label": f["label"], "group": f["group"],
-            "kind": f["kind"], "multi": f["multi"],
-            "levels": f.get("levels") or [], "labels": f.get("labels") or {},
-            "values": fc["values"], "master_value": fc["master_value"],
-            "resolution": res or None, "settled": settled,
-        })
-    total = len(rows)
+            if status in ("open", "settled") and state != status:
+                continue
+            rows.append(_row_json(c, entry, state))
     study_list = [{"key": k, "label": v["label"], "n_open": v["n_open"],
-                   "n_settled": v["n_settled"], "n_fields": len(v["fields"])}
-                  for k, v in studies.items()]
+                   "n_settled": v["n_settled"], "n_rater_only": v["n_rater_only"],
+                   "n_fields": len(v["fields"]),
+                   "status": (study_state.get(k) or {}).get("status")}
+                  for k, v in studies.items()
+                  if (status != "open" or v["n_open"] > 0)
+                  and (status != "settled" or v["n_settled"] > 0)]
     study_list.sort(key=lambda s: (-s["n_open"], str(s["label"]).lower()))
-    return jsonify({"total": total, "offset": offset, "limit": limit,
+    totals = {"open": sum(v["n_open"] for v in studies.values()),
+              "settled": sum(v["n_settled"] for v in studies.values()),
+              "rater_only": sum(v["n_rater_only"] for v in studies.values())}
+    return jsonify({"total": len(rows), "offset": offset, "limit": limit,
                     "rows": rows[offset:offset + limit],
                     "fields": [counts[name] for name in field_order],
                     "studies": study_list, "study": study_filter,
-                    "master": master, "raters": data["rater_names"]})
+                    "study_status": study_state.get(study_filter) if study_filter else None,
+                    "totals": totals,
+                    "raters": data["rater_names"], "consensus": CONSENSUS,
+                    "store": SETTLEMENTS_NAME})
+
+
+def conflict_state(case, sidx):
+    """(state, settlement entry) of one conflict case.
+
+    ``open``        raters disagree and the consensus row holds no value yet - a
+                    decision is still needed.
+    ``settled``     an explicit settlement in ``_settlements.json`` (audited), or
+                    the reconciled consensus already carries a value (the master
+                    pass wrote its decision straight into ``Extraction/``).
+    ``rater_only``  no row in the consensus at all: the disagreement lives in rater
+                    files only and cannot be settled without adding a coding row,
+                    so it is reported, never counted as open work.
+    """
+    entry = sidx.find(case)
+    if entry:
+        return "settled", entry
+    if not case.get("target"):
+        return "rater_only", None
+    if (case.get("consensus_value") or "").strip():
+        return "settled", None
+    return "open", None
+
+
+
+def _find_case(key, case_id, field):
+    data = _agreement_index()
+    for c in _paper_conflicts(data, key):
+        if c["case_id"] == case_id and c["field"] == field:
+            return c
+    return None
+
+
+def _known_key(key):
+    return bool(key) and (key in S.KEYS or key in set(paper_keys()))
+
+
+def _err(exc):
+    return jsonify({"ok": False, "error": str(exc)}), getattr(exc, "status", 400)
+
 
 @bp.post("/api/agreement/resolve")
 def api_agreement_resolve():
+    """Settle (``value``) or undo (``value`` null) one full-text conflict."""
     payload = request.get_json(force=True, silent=True) or {}
-    master = (payload.get("master") or "").strip()
+    master = str(payload.get("master") or "").strip()
     key = payload.get("key")
-    study_id = str(payload.get("study_id") or "").strip()
-    field_name = payload.get("field")
-    value = payload.get("value")
-    dv_index = payload.get("dv_index")
-    dv_name = str(payload.get("dv_name") or "").strip()
     case_id = str(payload.get("case_id") or "").strip()
+    field = str(payload.get("field") or "").strip()
+    value = payload.get("value")
     if not master:
         return jsonify({"ok": False, "error": "master name is required"}), 400
-    if key not in S.KEYS:
+    if not _known_key(key):
         return jsonify({"ok": False, "error": "unknown paper key"}), 400
-    fdef = next((f for f in _agreement_field_defs() if f["name"] == field_name), None)
-    if fdef is None:
-        return jsonify({"ok": False, "error": "not a deterministic label"}), 400
-    path = os.path.join(S.CODINGS, f"{key} - {safe_token(master)}.json")
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                records = json.load(fh)
-        except Exception:
-            records = None
-    else:
-        records = None
-    if not isinstance(records, list):
-        records = json.loads(json.dumps(load_extraction(key) or []))
-    rec = next((r for r in records if str(r.get("Study_ID") or "").strip() == study_id), None)
-    if rec is None:
-        return jsonify({"ok": False, "error": "study id not found"}), 400
-    if fdef["multi"]:
-        if isinstance(value, str):
-            parts = [p.strip() for p in value.split("+")]
-        else:
-            parts = _values(value)
-        clean = []
-        for v in parts:
-            c = _canon_level(v, fdef)
-            if c and c not in clean:
-                clean.append(c)
-        newval = clean or None
-    else:
-        if value is None or str(value).strip() == "":
-            newval = None
-        else:
-            newval = _canon_level(value, fdef) or None
-            if fdef["ordered"] and newval is not None:
-                try:
-                    newval = int(newval)
-                except (TypeError, ValueError):
-                    pass
-    if fdef["kind"] == "experiment":
-        rec[field_name] = newval
-    else:
-        dvs = rec.get("DV_Metrics") or []
-        # Prefer matching the aligned DV row by name; fall back to the index in
-        # the Master's own file (which, when cloned from the canonical record,
-        # matches the reference row the conflict was built from).
-        target = None
-        if dv_name:
-            want = _norm_dv_name(dv_name)
-            for j, dv in enumerate(dvs):
-                if isinstance(dv, dict) and _norm_dv_name(dv.get("dv_name")) == want:
-                    target = j
-                    break
-        if target is None:
-            try:
-                di = int(dv_index)
-            except (TypeError, ValueError):
-                di = -1
-            if di < 0 or di >= len(dvs):
-                return jsonify({"ok": False, "error": "dv_index is required for DV fields"}), 400
-            target = di
-        dvs[target][field_name] = newval
-    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
+    case = _find_case(key, case_id, field)
+    if case is None:
+        return jsonify({"ok": False, "error": "this conflict no longer exists; reload"}), 409
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(records, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        atomic_replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-    # The decision is tracked in the resolution store (not inferred from the
-    # coding file, which carries the value on every cell once cloned).
-    stored = _field_value(newval, fdef)
-    if case_id:
-        record_resolution(master, key, case_id, field_name, stored)
-    _invalidate_agreement()
-    return jsonify({"ok": True, "path": os.path.relpath(path, S.ROOT).replace("\\", "/"),
-                    "value": newval, "settled": bool(stored)})
+        if value is None or (isinstance(value, str) and not value.strip()):
+            res = clear_settlement(key, case, master)
+            return jsonify({"ok": True, "cleared": True, **res})
+        entry = settle_cases(key, [(case, value)], master,
+                             note=str(payload.get("note") or "").strip())[0]
+    except SettleError as exc:
+        return _err(exc)
+    except (OSError, ValueError, RuntimeError) as exc:
+        log(f"agreement: settle failed for {key} {case_id} {field}: {exc!r}")
+        return jsonify({"ok": False, "error": f"could not save: {exc}"}), 500
+    return jsonify({"ok": True, "value": entry["value"], "applied": entry["applied"],
+                    "apply_note": entry["apply_note"], "previous": entry["previous_value"],
+                    "path": f"Extraction/{key}.json", "store": f"Codings/{SETTLEMENTS_NAME}"})
 
+
+@bp.post("/api/agreement/settle-bulk")
+def api_agreement_settle_bulk():
+    """Settle every OPEN conflict of one paper with the rater majority or the consensus."""
+    payload = request.get_json(force=True, silent=True) or {}
+    master = str(payload.get("master") or "").strip()
+    key = payload.get("key")
+    mode = str(payload.get("mode") or "").strip()
+    field = str(payload.get("field") or "").strip()
+    if not master:
+        return jsonify({"ok": False, "error": "master name is required"}), 400
+    if not _known_key(key):
+        return jsonify({"ok": False, "error": "unknown paper key"}), 400
+    if mode not in ("majority", "consensus"):
+        return jsonify({"ok": False, "error": "mode must be majority or consensus"}), 400
+    store, err = _store_or_error()
+    if err:
+        return err
+    sidx = SettlementIndex(store)
+    decisions, skipped = [], 0
+    blocked = no_majority_fields()
+    for c in _paper_conflicts(_agreement_index(), key):
+        if (field and c["field"] != field):
+            continue
+        state, _entry = conflict_state(c, sidx)
+        if state != "open":
+            if state == "rater_only":
+                skipped += 1
+            continue
+        if mode == "majority" and c["field"] in blocked:
+            skipped += 1
+            continue
+        value = c.get("majority") if mode == "majority" else c.get("consensus_value")
+        if not value:
+            skipped += 1
+            continue
+        decisions.append((c, value))
+    if not decisions:
+        return jsonify({"ok": True, "settled": 0, "skipped": skipped})
+    try:
+        out = settle_cases(key, decisions, master, source=f"app: bulk {mode}")
+    except SettleError as exc:
+        return _err(exc)
+    except (OSError, ValueError, RuntimeError) as exc:
+        log(f"agreement: bulk settle failed for {key}: {exc!r}")
+        return jsonify({"ok": False, "error": f"could not save: {exc}"}), 500
+    return jsonify({"ok": True, "settled": len(out), "skipped": skipped,
+                    "not_applied": sum(1 for e in out if not e["applied"])})
+
+
+@bp.post("/api/agreement/study-status")
+def api_agreement_study_status():
+    payload = request.get_json(force=True, silent=True) or {}
+    master = str(payload.get("master") or "").strip()
+    key = str(payload.get("key") or "").strip()
+    status = str(payload.get("status") or "").strip()
+    scope = str(payload.get("scope") or "fulltext").strip()
+    if not master:
+        return jsonify({"ok": False, "error": "master name is required"}), 400
+    if status not in ("complete", "open"):
+        return jsonify({"ok": False, "error": "status must be complete or open"}), 400
+    open_n = None
+    if scope == "fulltext":
+        if not _known_key(key):
+            return jsonify({"ok": False, "error": "unknown paper key"}), 400
+        store, err = _store_or_error()
+        if err:
+            return err
+        sidx = SettlementIndex(store)
+        open_n = sum(1 for c in _paper_conflicts(_agreement_index(), key)
+                     if conflict_state(c, sidx)[0] == "open")
+    try:
+        set_study_status(key, status, master, scope=scope, open_conflicts=open_n)
+    except (OSError, RuntimeError) as exc:
+        return jsonify({"ok": False, "error": f"could not save: {exc}"}), 500
+    return jsonify({"ok": True, "status": status, "open_conflicts": open_n})
+
+
+@bp.get("/api/agreement/settlements")
+def api_agreement_settlements():
+    store, err = _store_or_error()
+    if err:
+        return err
+    by_scope = {}
+    for e in store.get("settlements") or []:
+        s = by_scope.setdefault(e.get("scope", "fulltext"), {"settled": 0, "not_applied": 0})
+        s["settled"] += 1
+        if not e.get("applied"):
+            s["not_applied"] += 1
+    return jsonify({"path": f"Codings/{SETTLEMENTS_NAME}", "updated_at": store.get("updated_at"),
+                    "by_scope": by_scope, "masters": masters(),
+                    "studies": store.get("studies") or {},
+                    "history": len(store.get("history") or []),
+                    "migrated_from": store.get("migrated_from") or []})
+
+
+@bp.get("/api/agreement/settlements.csv")
+def api_agreement_settlements_csv():
+    scope = (request.args.get("scope") or "").strip() or None
+    try:
+        body = settlements_csv(scope)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return Response("﻿" + body, mimetype="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=settlements.csv"})
+
+
+# ---------------------------------------------------------------- abstract stage
 @bp.get("/api/agreement/abstract/reliability")
 def api_agreement_abstract_reliability():
     exclude = {x.strip() for x in (request.args.get("exclude") or "").split(",") if x.strip()}
@@ -350,7 +343,7 @@ def api_agreement_abstract_reliability():
     fields = []
     wsum = acc = 0.0
     for lab, name in abstract_fields():
-        cmap = maps[lab]
+        cmap = maps.get(lab) or {}
         case_ratings = []
         for v in cmap.values():
             vals = [val for r, val in v.items() if r not in exclude]
@@ -378,140 +371,109 @@ def api_agreement_abstract_reliability():
                                 "n_fields": len([f for f in fields if f["ac1"] is not None]),
                                 "n_items_total": sum(f["n_multi"] for f in fields)}})
 
+
 @bp.get("/api/agreement/abstract/conflicts")
 def api_agreement_abstract_conflicts():
-    master = (request.args.get("master") or "").strip()
     field_filter = (request.args.get("field") or "").strip()
     study_filter = (request.args.get("study") or "").strip()
     status = (request.args.get("status") or "open").strip().lower()
-    try:
-        limit = max(1, min(2000, int(request.args.get("limit", 300))))
-    except (TypeError, ValueError):
-        limit = 300
-    try:
-        offset = max(0, int(request.args.get("offset", 0)))
-    except (TypeError, ValueError):
-        offset = 0
+    limit = _int_arg("limit", 300, 1, 2000)
+    offset = _int_arg("offset", 0, 0, 10 ** 9)
     title_of = {}
-    alias = {}
     try:
-        sidx = screening_index()
-        alias = (sidx.get("info") or {}).get("alias") or {}
-        for rec in (sidx.get("rows") or []):
+        for rec in (screening_index().get("rows") or []):
             title_of[str(rec.get("id"))] = rec.get("title") or str(rec.get("id"))
-    except Exception:
-        title_of = {}
-    index = _abstract_agreement_index()
-    maps = _abstract_case_maps(index)
-    master_dec = load_screening_decisions(master) if master else {}
-    if alias and master_dec:
-        # the master's file may key a duplicate record by its row alias
-        master_dec = {alias.get(k, k): v for k, v in master_dec.items()}
+    except Exception as exc:  # noqa: BLE001
+        log(f"agreement: screening titles unavailable: {exc!r}")
+    store, err = _store_or_error()
+    if err:
+        return err
+    settled_of = abstract_settlements(store)
+    maps = _abstract_case_maps(_abstract_agreement_index())
     rows, counts, studies = [], [], {}
     for lab, name in abstract_fields():
         if field_filter and lab != field_filter:
             continue
         open_n = settled_n = 0
-        for uid, vals in maps[lab].items():
+        for uid, vals in (maps.get(lab) or {}).items():
             if len(set(vals.values())) < 2:
                 continue
-            mval = (((master_dec.get(uid) or {}).get("criteria") or {}).get(lab) or {}).get("verdict", "")
-            settled = bool(mval)
+            entry = (settled_of.get(uid) or {}).get(lab)
+            settled = bool(entry)
             if settled:
                 settled_n += 1
             else:
                 open_n += 1
-            if status == "open" and mval:
-                continue
-            if status == "settled" and not mval:
-                continue
             st = studies.setdefault(uid, {"key": uid, "label": title_of.get(uid, uid),
                                           "n_open": 0, "n_settled": 0, "fields": set()})
-            if settled:
-                st["n_settled"] += 1
-            else:
-                st["n_open"] += 1
+            st["n_settled" if settled else "n_open"] += 1
             st["fields"].add(lab)
+            if (status == "open" and settled) or (status == "settled" and not settled):
+                continue
             if study_filter and uid != study_filter:
                 continue
-            rows.append({"key": uid, "study_id": uid, "dv_index": None, "field": lab,
+            rows.append({"key": uid, "study_id": uid, "case_id": "abs:" + uid,
+                         "dv_index": None, "field": lab,
                          "field_label": name, "group": "Abstract screening", "kind": "exp",
-                         "multi": False, "levels": list(_ABSTRACT_CATS),
+                         "multi": False, "derived": False, "levels": list(_ABSTRACT_CATS),
                          "labels": {v: v for v in _ABSTRACT_CATS},
-                         "values": dict(vals), "master_value": mval or None,
-                         "settled": bool(mval)})
+                         "values": dict(sorted(vals.items(), key=lambda kv: (
+                             kv[0] == AGREEMENT_REFERENCE, kv[0].lower()))),
+                         "majority": majority_value(vals) or None,
+                         "consensus_value": None, "has_target": True,
+                         "resolution": entry.get("value") if entry else None,
+                         "settled_by": entry.get("master") if entry else None,
+                         "settled_at": entry.get("decided_at") if entry else None,
+                         "applied": True if entry else None, "apply_note": None,
+                         "settled": settled})
         counts.append({"name": lab, "label": name, "kind": "exp",
                        "group": "Abstract screening", "multi": False,
                        "open": open_n, "settled": settled_n})
-    total = len(rows)
     study_list = [{"key": k, "label": v["label"], "n_open": v["n_open"],
                    "n_settled": v["n_settled"], "n_fields": len(v["fields"])}
-                  for k, v in studies.items()]
+                  for k, v in studies.items()
+                  if (status != "open" or v["n_open"] > 0)
+                  and (status != "settled" or v["n_settled"] > 0)]
     study_list.sort(key=lambda s: (-s["n_open"], str(s["label"]).lower()))
-    return jsonify({"total": total, "offset": offset, "limit": limit,
+    return jsonify({"total": len(rows), "offset": offset, "limit": limit,
                     "rows": rows[offset:offset + limit], "fields": counts,
                     "studies": study_list, "study": study_filter,
-                    "master": master, "raters": sorted(index.keys())})
+                    "raters": sorted({r for m in maps.values() for v in m.values() for r in v}),
+                    "store": SETTLEMENTS_NAME})
+
 
 @bp.post("/api/agreement/abstract/resolve")
 def api_agreement_abstract_resolve():
     payload = request.get_json(force=True, silent=True) or {}
-    master = (payload.get("master") or "").strip()
+    master = str(payload.get("master") or "").strip()
     uid = str(payload.get("key") or payload.get("study_id") or "").strip()
     lab = str(payload.get("field") or "").strip()
-    value = payload.get("value")
     if not master:
         return jsonify({"ok": False, "error": "master name is required"}), 400
     if lab not in [l for l, _ in abstract_fields()]:
         return jsonify({"ok": False, "error": "unknown criterion"}), 400
     if not uid:
         return jsonify({"ok": False, "error": "record id is required"}), 400
-    # Written ONLY to the master's own Screening/<master>.json, under the
-    # screening lock (a locked read-modify-write: a parallel save by the same
-    # coder in the Screening tab cannot be lost), never to the workbook or
-    # Extraction/.
-    an = alt = ""
+    vals = (_abstract_case_maps(_abstract_agreement_index()).get(lab) or {}).get(uid) or {}
     try:
-        srec = (screening_index().get("by_id") or {}).get(uid) or {}
-        an, alt = srec.get("an") or "", srec.get("alt") or ""
-        uid = srec.get("id") or uid          # a row alias resolves to the record id
-    except Exception:  # noqa: BLE001
-        pass
+        entry = settle_abstract(uid, lab, payload.get("value"), master, vals,
+                                note=str(payload.get("note") or "").strip())
+    except SettleError as exc:
+        return _err(exc)
+    except (OSError, RuntimeError) as exc:
+        return jsonify({"ok": False, "error": f"could not save: {exc}"}), 500
+    return jsonify({"ok": True, "window": "abstract", "cleared": entry is None,
+                    "store": f"Codings/{SETTLEMENTS_NAME}"})
 
-    def mutate(dec):
-        old = (dec.get(uid) or (dec.pop(alt, None) if alt else None)
-               or {"id": uid, "an": an or uid, "coder": master,
-                   "criteria": {}, "decision": ""})
-        if alt:
-            dec.pop(alt, None)
-        old = dict(old, id=uid)
-        rec = dict(old)
-        crits = dict(rec.get("criteria") or {})
-        entry = dict(crits.get(lab) or {})
-        entry["verdict"] = "" if value in (None, "") else str(value).strip()
-        crits[lab] = entry
-        rec["criteria"] = crits
-        rec["decision"] = ""          # re-derived from the criteria below
-        rec["decision"] = human_screen_decision(rec)
-        rec["saved_at"] = datetime.now().isoformat(timespec="seconds")
-        dec[uid] = rec
-        return rec["decision"]
-
-    try:
-        _, decision = update_screening_decisions(master, mutate)
-    except ScreeningFileError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
-    return jsonify({"ok": True, "window": "abstract", "decision": decision})
 
 @bp.get("/api/agreement/abstract/llm-excluded")
 def api_agreement_abstract_llm_excluded():
     """Records the LLM abstract screen excluded but at least one human rater would include."""
     idx = screening_index()
     index = _abstract_agreement_index()
-    crits = _scheme_criteria()          # once, not per record
     rows = []
     for rec in (idx.get("rows") or []):
-        if ai_screen_decision(rec, crits) != "Exclude":
+        if ai_screen_decision(rec) != "Exclude":
             continue
         uid = str(rec.get("id"))
         raters = {}
@@ -522,7 +484,7 @@ def api_agreement_abstract_llm_excluded():
             if not vals:
                 continue
             decision = human_screen_decision(
-                {"criteria": {lab: {"verdict": v} for lab, v in vals.items()}}, crits)
+                {"criteria": {lab: {"verdict": v} for lab, v in vals.items()}})
             if decision:
                 raters[coder] = decision
         include_raters = sorted(c for c, v in raters.items() if v == "Include")

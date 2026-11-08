@@ -2681,9 +2681,13 @@
     // renamed coder (e.g. ten Minimax-XX files unified to "MM") stops appearing
     // in the dropdown after a reload.
     const storedArr = Array.isArray(stored) ? stored : [];
-    const fresh = storedArr.filter((c) => c && present.has(String(c).toLowerCase()));
+    // Before the papers are loaded nothing is "present", so pruning then would
+    // wipe every remembered coder: keep them all until the list is there.
+    const fresh = state.papersLoaded
+      ? storedArr.filter((c) => c && present.has(String(c).toLowerCase()))
+      : storedArr.filter(Boolean);
     fresh.forEach((c) => set.add(c));
-    if (fresh.length !== storedArr.length) {
+    if (state.papersLoaded && fresh.length !== storedArr.length) {
       try { safeStore("cs.coders", JSON.stringify(fresh)); } catch { /* ignore */ }
     }
     // A coder ADDED in the picker has no coding file yet, so the prune above
@@ -4425,6 +4429,56 @@
   window.CS.confirmDialog = confirmDialog;
 
   /* ================================================================ boot */
+  /* The start-up screen of a big project: the papers index is built on the
+     first visit (tens of seconds for ~800 studies) and is cached afterwards.
+     While /api/papers runs, /api/papers/progress is polled and drawn as a bar
+     with a percentage.  Returns the function that removes it again.
+
+     Live-streaming the list as it is built was considered and rejected: the
+     list is ordered, filtered and counted over ALL studies, so partial rows
+     would reshuffle and mislead, and the cached path (every later start) is
+     instant anyway.  A percentage is honest and enough. */
+  function showLoadProgress() {
+    const form = $("#form");
+    const list = $("#paper-list");
+    if (!form) return () => {};
+    const box = el("div", "empty boot-progress");
+    box.setAttribute("role", "status");
+    const title = el("b", null, "Loading papers…");
+    const bar = el("div", "boot-bar");
+    const fill = el("div", "boot-bar-fill");
+    bar.appendChild(fill);
+    const note = el("p", null, "Starting…");
+    box.append(title, bar, note);
+    form.appendChild(box);
+    const mini = list ? el("div", "boot-mini", "Loading papers… 0 %") : null;
+    if (mini) list.prepend(mini);
+    const t0 = Date.now();
+    let stopped = false;
+    const words = { stamping: "Checking the project files", reading: "Reading the studies",
+                    saving: "Saving the index", done: "Finishing" };
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const p = await api("/api/papers/progress");
+        const total = Number(p.total) || 0;
+        const done = Number(p.done) || 0;
+        // stamping has no count: show a thin indeterminate start instead of 0 %
+        const frac = p.phase === "done" ? 1 : (total && p.phase !== "stamping" ? Math.min(0.99, done / total) : 0);
+        const pct = Math.round(frac * 100);
+        fill.style.width = (p.phase === "stamping" || !total ? 4 : Math.max(4, pct)) + "%";
+        const secs = Math.round((Date.now() - t0) / 1000);
+        note.textContent = (words[p.phase] || "Starting") +
+          (total && p.phase === "reading" ? " · " + done + " of " + total + " (" + pct + " %)" : "") +
+          (secs >= 3 ? " · " + secs + " s" : "");
+        if (mini) mini.textContent = "Loading papers… " + (p.phase === "reading" ? pct + " %" : "");
+      } catch { /* the server is busy; try again */ }
+      if (!stopped) setTimeout(tick, 300);
+    };
+    tick();
+    return () => { stopped = true; box.remove(); if (mini) mini.remove(); };
+  }
+
   async function boot() {
     const savedTheme = localStorage.getItem("cs.theme") || "dark";
     document.documentElement.dataset.theme = savedTheme;
@@ -4444,8 +4498,23 @@
     $("#coder-mode").setAttribute("aria-pressed", state.coderMode ? "true" : "false");
     applyRationaleCollapsed(localStorage.getItem("cs.rationaleCollapsed") === "1");
 
-    const [schema, papers] = await Promise.all([api("/api/schema"), api("/api/papers")]);
+    // The controls are wired BEFORE the (possibly slow) papers request, so the
+    // coder picker, filters and the topbar work while the list is still loading.
+    // state.papers is [] until then, which every handler tolerates.
+    wireEvents();
+    const papersReq = api("/api/papers");
+    const schema = await api("/api/schema");
     state.schema = schema;
+    schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
+    Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
+    renderTabs();
+    $("#form").innerHTML = "";
+    const ivPanelBoot = $("#interventions-panel");
+    if (ivPanelBoot) ivPanelBoot.innerHTML = "";
+    const stopProgress = showLoadProgress();
+    let papers;
+    try { papers = await papersReq; } finally { stopProgress(); }
+    state.papersLoaded = true;
     state.papers = papers.papers;
     state.byKey = {};
     state.papers.forEach((p) => { state.byKey[p.key] = p; });
@@ -4453,17 +4522,10 @@
     updateFtCount();
     try { state.fulltext.criteria = (await api("/api/fulltext/criteria")).criteria || []; } catch { /* ignore */ }
 
-    schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
-    Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
-
     renderPaperList();
-    renderTabs();
     $("#form").innerHTML = "";
-    const ivPanelBoot = $("#interventions-panel");
-    if (ivPanelBoot) ivPanelBoot.innerHTML = "";
     $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", "Search or pick a study from the left. Existing codings load for correction; Blind mode hides them."));
 
-    wireEvents();
     applyBlind();
     updateFacetBadge();
     syncWideLayout();

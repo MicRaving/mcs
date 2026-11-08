@@ -438,7 +438,7 @@
     <div class="ag-head">
       <div class="an-title">
         <h1>Inter-rater agreement</h1>
-        <p>Gwet's AC1 (nominal) and AC2 (linear weights) on every deterministic label with fewer than 50 levels. Raters need not overlap; missing cells are ignored. The canonical coding is the <code>LLM/base</code> rater.</p>
+        <p>Gwet's AC1 (nominal) and AC2 (linear weights) across every original coder route in <code>Codings/</code>. Raters are never overwritten; settling a conflict records the decision in <code>Codings/_settlements.json</code> and updates the consensus coding in <code>Extraction/&lt;Key&gt;.json</code>.</p>
       </div>
     </div>
 
@@ -472,7 +472,7 @@
             </button>
           </div>
           <div class="ag-studylist" id="ag-studies"></div>
-          <div class="ag-sidehead">Exclusion criteria <span class="pill" id="ag-fieldcount">–</span></div>
+          <div class="ag-sidehead">Fields <span class="pill" id="ag-fieldcount">–</span></div>
           <aside class="ag-fieldlist" id="ag-fields"></aside>
           <div id="ag-llmexcl" hidden></div>
         </aside>
@@ -485,10 +485,14 @@
                 <option value="all">All</option>
               </select>
             </label>
+            <button class="btn" id="ag-bulk-majority" type="button" title="Settle every OPEN conflict of this study that has a strict rater majority (human-judgement fields are skipped)">Settle majority</button>
+            <button class="btn ghost" id="ag-study-done" type="button" title="Mark this study's conflict review as complete (or reopen it)">Mark complete</button>
+            <a class="btn ghost" id="ag-export-csv" href="/api/agreement/settlements.csv" download="settlements.csv" title="Download all recorded settlements as CSV">Export CSV</a>
             <span class="grow"></span>
+            <span class="ag-totcounts" id="ag-totcounts"></span>
             <span class="pill" id="ag-confcount">–</span>
           </div>
-          <p class="an-note" id="ag-confnote">Click a rater's value to settle the conflict with it; the Master's file is <code>Codings/&lt;Key&gt; - &lt;master&gt;.json</code>.</p>
+          <p class="an-note" id="ag-confnote">Click a rater's value (or the current consensus value) to settle the conflict; all decisions are saved in <code>Codings/_settlements.json</code> and written to the consensus coding <code>Extraction/&lt;Key&gt;.json</code>.</p>
           <div id="ag-conflist"></div>
           <div id="ag-conftail"></div>
         </div>

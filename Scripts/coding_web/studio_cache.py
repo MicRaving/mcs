@@ -19,6 +19,7 @@ warm: the snapshot is read only while its stamps still match the folders.
 
 import json
 import os
+import time
 
 from studio_lib import APP_VERSION
 from studio_state import S, log
@@ -153,7 +154,9 @@ def papers_index(keys, build):
     expensive summary (``studio_lib.summarise``).  Returns a list in the same
     order as ``keys``.
     """
+    _PROGRESS.update(phase="stamping", done=0, total=len(keys), at=time.time())
     stamps = _corpus_stamps(keys)
+    _PROGRESS.update(phase="reading", done=0)
 
     if _INDEX["root"] != S.ROOT:
         # another project: forget the old one and read this one's snapshot
@@ -172,7 +175,8 @@ def papers_index(keys, build):
     out = []
     fresh = {}
     changed = False
-    for key in keys:
+    for n, key in enumerate(keys):
+        _PROGRESS["done"] = n
         stamp = stamps[key]
         if key in papers and old_stamps.get(key) == stamp:
             out.append(papers[key])
@@ -192,8 +196,19 @@ def papers_index(keys, build):
     _INDEX["papers"] = fresh
     _INDEX["stamps"] = stamps
     if changed:
+        _PROGRESS.update(phase="saving", done=len(keys))
         _save_snapshot(stamps, fresh)
+    _PROGRESS.update(phase="done", done=len(keys), at=time.time())
     return out
+
+
+_PROGRESS = {"phase": "idle", "done": 0, "total": 0, "at": 0.0}
+
+
+def papers_progress():
+    """How far the current (or last) :func:`papers_index` run is, for the
+    first-load progress bar.  ``phase`` is idle / stamping / reading / saving / done."""
+    return dict(_PROGRESS)
 
 
 # --------------------------------------------------------------------------- #

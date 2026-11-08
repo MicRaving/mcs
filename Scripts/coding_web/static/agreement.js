@@ -1,9 +1,10 @@
 /* ============================================================
    Coding Studio — Agreement tab
    Gwet's AC1/AC2 across deterministic labels (<50 levels) and a
-   Master conflict resolver.  Raters = canonical Extraction
-   ("LLM/base") + every Codings/<Key> - <coder>.json; they need not
-   overlap.
+   Master conflict resolver.  Raters = every Codings/<Key> - <coder>.json;
+   the consensus Extraction/<Key>.json is what a settlement writes into and
+   is not a rater (unless the project has no second coder).  Raters need
+   not overlap.
 
    The resolver has a *fast mode* (like the coding tab's coder mode):
    the next conflict is selected automatically, the PDF follows the
@@ -12,7 +13,8 @@
    coder is wrong.
 
    Endpoints: /api/agreement/reliability, /api/agreement/conflicts,
-   /api/agreement/resolve (+ /abstract/* and /abstract/llm-excluded).
+   /api/agreement/resolve, /settle-bulk, /study-status, /masters, /settlements(.csv)
+   (+ /abstract/* and /abstract/llm-excluded).
    ============================================================ */
 (() => {
   "use strict";
@@ -22,7 +24,7 @@
 
   const S = { started: false, master: "", scope: "fulltext", tab: "reliability",
               rel: null, conf: null, field: "", status: "open", busy: false, shown: 0,
-              studies: [], study: "", viewer: "",
+              studies: [], study: "", viewer: "pdf",
               exclude: new Set(), fast: false, activeKey: null, viewerStudy: null,
               pages: null, pageSize: null, page: 1, fit: true, zoom: 1, spans: {},
               showSettled: false };
@@ -101,7 +103,11 @@
       "dv_name similarity; unmatched rows are reported and excluded. A DV statistic is shown only with " +
       "≥5 matched pairs and ≥60% coverage. AC1 is nominal; AC2 uses linear weights and is shown only for " +
       "integer-ordered fields. Items = cases rated by at least two raters; raters may cover different items. " +
-      "Click a rater to include or exclude them from these coefficients.";
+      "Click a rater to include or exclude them from these coefficients. " +
+      (S.scope === "abstract" ? "" : d.extraction_role === "rater"
+        ? "The Extraction is scored as the rater LLM/base because the project has fewer than two coders; " +
+          "with two or more it becomes the consensus."
+        : "The consensus coding (Extraction/<Key>.json) is not a rater: it is reconciled from the raters, so scoring it would inflate the agreement.");
     $("#ag-hint").textContent = `${fields.length} fields · ${(d.raters || []).length} raters`;
     renderDvAlignment(d);
   }
@@ -178,7 +184,7 @@
       S.study = S.studies.length ? S.studies[0].key : "";
       if (S.study) return loadConflicts();
     }
-    if (!append) { renderStudyList(); renderFieldList(d); }
+    if (!append) { renderStudyList(); renderFieldList(d); syncConflictToolbar(d); }
     const html = conflictCardsHtml(d.rows || []);
     const host = $("#ag-conflist");
     if (append && html) host.insertAdjacentHTML("beforeend", html);
@@ -195,6 +201,30 @@
     }
   }
 
+  function syncConflictToolbar(d) {
+    const full = S.scope === "fulltext" && !!S.study;
+    const maj = $("#ag-bulk-majority");
+    const done = $("#ag-study-done");
+    if (maj) maj.hidden = !full;
+    if (done) {
+      done.hidden = !full;
+      const st = d && d.study_status && d.study_status.status === "complete";
+      done.textContent = st ? "Reopen study" : "Mark complete";
+      done.dataset.complete = st ? "1" : "0";
+    }
+    const sel = $("#ag-status");
+    if (sel && sel.value !== S.status) sel.value = S.status;
+    const showSet = $("#ag-show-settled");
+    if (showSet) showSet.setAttribute("aria-pressed", S.status === "settled" ? "true" : "false");
+    const t = (d && d.totals) || {};
+    const cnt = $("#ag-totcounts");
+    if (cnt) {
+      cnt.innerHTML = `<span class="ag-badge ok" title="Raters disagree and the consensus still has no value">${t.open || 0} open</span>` +
+        `<span class="ag-badge" title="Settled explicitly, or the reconciled consensus already holds a value">${t.settled || 0} settled</span>` +
+        `<span class="ag-badge" title="Disagreement exists only in rater files; Extraction has no such row">${t.rater_only || 0} rater-only</span>`;
+    }
+  }
+
   function renderConflictTail(d) {
     const tail = $("#ag-conftail");
     if (!tail) return;
@@ -207,7 +237,10 @@
   }
 
   function renderFieldList(d) {
-    const fields = (d.fields || []).slice().sort((a, b) => (b.open - a.open) || a.label.localeCompare(b.label));
+    let fields = (d.fields || []).slice();
+    if (S.status === "open") fields = fields.filter((f) => (f.open || 0) > 0);
+    else if (S.status === "settled") fields = fields.filter((f) => (f.settled || 0) > 0);
+    fields.sort((a, b) => (b.open - a.open) || a.label.localeCompare(b.label));
     const totalOpen = fields.reduce((n, f) => n + f.open, 0);
     const totalSettled = fields.reduce((n, f) => n + f.settled, 0);
     const item = (name, label, open, settled, active) =>
@@ -238,16 +271,19 @@
       host.innerHTML = `<div class="ag-empty">No conflicted studies.</div>`;
       return;
     }
-    const studiesToShow = S.showSettled
-      ? S.studies.filter((s) => s.n_settled > 0)
-      : S.studies;
+    const studiesToShow = S.studies.filter((s) => {
+      if (S.status === "open") return s.n_open > 0;
+      if (S.status === "settled") return s.n_settled > 0;
+      return true;  // "all"
+    });
     if (!studiesToShow.length) {
       host.innerHTML = `<div class="ag-empty">${S.showSettled ? "No studies with settled conflicts." : "No conflicted studies."}</div>`;
       return;
     }
     host.innerHTML = studiesToShow.map((s) => {
       const act = s.key === S.study ? " active" : "";
-      return `<button type="button" class="ag-studybtn${act}" data-study="${esc(s.key)}" title="${esc(s.label || s.key)}">` +
+      const done = s.status === "complete" ? " done" : "";
+      return `<button type="button" class="ag-studybtn${act}${done}" data-study="${esc(s.key)}" title="${esc(s.label || s.key)}">` +
         `<span class="t">${esc(s.label || s.key)}</span>` +
         `<span class="n">${s.n_open}<i>open</i></span>` +
         (s.n_settled ? `<span class="n settled">${s.n_settled}<i>settled</i></span>` : "") +
@@ -319,33 +355,54 @@
     });
     const cardHtml = (r) => {
       const entries = Object.entries(r.values || {});
-      const chips = entries.map(([rater, val], i) =>
-        `<button class="ag-chip" data-act="set" data-value="${esc(val)}" title="Settle with ${esc(rater)}'s value">` +
-        (num ? `<span class="k">${i + 1}</span>` : "") +
-        `<span class="who">${esc(rater)}</span><b>${esc(labelOf(r, val))}</b></button>`).join("");
-      const master = r.settled
-        ? `<div class="ag-values"><span class="ag-chip master"><span class="who">Master</span><b>${esc(labelOf(r, r.resolution || r.master_value))}</b></span>
-             <button class="ag-chip clear" data-act="clear">Clear</button></div>`
+      let chips = entries.map(([rater, val], i) => {
+        const isMaj = r.majority && r.majority === val ? " majority" : "";
+        return `<button class="ag-chip${isMaj}" data-act="set" data-value="${esc(val)}" title="Settle with ${esc(rater)}'s value">` +
+          (num ? `<span class="k">${i + 1}</span>` : "") +
+          `<span class="who">${esc(rater)}</span><b>${esc(labelOf(r, val))}</b></button>`;
+      }).join("");
+      if (r.consensus_value) {
+        chips += `<button class="ag-chip consensus" data-act="set" data-value="${esc(r.consensus_value)}" title="Current value in Extraction/${esc(r.key)}.json — click to settle with it">` +
+          `<span class="who">Consensus</span><b>${esc(labelOf(r, r.consensus_value))}</b></button>`;
+      }
+      const settledVal = r.resolution || r.master_value || "";
+      const settledWho = r.settled_by ? `Master · ${r.settled_by}`
+        : (r.state === "settled" ? "Consensus" : "Master");
+      const applyBadge = (r.settled && r.applied === false && r.apply_note)
+        ? `<span class="ag-badge warn" title="${esc(r.apply_note)}">not in consensus</span>`
         : "";
+      const master = r.settled
+        ? `<div class="ag-values"><span class="ag-chip master"><span class="who">${esc(settledWho)}</span><b>${esc(labelOf(r, settledVal))}</b></span>
+             ${applyBadge}
+             ${r.settled_by ? `<button class="ag-chip clear" data-act="clear" title="Undo this settlement and restore the consensus value">Clear</button>` : ""}</div>`
+        : (r.rater_only
+          ? `<div class="ag-values"><span class="ag-badge warn" title="This disagreement exists only in rater files; Extraction/${esc(r.key)}.json has no such row, so there is nothing to settle here.">rater-only row · not in consensus</span></div>`
+          : "");
       let picker = "";
-      if (!r.multi && (r.levels || []).length) {
-        const opts = r.levels.map((l) => `<option value="${esc(l)}">${esc(labelOf(r, l))}</option>`).join("");
-        picker = `<div class="ag-levels"><select class="select ag-levelsel">${opts}</select>` +
-                 `<button class="btn ag-levelset" data-act="set">Settle</button></div>`;
-      } else {
-        picker = `<div class="ag-levels"><input class="input ag-leveltext" placeholder="label + label" spellcheck="false" style="max-width:220px">` +
-                 `<button class="btn ag-levelset" data-act="set">Settle</button></div>`;
+      if (!r.rater_only) {
+        if (!r.multi && (r.levels || []).length) {
+          const opts = r.levels.map((l) => `<option value="${esc(l)}"${l === r.consensus_value ? " selected" : ""}>${esc(labelOf(r, l))}</option>`).join("");
+          picker = `<div class="ag-levels"><select class="select ag-levelsel">${opts}</select>` +
+                   `<button class="btn ag-levelset" data-act="set">Settle</button></div>`;
+        } else {
+          picker = `<div class="ag-levels"><input class="input ag-leveltext" placeholder="label + label" value="${esc(r.consensus_value || "")}" spellcheck="false" style="max-width:220px">` +
+                   `<button class="btn ag-levelset" data-act="set">Settle</button></div>`;
+        }
       }
       const dv = r.dv_name ? ` · ${esc(r.dv_name)}` : (r.dv_index !== null && r.dv_index !== undefined ? ` · DV ${r.dv_index + 1}` : "");
-      return `<div class="ag-confcard${r.settled ? " settled" : ""}" data-key="${esc(r.key)}" data-study="${esc(r.study_id)}"
+      const targetBadge = r.rater_only
+        ? ` <span class="ag-badge warn" title="This row only exists in rater files, not in Extraction/${esc(r.key)}.json">rater-only row</span>`
+        : (r.derived ? ` <span class="ag-badge" title="Derived from dv_name">derived</span>` : "");
+      return `<div class="ag-confcard${r.settled ? " settled" : ""}${r.rater_only ? " rateronly" : ""}" data-key="${esc(r.key)}" data-study="${esc(r.study_id)}"
                    data-case="${esc(r.case_id || "")}" data-dv="${r.dv_index === null || r.dv_index === undefined ? "" : r.dv_index}"
                    data-dvname="${esc(r.dv_name || "")}" data-field="${esc(r.field)}" data-label="${esc(r.field_label || r.field)}"
                    data-multi="${r.multi ? "1" : "0"}">
         <div class="ag-confhead">
           <span class="sid">${esc(r.study_id)}</span>
-          <span class="fld">${esc(r.field_label)}${dv}</span>
+          <span class="fld">${esc(r.field_label)}${dv}${targetBadge}</span>
           <span class="meta">${esc(r.key)} · ${r.kind}${r.multi ? " · multi" : ""}</span>
         </div>
+        ${r.source_quote ? `<div class="ag-proof"><span class="ag-proof-tag">proof · p.${r.source_page || "?"}</span><span class="ag-proof-text">${esc(r.source_quote)}</span></div>` : ""}
         <div class="ag-values">${chips}</div>
         ${master}${picker}
       </div>`;
@@ -368,7 +425,7 @@
     agCards().forEach((c) => c.classList.toggle("active", c === card));
     S.activeKey = card.dataset.key;
     try { card.scrollIntoView({ block: "center", behavior: "smooth" }); } catch { /* ignore */ }
-    if (!S.fast || S.scope !== "fulltext") return;
+    if (S.scope !== "fulltext") return;
     await ensurePdfViewer();
     await locateCase(card);
   }
@@ -417,8 +474,46 @@
 
   async function locateCase(card) {
     if (!agFind || !agWrap()) return;
-    // In fast mode, don't open/focus the find bar — just search for highlights.
-    // The find bar steals focus (input.focus()), which breaks 1-9 key resolution.
+    agClearMarks();
+    // Prefer the coder-recorded proof location (green mark) over a keyword
+    // search (blue hit) when the conflict carries a saved source span.
+    const row = (S.conf && Array.isArray(S.conf.rows))
+      ? S.conf.rows.find((r) => r.key === card.dataset.key
+          && String(r.case_id || "") === String(card.dataset.case || "")
+          && r.field === card.dataset.field)
+      : null;
+    const rects = row && Array.isArray(row.source_rects) ? row.source_rects : [];
+    const page = row ? row.source_page : null;
+    if (page && rects.length) {
+      await agEnsurePage(page);
+      const w = agWrap();
+      const img = w && w.querySelector(`.pdf-page[data-page="${page}"]`);
+      if (img) {
+        agClearMarks();
+        const w = agWrap();
+        const layer = document.createElement("div");
+        layer.className = "pdf-marklayer";
+        w.appendChild(layer);
+        rects.forEach((r) => {
+          if (!Array.isArray(r) || r.length < 4) return;
+          const d = document.createElement("div");
+          d.className = "pdf-mark active";
+          d.style.left = (img.offsetLeft + r[0] * img.offsetWidth) + "px";
+          d.style.top = (img.offsetTop + r[1] * img.offsetHeight) + "px";
+          d.style.width = Math.max(3, (r[2] - r[0]) * img.offsetWidth) + "px";
+          d.style.height = Math.max(3, (r[3] - r[1]) * img.offsetHeight) + "px";
+          layer.appendChild(d);
+        });
+        w.scrollTop = Math.max(0, img.offsetTop + (rects[0][1] || 0) * img.offsetHeight - 90);
+        S.page = page;
+        const pi = $("#ag-page-input");
+        if (pi) pi.value = page;
+        if (agFind) agFind.reset();
+        return;
+      }
+    }
+    // Fall back to keyword search (blue) when no saved proof location.
+    // In fast mode, don't open/focus the find bar - just search for highlights.
     if (!S.fast && agFindToggle) agFindToggle.open("");
     const field = card.dataset.field || "";
     const terms = [];
@@ -438,7 +533,6 @@
       if (n) { hit = t; break; }
     }
     if (!hit && terms.length) {
-      // no term found: still show the first term so the finder state is visible
       hit = String(terms[0]).trim();
       await agFind.search(hit, true);
     }
@@ -458,11 +552,24 @@
   }
 
   async function fastKeydown(e) {
-    if (!S.fast || S.tab !== "conflicts") return;
+    if (window.CS.currentView() !== "agreement" || S.tab !== "conflicts") return;
     const t = e.target;
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
-    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-    const card = $("#ag-conflist .ag-confcard.active") || agCards()[0];
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const active = $("#ag-conflist .ag-confcard.active");
+    if (!S.fast && !active) return;
+    // Tab / Shift+Tab move between conflicts (Shift+Tab = previous).
+    if (e.key === "Tab") {
+      const cards = agCards();
+      if (!cards.length) return;
+      e.preventDefault();
+      let idx = active ? cards.indexOf(active) : -1;
+      idx = e.shiftKey ? (idx <= 0 ? cards.length - 1 : idx - 1)
+                      : (idx >= cards.length - 1 ? 0 : idx + 1);
+      activateCase(cards[idx]);
+      return;
+    }
+    const card = active || agCards()[0];
     if (!card) return;
     if (/^[1-9]$/.test(e.key)) {
       const chips = card.querySelectorAll("[data-act='set'][data-value]");
@@ -540,6 +647,11 @@
   let agObserver = null, agScrollHandler = null, agWheelHandler = null, agScrollTimer = null;
 
   function agWrap() { return $("#ag-viewer-body .pdf-scroll"); }
+
+  function agClearMarks() {
+    const w = agWrap();
+    if (w) w.querySelectorAll(":scope > .pdf-marklayer").forEach((n) => n.remove());
+  }
 
   function agTeardownPdf() {
     if (agObserver) { agObserver.disconnect(); agObserver = null; }
@@ -717,7 +829,7 @@
     if (!host) return;
     S.viewerStudy = S.study;
     if (S.scope === "abstract") S.viewer = "abstract";
-    else if (!S.viewer || S.viewer === "abstract") S.viewer = "text";
+    else if (!S.viewer || S.viewer === "abstract") S.viewer = "pdf";
     syncViewerSeg();
     if (!S.study) {
       S.pages = null;
@@ -777,13 +889,14 @@
 
   async function resolveCard(card, value) {
     if (S.busy) return;
-    const master = (S.master || "").trim();
+    const master = (S.master || "Master").trim();
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
+    const prevIdx = Math.max(0, agCards().indexOf(card));
     S.busy = true;
     try {
       const base = S.scope === "abstract" ? "/api/agreement/abstract/resolve"
                                            : "/api/agreement/resolve";
-      await api(base, {
+      const res = await api(base, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           master, key: card.dataset.key, study_id: card.dataset.study,
@@ -794,11 +907,57 @@
           value: value,
         }),
       });
-      toast(value === null ? "Resolution cleared" : "Conflict settled", "ok", S.master);
+      const sub = (res && res.applied === false && res.apply_note) ? res.apply_note : master;
+      toast(value === null ? "Resolution cleared" : "Conflict settled", "ok", sub);
       await loadConflicts();
-      if (S.fast && S.tab === "conflicts") await activateCase(agCards()[0]);
+      if (S.tab === "conflicts") {
+        const cards = agCards();
+        const nextIdx = S.status === "open" ? Math.min(prevIdx, cards.length - 1)
+                                            : Math.min(prevIdx + 1, cards.length - 1);
+        if (nextIdx >= 0 && cards[nextIdx]) await activateCase(cards[nextIdx]);
+      }
     } catch (e) {
       toast("Could not settle", "err", String(e.message || e));
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function settleBulk(mode) {
+    if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    const master = (S.master || "Master").trim();
+    if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
+    S.busy = true;
+    try {
+      const res = await api("/api/agreement/settle-bulk", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master, key: S.study, mode: "majority", field: S.field || "" }),
+      });
+      toast(`Settled ${res.settled || 0} conflict(s)`, "ok",
+            res.skipped ? `${res.skipped} without a majority` : master);
+      await loadConflicts();
+    } catch (e) {
+      toast("Bulk settle failed", "err", String(e.message || e));
+    } finally {
+      S.busy = false;
+    }
+  }
+
+  async function toggleStudyComplete() {
+    if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    const master = (S.master || "Master").trim();
+    const btn = $("#ag-study-done");
+    const status = (btn && btn.dataset.complete === "1") ? "open" : "complete";
+    S.busy = true;
+    try {
+      await api("/api/agreement/study-status", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master, key: S.study, status, scope: S.scope }),
+      });
+      toast(status === "complete" ? "Study marked complete" : "Study reopened", "ok", S.study);
+      await loadConflicts();
+    } catch (e) {
+      toast("Could not update study status", "err", String(e.message || e));
     } finally {
       S.busy = false;
     }
@@ -824,8 +983,8 @@
     S.pages = null;
     S.page = 1;
     $("#ag-confnote").innerHTML = scope === "abstract"
-      ? "Click a coder's value to settle the conflict; the Master's file is <code>Screening/&lt;master&gt;.json</code>."
-      : "Click a rater's value to settle the conflict with it; the Master's file is <code>Codings/&lt;Key&gt; - &lt;master&gt;.json</code>.";
+      ? "Click a coder's value to settle the abstract conflict; every decision is saved in <code>Codings/_settlements.json</code>."
+      : "Click a rater's value (or the current consensus value) to settle the conflict; all decisions are saved in <code>Codings/_settlements.json</code> and written to the consensus coding <code>Extraction/&lt;Key&gt;.json</code>.";
     if (S.tab === "reliability") loadReliability();
     else loadConflicts();
     loadLlmExcluded();
@@ -839,6 +998,18 @@
 
   async function boot() {
     try { S.master = localStorage.getItem("cs.master") || ""; } catch { /* ignore */ }
+    if (!S.master) {
+      // Auto-detect a master name from existing resolution files so settled
+      // conflicts show up without the user having to type the name exactly.
+      try {
+        const avail = await api("/api/agreement/masters");
+        const list = Array.isArray(avail) ? avail : (avail && Array.isArray(avail.masters) ? avail.masters : []);
+        if (list.length) {
+          S.master = list.includes("Master") ? "Master" : list[0];
+        }
+      } catch { /* keep empty */ }
+    }
+    if (!S.master) S.master = "Master";
     const m = $("#ag-master");
     if (m) m.value = S.master;
     defaultExclude();
@@ -854,14 +1025,21 @@
     });
     $$("#ag-tabs button").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.agtab)));
     $$("#ag-scope button").forEach((b) => b.addEventListener("click", () => setScope(b.dataset.agscope)));
-    $("#ag-status")?.addEventListener("change", (e) => { S.status = e.target.value; loadConflicts(); });
+    $("#ag-status")?.addEventListener("change", (e) => {
+      S.status = e.target.value;
+      S.field = "";
+      S.study = "";
+      loadConflicts();
+    });
     $("#ag-fast")?.addEventListener("click", () => setFast(!S.fast));
     $("#ag-show-settled")?.addEventListener("click", () => {
-      S.showSettled = !S.showSettled;
-      const b = $("#ag-show-settled");
-      if (b) b.setAttribute("aria-pressed", S.showSettled ? "true" : "false");
-      renderStudyList();
+      S.status = S.status === "settled" ? "open" : "settled";
+      S.field = "";
+      S.study = "";
+      loadConflicts();
     });
+    $("#ag-bulk-majority")?.addEventListener("click", () => settleBulk("majority"));
+    $("#ag-study-done")?.addEventListener("click", () => toggleStudyComplete());
     document.addEventListener("keydown", fastKeydown);
 
     initAgFind();
@@ -903,7 +1081,7 @@
       const card = e.target.closest(".ag-confcard");
       if (!card) return;
       const act = e.target.closest("[data-act]");
-      if (!act) { if (S.fast) activateCase(card); return; }
+      if (!act) { activateCase(card); return; }
       if (act.classList.contains("ag-levelset")) {
         const sel = card.querySelector(".ag-levelsel");
         const txt = card.querySelector(".ag-leveltext");
