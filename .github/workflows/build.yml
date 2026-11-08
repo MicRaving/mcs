@@ -140,9 +140,24 @@ jobs:
       - name: Package the disk image
         run: |
           cd "Scripts/coding_web/dist"
-          hdiutil create -srcfolder "${{ env.APP_NAME }}.app" \
-            -volname "CodingStudioUni" -ov -format UDZO \
-            "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
+          # "hdiutil: create failed - Resource busy" is an intermittent runner
+          # error (a stale mount or Spotlight holds the disk for a moment):
+          # detach leftovers and retry instead of failing the whole release.
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            mdutil -a -i off >/dev/null 2>&1 || true
+            for v in /Volumes/CodingStudioUni*; do
+              [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1 || true
+            done
+            if hdiutil create -srcfolder "${{ env.APP_NAME }}.app" \
+                 -volname "CodingStudioUni" -ov -format UDZO \
+                 "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"; then
+              ok=1; break
+            fi
+            echo "hdiutil attempt $attempt failed; retrying in $((attempt * 10)) s"
+            sleep $((attempt * 10))
+          done
+          [ "$ok" = 1 ] || exit 1
           ls -lh "$GITHUB_WORKSPACE/${{ env.APP_NAME }}-macos-${{ matrix.arch }}.dmg"
 
       - uses: actions/upload-artifact@v7
