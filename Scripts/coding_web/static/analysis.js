@@ -527,8 +527,13 @@
     } else {
       cards = [
         kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies`),
-        kpi("Pooled effect (multilevel)", esc(est !== null ? fmt(est) : "–"),
-          est !== null ? `95% CI [${fmt(lo)}, ${fmt(hi)}]` : "not estimated"),
+        kpi(state.layer === "sdt" ? "Pooled Δd′ (multilevel, probit units)"
+                                  : "Pooled effect (multilevel, Hedges g)",
+          esc(est !== null ? fmt(est) : "–"),
+          est !== null ? `95% CI [${fmt(lo)}, ${fmt(hi)}]` : "not estimated",
+          "", state.layer === "sdt"
+            ? "Treatment minus control discrimination d′ = z(hit rate) − z(false-alarm rate) on the 0–1 rescaled response. Not a standardised mean difference."
+            : "Standardised mean difference (Hedges g, SD units) of the coded intervention-vs-control contrasts."),
         kpi("Heterogeneity", i2 !== null ? `${fmt(i2, 0)}%` : "–",
           tau2 !== null ? `I² · τ² = ${fmt(tau2, 2)}` : "not estimated",
           i2 !== null && i2 >= 75 ? "warn" : ""),
@@ -536,6 +541,10 @@
       ];
     }
     $("#an-kpis").innerHTML = cards.join("") +
+      `<p class="an-note an-units">${state.layer === "sdt"
+        ? "Units: Δd′ in probit units, from discernment cells of studies with true and false stimuli. It is <b>not</b> comparable with the Meta layer’s Hedges g (SD units, all outcome types, more studies): on the same studies and cells, the SD-unit version of Δd′ lines up with g."
+        : "Units: Hedges g (SD units) over all eligible contrasts. The SDT layer reports Δd′ (probit units) on fewer studies, so the two headline numbers are not directly comparable."}` +
+        ` Compare the number of contrasts and studies (k) beside each, and the estimator (${state.model === "bayes" ? "Bayesian" : "multilevel; DL/RVE are in the tables"}).</p>` +
       (estimand ? `<p class="an-note an-estimand" title="${esc(estimand)}">` +
         `Estimand: ${esc(estimand)}</p>` : "");
   }

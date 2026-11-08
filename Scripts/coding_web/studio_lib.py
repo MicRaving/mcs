@@ -25,7 +25,7 @@ FIELD_TYPES = _SL.FIELD_TYPES
 
 #: Version stamp for the portable build (D6).  Bump on every coordinated rebuild
 #: so a frozen binary can be matched against the source it was built from.
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.3"
 
 # ``contract.py`` is the ONE shared coding contract (stdlib-only, bundled in the
 # packaged app): the DV-completeness rule lives there so ``B_validate`` and the
@@ -1006,20 +1006,47 @@ def _observed_levels(rows, names):
         out[n] = sorted(vals, key=lambda x: (x == "", x))
     return out
 
-def coding_index():
-    """Per-experiment and per-DV rows for every coded paper, plus field metadata."""
+def _own_coding(key, coder):
+    """The records of ``Codings/<key> - <coder>.json``, else None."""
+    path = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    data = data if isinstance(data, list) else [data]
+    return [r for r in data if isinstance(r, dict)] or None
+
+
+def coding_index(coder=""):
+    """Per-experiment and per-DV rows for every coded paper, plus field metadata.
+
+    With a ``coder`` the rows come from that coder's own file where one exists
+    (``source`` = "mine"), else from the reference ``Extraction/<Key>.json``
+    (``source`` = "reference"), so the Summary shows what a coder has saved
+    instead of looking reverted to the reference.
+    """
+    coder = str(coder or "").strip()
+    if coder.lower() in ("og", "original", "original (og)"):
+        coder = ""
     now = time.time()
-    # the index belongs to one project: after a re-root it is rebuilt at once,
-    # not served from the previous project for the rest of its 20 s
+    # the index belongs to one project (and one coder): after a re-root or a
+    # coder switch it is rebuilt at once, not served for the rest of its 20 s
     if (_CODING_INDEX["data"] is not None and now - _CODING_INDEX["at"] < 20
-            and _CODING_INDEX.get("root") == S.ROOT):
+            and _CODING_INDEX.get("root") == S.ROOT
+            and _CODING_INDEX.get("coder", "") == coder):
         return _CODING_INDEX["data"]
     common, dvfields = _summary_field_lists()
     cnames = [f["name"] for f in common]
     dnames = [f["name"] for f in dvfields]
     exps, dvs = [], []
     for key in paper_keys():
-        records = load_extraction(key)
+        records = _own_coding(key, coder) if coder else None
+        source = "mine" if records else "reference"
+        if not records:
+            records = load_extraction(key)
         if not records:
             continue
         coders = coder_files(key)
@@ -1033,20 +1060,20 @@ def coding_index():
                 except Exception:
                     pass
             row = {n: rec.get(n) for n in cnames}
-            row.update(study_key=key, experiment_id=rec.get("Study_ID"),
+            row.update(study_key=key, experiment_id=rec.get("Study_ID"), source=source,
                        n_dv=n_dv, n_missing=missing, n_coders=len(coders),
                        intervention_types=", ".join(_values(rec.get("Intervention_Type"))))
             exps.append(row)
             for i, d in enumerate(rec.get("DV_Metrics") or []):
                 drow = {n: d.get(n) for n in dnames}
-                drow.update(study_key=key, experiment_id=rec.get("Study_ID"),
+                drow.update(study_key=key, experiment_id=rec.get("Study_ID"), source=source,
                             dv_index=i, dv_name=d.get("dv_name"))
                 dvs.append(drow)
     data = {"experiments": exps, "dvs": dvs, "common_fields": common, "dv_fields": dvfields,
             "common_names": set(cnames), "dv_names": set(dnames),
             "common_observed": _observed_levels(exps, cnames),
             "dv_observed": _observed_levels(dvs, dnames)}
-    _CODING_INDEX.update(at=now, data=data, root=S.ROOT)
+    _CODING_INDEX.update(at=now, data=data, root=S.ROOT, coder=coder)
     return data
 
 def _field_by_name(name):

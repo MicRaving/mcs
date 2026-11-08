@@ -770,6 +770,15 @@ def _clamp_r(r):
     return max(min(r, 0.999999), -0.999999)
 
 
+def _d_to_g(d, n1, n2, how):
+    """Hedges' g and its variance from a two-sample d and the arm sizes."""
+    df = n1 + n2 - 2
+    J = 1 - 3 / (4 * df - 1)
+    g = d * J
+    vi = (n1 + n2) / (n1 * n2) + g * g / (2 * (n1 + n2))
+    return g, vi, "g", how
+
+
 def meta_effect(dv):
     """Return (yi, vi, metric, how) for one coded DV contrast."""
     yi, vi = num(dv.get("yi")), num(dv.get("vi"))
@@ -825,23 +834,28 @@ def meta_effect(dv):
     if np.isnan(n1) or np.isnan(n2):
         nt = num(dv.get("n_total"))
         n1 = n2 = nt / 2 if not np.isnan(nt) else np.nan
+    # t and r are converted to the SAME scale as the means/SD route (Hedges' g),
+    # not to Fisher's z: z is about d/2, so pooling it beside g understated every
+    # t/r-derived effect by half (decision of 2026-11-08).  Variances follow
+    # Borenstein et al. (2009): d = t*sqrt(1/n1+1/n2), r -> d = 2r/sqrt(1-r^2).
     if not np.isnan(t):
-        if not np.isnan(n1) and not np.isnan(n2) and n1 + n2 > 2:
-            r = _clamp_r(t / math.sqrt(t * t + n1 + n2 - 2))
-            z = 0.5 * math.log((1 + r) / (1 - r))
-            return z, 1 / max(n1 + n2 - 3, 1), "z", "t->z"
+        if not np.isnan(n1) and not np.isnan(n2) and n1 > 0 and n2 > 0 and n1 + n2 > 2:
+            return _d_to_g(t * math.sqrt(1 / n1 + 1 / n2), n1, n2, "t->g")
         df = num(dv.get("df"))
         if np.isnan(df):
             df = num(dv.get("df1"))
         if not np.isnan(df) and df > 1:
-            r = _clamp_r(t / math.sqrt(t * t + df))
-            z = 0.5 * math.log((1 + r) / (1 - r))
-            return z, 1 / max(df - 1, 1), "z", "t->z"
+            half = (df + 2) / 2          # equal arms are all the df allow us to assume
+            return _d_to_g(t * math.sqrt(2 / half), half, half, "t->g")
     r = num(dv.get("r_val"))
     n = num(dv.get("n_total"))
-    if not np.isnan(r) and not np.isnan(n) and abs(r) < 1:
-        z = 0.5 * math.log((1 + r) / (1 - r))
-        return z, 1 / max(n - 3, 1), "z", "r->z"
+    if not np.isnan(r) and not np.isnan(n) and abs(r) < 1 and n > 4:
+        r = _clamp_r(r)
+        d = 2 * r / math.sqrt(1 - r * r)
+        vr = (1 - r * r) ** 2 / (n - 1)
+        vd = 4 * vr / (1 - r * r) ** 3
+        J = 1 - 3 / (4 * (n - 2) - 1)
+        return d * J, vd * J * J, "g", "r->g"
     m1, m2 = first_num(dv, "m1i_post", "m1i"), first_num(dv, "m2i_post", "m2i")
     s1, s2 = first_num(dv, "sd1i_post", "sd1i"), first_num(dv, "sd2i_post", "sd2i")
     if not any(np.isnan(v) for v in (m1, m2, s1, s2, n1, n2)) and s1 > 0 and s2 > 0 and n1 + n2 > 2:
@@ -925,7 +939,15 @@ def meta_did(dv, r=0.5):
     if any(v <= 0 for v in (s1pre, s1post, s2pre, s2post)):
         return None
     if np.isnan(n1) or np.isnan(n2):
-        nt = num(dv.get("n_total")) or num(dv.get("n1i_post")) or num(dv.get("n2i_post"))
+        # Arm sizes: the pre-measurement n, else the post n of the SAME arm, else
+        # half of the total.  (This used `num(a) or num(b)`, which never falls
+        # through because NaN is truthy, and halved an arm size as if it were a
+        # total; 21 DiD rows were silently dropped.)
+        if np.isnan(n1):
+            n1 = num(dv.get("n1i_post"))
+        if np.isnan(n2):
+            n2 = num(dv.get("n2i_post"))
+        nt = num(dv.get("n_total"))
         if np.isnan(n1) and np.isnan(n2) and not np.isnan(nt):
             n1 = n2 = nt / 2
         elif np.isnan(n1):

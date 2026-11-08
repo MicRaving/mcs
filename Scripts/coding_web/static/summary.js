@@ -158,7 +158,7 @@
     if (state.levelCache[dim] !== undefined) return;
     if (!levelSelectable(dim)) { state.levelCache[dim] = []; return; }
     try {
-      const d = await api("/api/summary/levels?dim=" + encodeURIComponent(dim));
+      const d = await api("/api/summary/levels?dim=" + encodeURIComponent(dim) + (state.coder ? "&coder=" + encodeURIComponent(state.coder) : ""));
       state.levelCache[dim] = d.levels || [];
       if (state.byName[dim] && d.n_levels != null) state.byName[dim].n_levels = d.n_levels;
     } catch { state.levelCache[dim] = []; }
@@ -193,6 +193,7 @@
   // ---------------------------------------------------------------- rows
   async function loadRows() {
     const p = new URLSearchParams({ limit: "3000" });
+    if (state.coder) p.set("coder", state.coder);
     if (state.selDim) { p.set("dim", state.selDim); if (state.selValue !== null) p.set("value", state.selValue); }
     if (state.search) p.set("q", state.search);
     const req = ++state.request;
@@ -257,7 +258,7 @@
     const ctx = state.kind === "dv" ? CTX_DV : CTX_EXP;
     const editCol = !!state.selDim;
     const tooMany = editCol && !levelSelectable(state.selDim);
-    const head = `<div class="sm-row head"><div><span>${esc(study)}</span></div>` +
+    const head = `<div class="sm-row head"><div><span>${esc(study)}</span>${(rows[0] && rows[0].source === "mine") ? " <small class=\"sm-src\" title=\"Shown from your own coding file\">mine</small>" : ""}</div>` +
       (editCol ? `<div>${esc(state.byName[state.selDim]?.label || state.selDim)}</div>` : "") +
       ctx.map(([, lab]) => `<div>${esc(lab)}</div>`).join("") + `</div>`;
     const body = rows.map((row) => {
@@ -455,7 +456,7 @@
   // ---------------------------------------------------------------- load
   async function loadDimensions() {
     try {
-      const d = await api("/api/summary/dimensions");
+      const d = await api("/api/summary/dimensions" + (state.coder ? "?coder=" + encodeURIComponent(state.coder) : ""));
       state.dims = d.dimensions || [];
       state.groupOrder = d.group_order || [];
       state.byName = {};
@@ -487,6 +488,8 @@
     if (coder) {
       state.coder = coder.value || state.coder;
       coder.addEventListener("input", () => { state.coder = coder.value.trim(); });
+      // a different coder shows that coder's own codings: reload the rows
+      coder.addEventListener("change", () => { state.coder = coder.value.trim(); if (state.started) loadRows(); });
     }
     // The Summary reuses the app top bar: Save lives there.
     $("#save-btn")?.addEventListener("click", save);

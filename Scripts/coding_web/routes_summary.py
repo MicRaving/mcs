@@ -12,7 +12,7 @@ bp = Blueprint("summary", __name__)
 
 @bp.get("/api/summary/dimensions")
 def api_summary_dimensions():
-    data = coding_index()
+    data = coding_index(request.args.get("coder"))
     out = []
     for kind, fields in (("experiment", data["common_fields"]), ("dv", data["dv_fields"])):
         for f in fields:
@@ -33,7 +33,7 @@ def api_summary_dimensions():
 @bp.get("/api/summary/levels")
 def api_summary_levels():
     dim = (request.args.get("dim") or "").strip()
-    data = coding_index()
+    data = coding_index(request.args.get("coder"))
     field, kind = _field_by_name(dim)
     if field is None:
         return jsonify({"dim": dim, "label": dim, "kind": "", "n_levels": 0, "levels": []})
@@ -57,7 +57,7 @@ def api_summary_variables():
     dim = (request.args.get("dim") or "").strip()
     value = request.args.get("value")  # None = no level filter; "" = the blank level
     q = (request.args.get("q") or "").strip().lower()
-    data = coding_index()
+    data = coding_index(request.args.get("coder"))
     field, kind = _field_by_name(dim)
     if dim == "":
         rows, kind = data["experiments"], "experiment"
@@ -96,7 +96,7 @@ def api_summary_save():
         return jsonify({"ok": False, "error": "coder name is required"}), 400
     if not isinstance(edits, dict):
         return jsonify({"ok": False, "error": "no edits to save"}), 400
-    data = coding_index()
+    data = coding_index(coder)
     common_names, dv_names = data["common_names"], data["dv_names"]
     saved = n_fields = 0
     warnings = []
