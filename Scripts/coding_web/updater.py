@@ -202,6 +202,9 @@ def _release_summary(release):
             "name": asset.get("name"),
             "size": int(asset.get("size") or 0),
             "url": asset.get("browser_download_url"),
+            # the API route to the same bytes: github.com/.../releases/download
+            # answers 5xx now and then while the API one still works
+            "api_url": asset.get("url") or "",
             "sha256": digest.split(":", 1)[1] if digest.startswith("sha256:") else "",
         } if asset else None),
     }
@@ -223,8 +226,13 @@ def check(force=False):
             _STATE["checked_at"] = time.time()
             _STATE["error"] = ""
     except urllib.error.HTTPError as exc:
-        message = ("no release has been published yet"
-                   if exc.code == 404 else f"GitHub answered {exc.code}")
+        if exc.code == 404:
+            message = "no release has been published yet"
+        elif exc.code in (403, 429):
+            message = ("GitHub is limiting requests from this network; "
+                       "try again in a few minutes")
+        else:
+            message = f"GitHub answered {exc.code}"
         with _LOCK:
             _STATE["error"] = message
             _STATE["checked_at"] = time.time()
@@ -341,16 +349,43 @@ def download_async():
     return {"ok": True, "started": True}
 
 
+def _open_asset(asset):
+    """Open the asset's bytes, trying every route GitHub offers.
+
+    ``browser_download_url`` first; on a 5xx / network error (GitHub's download
+    host returns 504 for stretches) the API asset URL, which redirects to the
+    same storage.  Two attempts per route, then the last error is raised.
+    """
+    routes = [(asset.get("url"), {})]
+    if asset.get("api_url"):
+        routes.append((asset["api_url"], {"Accept": "application/octet-stream"}))
+    last = None
+    for url, extra in routes:
+        if not url:
+            continue
+        for attempt in range(2):
+            headers = {"User-Agent": f"CodingStudio/{APP_VERSION}", **extra}
+            try:
+                return urllib.request.urlopen(
+                    urllib.request.Request(url, headers=headers), timeout=30)
+            except urllib.error.HTTPError as exc:
+                last = exc
+                if exc.code < 500 and exc.code != 429:
+                    break          # 403/404: another attempt on this route is pointless
+            except Exception as exc:  # noqa: BLE001 - timeouts, resets
+                last = exc
+            time.sleep(1.5)
+    raise last or ValueError("the release asset has no download address")
+
+
 def _download(asset):
     target = os.path.join(_updates_dir(), os.path.basename(asset["name"]))
     part = target + ".part"
     digest = hashlib.sha256()
     received = 0
     try:
-        req = urllib.request.Request(asset["url"], headers={
-            "User-Agent": f"CodingStudio/{APP_VERSION}",
-        })
-        with urllib.request.urlopen(req, timeout=30) as resp, open(part, "wb") as fh:
+        resp = _open_asset(asset)
+        with resp, open(part, "wb") as fh:
             total = int(resp.headers.get("Content-Length") or asset.get("size") or 0)
             with _DL_LOCK:
                 _DOWNLOAD["total"] = total
@@ -551,8 +586,11 @@ def _write_installer_script(installer, exe):
         "setlocal",
         f'set "SETUP={_cmd_quote(installer)}"',
         f'set "EXE={_cmd_quote(exe)}"',
+        f'set "LOG={_cmd_quote(os.path.join(folder, "apply-update.log"))}"',
         *_cmd_wait_lines(),
-        'start "" /wait "%SETUP%" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS',
+        # /LOG keeps Inno's own record, so a failed update can be diagnosed
+        'start "" /wait "%SETUP%" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS '
+        '/LOG="%LOG%"',
         'if exist "%EXE%" start "" "%EXE%"',
         "",
     ])
@@ -625,11 +663,21 @@ def _start_detached(script):
     """Start the update script so it outlives this process."""
     try:
         if sys.platform == "win32":
-            flags = 0
-            for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW"):
-                flags |= getattr(subprocess, name, 0)
-            subprocess.Popen(["cmd", "/c", script], close_fds=True,
-                             creationflags=flags, cwd=os.path.dirname(script))
+            # CREATE_NO_WINDOW gives cmd a hidden console its children
+            # (ping, tasklist) inherit.  DETACHED_PROCESS would override it and
+            # make every child open its own visible console window.
+            flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                     | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            breakaway = 0x01000000    # CREATE_BREAKAWAY_FROM_JOB
+            args = ["cmd", "/c", script]
+            try:
+                # leave a job object that would kill its children with the app
+                subprocess.Popen(args, close_fds=True, creationflags=flags | breakaway,
+                                 cwd=os.path.dirname(script))
+            except OSError:
+                # the job forbids breakaway (access denied): start without it
+                subprocess.Popen(args, close_fds=True, creationflags=flags,
+                                 cwd=os.path.dirname(script))
         else:
             subprocess.Popen(["/bin/sh", script], start_new_session=True,
                              close_fds=True, cwd=os.path.dirname(script))

@@ -297,6 +297,16 @@
     }
   }
 
+  /* POST that keeps the server's own error text: core.js api() throws on a
+     400 and would reduce "the release has no windows-x64 build" to "HTTP 400". */
+  async function postJson(path) {
+    const r = await fetch(path, { method: "POST" });
+    let body = null;
+    try { body = await r.json(); } catch { /* not JSON */ }
+    if (!body) body = { ok: r.ok, error: `${path} → HTTP ${r.status}`, message: `${path} → HTTP ${r.status}` };
+    return body;
+  }
+
   async function installUpdate() {
     const s = state.update;
     if (!s) return;
@@ -304,8 +314,14 @@
     if (dl.status !== "ready") {
       setUpdateStatus("Downloading…");
       try {
-        const r = await api("/api/update/download", { method: "POST" });
-        if (!r.ok) setUpdateStatus(r.error || "The download could not start", "err");
+        const r = await postJson("/api/update/download");
+        if (!r.ok) {
+          setUpdateStatus(r.error || "The download could not start", "err");
+          return;
+        }
+        // refresh first: the cached state still says "idle", and the poll
+        // only runs while the state says "downloading"
+        renderUpdate(await api("/api/update/state"));
       } catch (err) {
         setUpdateStatus("The download could not start: " + (err.message || err), "err");
         return;
@@ -320,7 +336,7 @@
     if (!ok) return;
     setUpdateStatus("Installing…");
     try {
-      const r = await api("/api/update/apply", { method: "POST" });
+      const r = await postJson("/api/update/apply");
       if (!r.ok) {
         setUpdateStatus(r.message || "The update could not be installed", "err");
         return;

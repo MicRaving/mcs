@@ -141,14 +141,22 @@
       actions.classList.remove("is-icon");
       toggles.forEach((t) => t.classList.remove("is-icon"));
     };
-    // what the strip may use: the bar, less its padding, the gap and the
-    // action buttons as they are right now
-    const room = () => bar.clientWidth - 32 - 14 - actions.offsetWidth;
+    // what the strip may use: the bar, less its padding, the gaps and every
+    // OTHER child of the bar as it is right now (the action buttons, and
+    // anything else a view puts there) - measured, not assumed, so a control
+    // that lands outside .actions can never overlap the tabs
+    const cs = getComputedStyle(bar);
+    const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const gap = parseFloat(cs.columnGap || cs.gap) || 14;
+    const others = Array.from(bar.children).filter((c) => c !== strip && c.offsetParent !== null);
+    const room = () => bar.clientWidth - pad - gap * others.length
+      - others.reduce((n, c) => n + c.offsetWidth, 0);
     const fits = () => strip.scrollWidth <= room() + 1;
 
     reset();
-    // 1. the view-specific toggles give up their labels
-    toggles.forEach((t) => t.classList.add("is-icon"));
+    // 1. the view-specific toggles give up their labels - but only when the
+    //    strip does not fit with them (they used to lose them unconditionally)
+    if (!fits()) toggles.forEach((t) => t.classList.add("is-icon"));
     // 2. the tab labels: ALL of them or NONE of them.  A strip with one tab
     //    labelled and the rest as icons reads as broken, so the strip either
     //    shows every name or it shows icons only.
@@ -185,6 +193,23 @@
     fitTopbar();
   }
   window.addEventListener("resize", debouncedFitTopbar);
+  // a view switch shows and hides top-bar buttons (body.view-*): refit then too
+  try {
+    new MutationObserver(debouncedFitTopbar).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  } catch { /* the layout still works without it */ }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(debouncedFitTopbar);
+  window.addEventListener("load", debouncedFitTopbar);
+  // the buttons' own width changes (a longer label, a view's extra button, the
+  // coder field): refit when any of them changes size
+  try {
+    const refit = new ResizeObserver(debouncedFitTopbar);
+    const watch = () => {
+      const a = document.querySelector(".actions");
+      if (a) { refit.observe(a); Array.from(a.children).forEach((c) => refit.observe(c)); }
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch);
+    else watch();
+  } catch { /* the layout still works without it */ }
   if (window.ResizeObserver) {
     // only a change in WIDTH matters: the strip's room depends on it
     try {

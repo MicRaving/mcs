@@ -4530,6 +4530,12 @@
     updateFacetBadge();
     syncWideLayout();
     updateDirty();
+    // the top bar was first measured before the coder field, the saved coder
+    // name and the fonts were in place: measure it again now that they are
+    if (window.CS && typeof window.CS.fitTopbar === "function") {
+      window.CS.fitTopbar();
+      setTimeout(window.CS.fitTopbar, 300);
+    }
   }
 
   function wireEvents() {

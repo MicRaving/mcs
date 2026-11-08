@@ -221,8 +221,29 @@ body.ag-fast .ag-confcard { cursor: pointer; }
 .ag-badge.warn { background: var(--warn-soft, var(--danger-soft)); color: var(--warn, var(--danger)); }
 .ag-badge.ok { background: var(--ok-soft); color: var(--ok); }
 .ag-studybtn.done .t::after {
-  content: " ✓"; color: var(--ok); font-weight: 700;
+  content: " \2713"; color: var(--ok); font-weight: 700;
 }
 .ag-totcounts { display: inline-flex; gap: 6px; align-items: center; }
 .ag-totcounts .ag-badge { white-space: nowrap; }
 .ag-confcard.rateronly { opacity: .82; border-style: dashed; }
+
+/* ---------------------------------------------- conflicts fit the window */
+/* The three columns used vh offsets (82vh, 100vh - 150px) that ignored the
+   page header above them, so the view was taller than the window and the
+   whole page scrolled.  While the Conflicts panel is shown, the view becomes
+   a flex column of exactly the window's height: header and tabs keep their
+   height, the panel takes the rest, and every column scrolls on its own. */
+#view-agreement:has(#ag-panel-conflicts:not([hidden])) { display: flex; flex-direction: column; overflow: hidden; }
+#view-agreement:has(#ag-panel-conflicts:not([hidden])) .ag-page {
+  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-bottom: 12px;
+}
+#ag-panel-conflicts:not([hidden]) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#ag-panel-conflicts:not([hidden]) .ag-conflicts { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+#ag-panel-conflicts .ag-side,
+#ag-panel-conflicts .ag-viewer,
+#ag-panel-conflicts .ag-confmain {
+  position: static; max-height: none; height: 100%; min-height: 0;
+}
+#ag-panel-conflicts .ag-confmain { overflow: hidden; }
+#ag-panel-conflicts .ag-studylist { max-height: 45%; flex: 0 1 auto; }
+#ag-panel-conflicts .ag-fieldlist { max-height: none; flex: 1 1 0; min-height: 80px; }
