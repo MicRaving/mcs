@@ -26,6 +26,12 @@ def prisma_png(counts, path):
     Left track: database/register searches.  Right track: records identified via
     other sources go straight to full-text screening.  Full-text exclusion
     reasons are the named review criteria (criteria with n = 0 are omitted).
+    The flow's excluded branch ("reports not included", PRISMA convention) is
+    the coded-but-excluded-at-full-text box: coded papers carrying a
+    full-text exclusion (``counts["coded_excluded"]``, with the criterion
+    breakdown in ``counts["coded_excluded_reasons"]``) — a population the
+    plain excluded-report panels do not list, because studies excluded at
+    full text are still fully coded by design.
     """
     import math
     from PIL import Image, ImageDraw
@@ -196,20 +202,53 @@ def prisma_png(counts, path):
     d.line([ocx, y_assess + bh, ocx, y_inc + bh // 2], fill="black", width=2)
     arrow(ocx, y_inc + bh // 2, lx + bw, y_inc + bh // 2)
 
+    # ---- the flow's excluded branch: coded but excluded at full text ------
+    # PRISMA convention ("reports not included", with reason): coded papers
+    # carrying a full-text exclusion, with the criterion breakdown line.
+    coded_excl = int(counts.get("coded_excluded", 0) or 0)
+    excl_items = [(str(k), int(v)) for k, v in
+                  (counts.get("coded_excluded_reasons") or {}).items() if int(v)]
+    h_exc = 0
+    if coded_excl or excl_items:
+        title_lines = ["Coded but excluded at full text",
+                       f"(n = {coded_excl:,})"]
+        body_txt = " · ".join(f"{k} (n = {v:,})" for k, v in excl_items)
+        body_lines = wrap(body_txt, f_small, pw - 30) if body_txt else []
+        foot_lines = wrap("(a paper can fail several criteria; "
+                          "the breakdown counts papers per criterion)",
+                          f_small, pw - 30)
+        h_exc = (14 + len(title_lines) * (f_box.size + 6)
+                 + (len(body_lines) + len(foot_lines)) * (f_small.size + 6) + 12)
+        d.rectangle([px, y_inc, px + pw, y_inc + h_exc],
+                   outline="black", width=3, fill="white")
+        cy = y_inc + 10
+        for ln in title_lines:
+            tw = d.textlength(ln, font=f_box)
+            d.text((px + (pw - tw) / 2, cy), ln, font=f_box, fill="black")
+            cy += f_box.size + 6
+        for ln in body_lines + foot_lines:
+            tw = d.textlength(ln, font=f_small)
+            d.text((px + (pw - tw) / 2, cy), ln, font=f_small, fill="black")
+            cy += f_small.size + 6
+        # the branch off the assessment stage, beside the included box
+        y_split = y_assess + bh + max(18, int((y_inc - y_assess - bh) * 0.55))
+        d.line([cx, y_split, px + pw // 2, y_split], fill="black", width=2)
+        arrow(px + pw // 2, y_split, px + pw // 2, y_inc)
+
     # ---- note: the neighbouring counts, labelled so they cannot be read as
     # the included-studies box ------------------------------------------
     note_i = panel_lines(px + pw - lx, [
         ("Papers coded (studies excluded at full text are coded too)", coded),
         ("Included records — of these, duplicate copies of included reports", dup_records),
     ])
-    draw_panel(lx, y_inc + bh + 22, px + pw - lx, "Also reported", note_i)
+    draw_panel(lx, y_inc + max(bh, h_exc) + 22, px + pw - lx, "Also reported", note_i)
 
     # ---- phase labels ----
     vtext(28, (hy + y_id + bh) // 2, "Identification", f_phase)
     vtext(28, (y_scr + y_assess + bh) // 2, "Screening", f_phase)
     vtext(28, y_inc + bh // 2, "Included", f_phase)
 
-    used = y_inc + bh + 22 + panel_h(note_i) + 30
+    used = y_inc + max(bh, h_exc) + 22 + panel_h(note_i) + 30
     img.crop((0, 0, W, min(2400, used))).save(path, "PNG")
     return path
 

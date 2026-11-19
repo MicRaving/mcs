@@ -186,7 +186,10 @@ organisational authors are expected non-"canonical" matches).
 9. **Harmonizer assignments** — coders label missing variables in
    `Datasets/<Key>/<Key> - variable_assignments.csv` (drafts in `Codings/`), applied by the runners'
    post-hook via `Scripts/variable_assignments.py`; `Scripts/audit_assignments.py` checks parity.
-   Coverage gaps are listed by `Scripts/harmonization_coverage.py` (11 essential slots).
+   Coverage gaps are listed by `Scripts/harmonization_coverage.py` (**ten** essential slots;
+   the S10 covariates slot was retired 2026-11-19, owner decision — the `Covariates` coding
+   field was coded in 0 of 1,272 records, so the slot was a permanent gap; existing `cov_*`
+   columns keep flowing through the harmonization layer untouched).
 
 ## Conventions
 - **Temporary files**: every script MUST write intermediates to `temp/` (root-level), never the
@@ -458,7 +461,7 @@ python Scripts/validate_extraction.py             # effect/timing/N gaps -> Resu
 python Scripts/validate_sanity.py                 # title/author + participant-N + garbled-text checks
 python Scripts/audit_harmonizers.py               # harmonizer contract audit (expect 266/266 per clause)
 python Scripts/audit_polarity.py                  # sidecar polarity audit (expect 0 mismatches)
-python Scripts/harmonization_coverage.py          # harmonization coverage matrix (11 essential slots)
+python Scripts/harmonization_coverage.py          # harmonization coverage matrix (ten essential slots; S10 covariates retired 2026-11-19)
 python Scripts/audit_assignments.py               # coder assignments parity (exit 1 on mismatch)
 python Scripts/validate_repro_dossier.py          # per-study reproduction dossier completeness
 python Scripts/parse_reproduction_reports.py      # 5 required report elements (expect 342/342)

@@ -83,7 +83,7 @@ _APA_PRISMA_CACHE = {"mtime": None, "data": None}
 # code (the master's mtime alone cannot see a code change).  Reloading the
 # code still needs an app restart; this only guarantees the fresh code
 # re-counts instead of returning the stale shape.
-_PRISMA_COUNTS_VERSION = 2
+_PRISMA_COUNTS_VERSION = 3
 
 def _short_ft_reason(reason):
     """Shorten the long master-workbook full-text criterion labels for the diagram."""
@@ -156,6 +156,9 @@ def _prisma_counts():
     Returns the structure consumed by ``apa_export.prisma_png`` and the APA
     Methods text (``total``, ``duplicates``, ``abstract_excluded``,
     ``fulltext_assessed``, ``fulltext_excluded``, ``included``, ``coded``,
+    ``coded_excluded`` (coded papers carrying a full-text exclusion, with
+    ``coded_excluded_reasons`` / ``coded_excluded_detail`` for the box's
+    excluded branch and the report's reconciliation note),
     ``tracks``, ...).
     """
     path = os.path.join(S.ROOT, "master_dataset.xlsx")
@@ -188,6 +191,13 @@ def _prisma_counts():
     extraction = flow.get("extraction") or {}
     coded = int(extraction.get("distinct_coded_papers") or 0)
     dup_reports = int(flow.get("duplicate_included_records") or 0)
+    # Coded papers carrying a full-text exclusion - the PRISMA box's excluded
+    # branch.  ONE source (prisma_report.coded_fulltext_excluded, the union of
+    # the coding's own criterion field and the agreed screening file), with
+    # the per-source counts and the master-verdict reconciliation figures.
+    coded_excl = int(flow.get("coded_fulltext_excluded") or 0)
+    coded_excl_reasons = dict(flow.get("coded_fulltext_excluded_by_criterion") or {})
+    coded_excl_detail = dict(flow.get("coded_fulltext_excluded_detail") or {})
 
     abstract_reasons = {_APA_CRIT[c]: 0 for c in ("C1", "C2", "C3", "C4")}
     for reason, n in (flow.get("abstract_excluded_by_reason") or {}).items():
@@ -334,13 +344,20 @@ def _prisma_counts():
         # excluded at full text are still coded by design) and is reported
         # separately as "coded" — never as the included-studies box.
         "included": reports_included, "coded": coded,
+        # the flow's excluded branch: coded papers that carry a full-text
+        # exclusion (union of the coding criterion field and the agreed
+        # screening file), with the criterion breakdown for the box.
+        "coded_excluded": coded_excl,
+        "coded_excluded_reasons": coded_excl_reasons,
+        "coded_excluded_detail": coded_excl_detail,
         "included_records": int(flow.get("included_records") or 0),
         "tracks": tracks, "ft_groups": ft_labels,
         "canonical": {"identified_records": total, "reports": reports,
                       "abstract_excluded": abstract_excluded,
                       "fulltext_excluded": fulltext_excluded,
                       "included_studies": reports_included,
-                      "distinct_coded_papers": coded},
+                      "distinct_coded_papers": coded,
+                      "coded_fulltext_excluded": coded_excl},
     }
     _APA_PRISMA_CACHE.update(mtime=(mtime, _PRISMA_COUNTS_VERSION), data=data)
     return data
@@ -365,6 +382,19 @@ def _excl_types_txt(counts, top=8):
     if extra > 0:
         txt += f"; {extra} further reason(s)"
     return txt
+
+
+def _coded_excl_txt(counts):
+    """The criterion breakdown of the coded-but-excluded branch (C1-C4)."""
+    r = counts.get("coded_excluded_reasons") or {}
+    if not r:
+        return "no criterion recorded"
+    return "; ".join(f"{k} (n = {v:,})" for k, v in r.items())
+
+
+def _ft_src(counts, key):
+    """One figure from the coded-but-excluded detail dict (reconciliation)."""
+    return (counts.get("coded_excluded_detail") or {}).get(key, 0)
 
 
 def _apa_descriptive_tables(keys, records):
@@ -945,8 +975,19 @@ def _apa_context(payload):
         f"{counts.get('included', 0):,} studies were included in the review. "
         f"{counts.get('coded', 0):,} papers carry a full coding — studies that failed a "
         f"criterion are still fully coded (for the coding-reliability routes), so the coded "
-        f"corpus is larger than the included set — and the pooled analyses draw on the "
-        f"studies that contribute at least one poolable eligible contrast (see the "
+        f"corpus is larger than the included set. Of the coded papers, "
+        f"{counts.get('coded_excluded', 0):,} are excluded at full text and are listed as the "
+        f"flow diagram's excluded branch ({_coded_excl_txt(counts)}; a paper can fail several "
+        f"criteria, so the breakdown counts papers per criterion). That branch is the union of "
+        f"the coding's own exclusion field ({_ft_src(counts, 'from_extraction_field'):,} coded "
+        f"papers) and the agreed screening list ({_ft_src(counts, 'from_agreed_file'):,} coded "
+        f"papers; {'present' if _ft_src(counts, 'agreed_file_present') else 'absent in this checkout'}). The master workbook separately "
+        f"records {counts.get('fulltext_excluded', 0):,} full-text-excluded reports; "
+        f"{_ft_src(counts, 'in_master_excluded_reports'):,} of the marked papers sit on a "
+        f"master report excluded at full text, so the coding marker and the screening verdicts "
+        f"agree there and diverge for the rest (a screening-layer reconciliation, reported here "
+        f"rather than forced). The pooled analyses "
+        f"draw on the studies that contribute at least one poolable eligible contrast (see the "
         f"study-characteristics note."]})
     methods.append({"heading": "Data extraction and effect-size computation", "paragraphs": [
         "Each eligible study was coded for sample, design, intervention type, control type, and "
@@ -1037,7 +1078,9 @@ def _apa_context(payload):
                f"criteria ({_excl_types_txt(counts)}), and {counts.get('included', 0):,} studies were "
                f"included in the review ({counts.get('coded', 0):,} papers are coded in total — "
                f"studies excluded at full text are still coded — so the coded corpus is larger "
-               f"than the included set).")
+               f"than the included set; of the coded papers, {counts.get('coded_excluded', 0):,} "
+               f"are excluded at full text and form the diagram's excluded branch, "
+               f"{_coded_excl_txt(counts)}).")
     prisma_sec = {"heading": "Study selection", "paragraphs": [sel_txt], "tables": []}
     if fig:
         prisma_sec["figures"] = [{"title": "PRISMA 2020 flow diagram", "path": fig}]
@@ -1412,9 +1455,11 @@ def api_analysis_prisma_counts():
 
     The UI shows these next to the figure so the populations can never be
     confused: records identified (all master rows), deduplicated reports,
-    screening-included studies (the PRISMA "studies included" box), and the
-    coded-papers count (a different, larger corpus by design).  Cached with
-    the diagram (same master stamp + counts version).
+    screening-included studies (the PRISMA "studies included" box), the
+    coded-but-excluded-at-full-text branch (coded papers carrying a
+    full-text exclusion, with the criterion breakdown), and the coded-papers
+    count (a different, larger corpus by design).  Cached with the diagram
+    (same master stamp + counts version).
     """
     counts = _prisma_counts()
     if not counts:
@@ -1436,6 +1481,12 @@ def api_analysis_prisma_counts():
         "fulltext_assessed": counts.get("fulltext_assessed", 0),
         "fulltext_excluded": counts.get("fulltext_excluded", 0),
         "included_studies": counts.get("included", 0),
+        # the excluded branch of the flow: coded papers carrying a full-text
+        # exclusion (union of the coding criterion field and the agreed
+        # screening file), with the C1-C4 breakdown for the caption.
+        "coded_excluded_at_fulltext": counts.get("coded_excluded", 0),
+        "coded_excluded_by_criterion": counts.get("coded_excluded_reasons") or {},
+        "coded_excluded_detail": counts.get("coded_excluded_detail") or {},
         "included_records": counts.get("included_records", 0),
         "duplicate_included_records": counts.get("duplicate_reports", 0),
         "coded_papers": counts.get("coded", 0),

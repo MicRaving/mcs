@@ -36,17 +36,20 @@ from studio_state import S
 bp = Blueprint("coverage", __name__)
 
 # --- slot vocabulary (mirrors Scripts/harmonization_coverage.py; interface §6 is frozen) ----
+# S10 (covariates) was retired 2026-11-19 (owner decision): its only coding
+# source (the `Covariates` field) was coded in 0 of 1,272 records, so the slot
+# was a permanent gap; the coverage matrix tracks ten essential slots.
 SLOT_ORDER = ["S1", "S2", "S3", "S4", "S5", "S6", "S6cell", "S7", "S8",
-              "S9", "S10", "S11"]
+              "S9", "S11"]
 SLOT_NAMES = {
     "S1": "id", "S2": "condition_col", "S3": "arm_roles", "S4": "dv_pairs",
     "S5": "dv_domain", "S6": "veracity", "S6cell": "veracity_cell",
     "S7": "timepoint", "S8": "dv_polarity", "S9": "exclusions",
-    "S10": "covariates", "S11": "provenance",
+    "S11": "provenance",
 }
 SLOT_WEIGHT = {
     "S1": 2.0, "S2": 5.0, "S3": 4.0, "S4": 2.0, "S5": 4.0, "S6": 5.0,
-    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S10": 1.0, "S11": 1.0,
+    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S11": 1.0,
 }
 
 _FILTERS = ("all", "blocks_sdt", "blocks_did", "blocks_exclusions_on",

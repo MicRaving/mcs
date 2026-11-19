@@ -1714,7 +1714,8 @@
 
   // The labelled numbers behind the diagram, so the boxes can never be read
   // as each other: records identified = master rows; studies included in
-  // review = screening verdict; papers coded = the larger coding corpus.
+  // review = screening verdict; coded but excluded at full text = the flow's
+  // excluded branch; papers coded = the larger coding corpus.
   async function renderPrismaCounts() {
     const host = $("#apa-prisma-counts");
     if (!host) return;
@@ -1726,6 +1727,9 @@
       }
       const src = Object.entries(c.other_sources || {})
         .map(([k, v]) => `${esc(k)}: ${Number(v).toLocaleString()}`).join(" · ");
+      const exclCrit = Object.entries(c.coded_excluded_by_criterion || {})
+        .map(([k, v]) => `${esc(k)}: ${Number(v).toLocaleString()}`).join("; ");
+      const nExcl = Number(c.coded_excluded_at_fulltext || 0).toLocaleString();
       host.hidden = false;
       host.innerHTML =
         `Records identified: <b>${Number(c.records_identified).toLocaleString()}</b> ` +
@@ -1734,6 +1738,8 @@
         `duplicate records removed: <b>${Number(c.duplicates_removed).toLocaleString()}</b> · ` +
         `reports screened: <b>${Number(c.reports).toLocaleString()}</b> · ` +
         `studies included in review (screening verdict “Include”): <b>${Number(c.included_studies).toLocaleString()}</b> · ` +
+        `coded but excluded at full text: <b>${nExcl}</b>` +
+        `${exclCrit ? ` (${exclCrit}; a paper can fail several criteria)` : ""} · ` +
         `papers coded: <b>${Number(c.coded_papers).toLocaleString()}</b> ` +
         `(studies excluded at full text are still coded, so this is larger than the included set; ` +
         `included records ${Number(c.included_records).toLocaleString()}, of which ` +

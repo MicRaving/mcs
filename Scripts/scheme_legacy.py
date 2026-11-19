@@ -130,6 +130,10 @@ DV_LAYOUT = {
 
 #: The harmonization sidecar slots, transcribed from
 #: ``Scripts/harmonization_coverage.py`` and ``Scripts/coding_web/routes_coverage.py``.
+#: S10 (covariates) is RETIRED (owner decision, 2026-11-19): its only coding
+#: source, the ``Covariates`` field, was coded in 0 of 1,272 records and is
+#: hidden from the form; the coverage matrix now tracks ten essential slots
+#: and keeps labelling existing ``cov_*`` columns from the sidecars alone.
 HARMONIZATION_SLOTS = [
     {"id": "S1", "name": "id", "weight": 2.0},
     {"id": "S2", "name": "condition_col", "weight": 5.0},
@@ -141,7 +145,6 @@ HARMONIZATION_SLOTS = [
     {"id": "S7", "name": "timepoint", "weight": 1.0},
     {"id": "S8", "name": "dv_polarity", "weight": 3.0},
     {"id": "S9", "name": "exclusions", "weight": 2.0},
-    {"id": "S10", "name": "covariates", "weight": 1.0},
     {"id": "S11", "name": "provenance", "weight": 1.0},
 ]
 
@@ -311,12 +314,20 @@ VOCAB_OPTION_LABELS = {
 #: * ``Corresponding_Author_*`` - written by the harvest
 #:   (``Scripts/code_corresponding_author.py``); the queue and the agents use
 #:   the file, not the form.
+#: * ``Covariates`` - RETIRED from hand coding (owner decision, 2026-11-19):
+#:   coded in 0 of 1,272 records, and its only consumer (the S10 coverage
+#:   slot) is retired with it (``Scripts/harmonization_coverage.py``).  The
+#:   field STAYS DECLARED so existing stored values keep validating
+#:   (``B_validate`` 828/828); nothing writes it any more, and the
+#:   harmonization layer keeps labelling existing ``cov_*`` columns from the
+#:   sidecars, not from this field.
 FORM_HIDDEN = frozenset({
     "data_available",
     "source_span",
     "Corresponding_Author_Name",
     "Corresponding_Author_Email",
     "Corresponding_Author_Source",
+    "Covariates",
 })
 
 #: ``show_if`` conditions: fields that only matter given a previous answer.

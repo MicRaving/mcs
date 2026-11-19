@@ -34,10 +34,16 @@ from collections import OrderedDict
 from studio_state import S
 
 # ---------------------------------------------------------------------------
-# the eleven questions, in plain words (approved wording)
+# the ten questions, in plain words (approved wording)
 # ---------------------------------------------------------------------------
+# S10 (covariates, "Which columns are covariates (age, politics...)?") was
+# retired 2026-11-19 (owner decision): its only coding source, the
+# `Covariates` field, was coded in 0 of 1,272 records, so the slot asked a
+# question the corpus never answered.  A confirmed S10 answer in an older
+# assignment file still renders (via the .get() fallbacks); the checklist and
+# the queue simply no longer offer the slot.
 SLOT_ORDER = ["S1", "S2", "S3", "S4", "S5", "S6", "S6cell", "S7", "S8",
-              "S9", "S10", "S11"]
+              "S9", "S11"]
 
 #: code -> plain question, short label (chips), one-line hint (tooltips)
 SLOT_QUESTIONS = {
@@ -101,12 +107,6 @@ SLOT_QUESTIONS = {
         "hint": "The authors' own exclusion rules over the flag_* columns "
                 "(which checks gate which outcomes).",
     },
-    "S10": {
-        "question": "Which columns are covariates (age, politics...)?",
-        "short": "Covariates",
-        "hint": "Participant attributes (age, gender, political leaning...) the "
-                "harmonized table carries as cov_* columns.",
-    },
     "S11": {
         "question": "Where did each variable come from (source/derivation)?",
         "short": "Variable sources",
@@ -154,9 +154,6 @@ SLOT_TERM_RE = {
     "S9": re.compile(r"attention\s+check|manipulation\s+check|excluded|"
                      r"removed\s+from\s+(the\s+)?(analysis|sample)|failed\s+(the|a|"
                      r"their)\s+check|did\s+not\s+pass|screened\s+out", re.I),
-    "S10": re.compile(r"age|gender|political\s+(ideology|leaning|orientation|"
-                      r"affiliation)|education\s+level|party\s+identification|"
-                      r"participants\s+reported\s+their", re.I),
     "S11": re.compile(r"codebook|variable\s+names|open-?ended|derived\s+"
                       r"(variable|score|measure)|averaged\s+across|mean\s+of\s+"
                       r"(the\s+)?(three|four|two|three)", re.I),
@@ -166,7 +163,7 @@ SLOT_TERM_RE = {
 _SLOT_KIND = {
     "S1": "column", "S2": "column", "S3": "roles", "S4": "rename",
     "S5": "select", "S6": "select", "S6cell": "pair", "S7": "select",
-    "S8": "select", "S9": "exclusions", "S10": "column", "S11": "note",
+    "S8": "select", "S9": "exclusions", "S11": "note",
 }
 
 #: the assignment field a select-kind answer writes

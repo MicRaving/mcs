@@ -346,7 +346,7 @@
    "group": "Sample detail",
    "type": "list",
    "base_type": "list",
-   "description": "Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none.",
+   "description": "Retired from hand coding (owner decision, 2026-11-19): coded in 0 of 1,272 records and hidden from the coder form (scheme coder.form=hide); nothing writes it any more. The field stays declared so already-stored values keep validating. Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none.",
    "required": false,
    "derived": false,
    "module": null,

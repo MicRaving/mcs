@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Harmonization **coverage matrix** (interface §6).
 
-Derives, for every harmonized study, the status of the 11 essential slots the
+Derives, for every harmonized study, the status of the ten essential slots the
 analysis layer actually needs, so coders can see what is missing and triage it:
 
     S1 id              study_key + artifact + participant id (`pid`)
@@ -13,8 +13,13 @@ analysis layer actually needs, so coders can see what is missing and triage it:
     S7 timepoint       a timepoint (blank = posttest by convention)
     S8 dv_polarity     an orientation on every sidecar DV row
     S9 exclusions      `<Key> - exclusions.csv` rules for the study's `flag_*`
-    S10 covariates     at least one participant `cov_*` column
     S11 provenance     a `<Key> - variables.csv` with `original_variable`s
+
+S10 covariates was retired on 2026-11-19 (owner decision): its only coding
+source (the `Covariates` field) was coded in 0 of 1,272 records, so the slot
+was a permanent gap, not a coverage signal.  Existing `cov_*` columns in the
+wide datasets are untouched and keep flowing through the harmonization layer;
+the coverage matrix simply no longer tracks a covariates slot.
 
 Products
 --------
@@ -77,13 +82,17 @@ DS = os.path.join(ROOT, "Datasets")
 EXTRACTION = os.path.join(ROOT, "Extraction")
 RESULTS = os.path.join(ROOT, "Results")
 
+# S10 (covariates) was retired 2026-11-19 (owner decision): its only coding
+# source, the `Covariates` field, was coded in 0 of 1,272 records, so the
+# slot was a permanent gap.  Existing cov_* columns keep flowing through the
+# harmonization layer untouched; the matrix just no longer tracks the slot.
 SLOT_ORDER = ["S1", "S2", "S3", "S4", "S5", "S6", "S6cell", "S7", "S8",
-              "S9", "S10", "S11"]
+              "S9", "S11"]
 SLOT_NAMES = {
     "S1": "id", "S2": "condition_col", "S3": "arm_roles", "S4": "dv_pairs",
     "S5": "dv_domain", "S6": "veracity", "S6cell": "veracity_cell",
     "S7": "timepoint", "S8": "dv_polarity", "S9": "exclusions",
-    "S10": "covariates", "S11": "provenance",
+    "S11": "provenance",
 }
 SLOT_CODES = set(SLOT_ORDER)
 
@@ -91,7 +100,7 @@ SLOT_CODES = set(SLOT_ORDER)
 #: missing control roles > missing polarity > missing exclusion rules > provenance)
 SLOT_WEIGHT = {
     "S1": 2.0, "S2": 5.0, "S3": 4.0, "S4": 2.0, "S5": 4.0, "S6": 5.0,
-    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S10": 1.0, "S11": 1.0,
+    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S11": 1.0,
 }
 
 _BLANK = {"", "nan", "none", "nat", "<na>"}
@@ -140,19 +149,6 @@ def _is_composite(name, notes=""):
             pass
     return bool(re.search(r"discern|difference|\bdiff\b|minus|\bnet\b|d_prime",
                           str(name or ""), re.I))
-
-
-def _extraction_records(key):
-    p = os.path.join(EXTRACTION, f"{key}.json")
-    if not os.path.isfile(p):
-        return []
-    try:
-        j = json.load(open(p, encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    if isinstance(j, list):
-        return [r for r in j if isinstance(r, dict)]
-    return [j] if isinstance(j, dict) else []
 
 
 def _assignment_index(key, folder):
@@ -420,18 +416,11 @@ def coverage_for_study(key, folder):
         _push("S9", "study", "exclusions.csv", "na", "wide:(no flag_*)",
               "no flag_* columns -> no author exclusion check to encode")
 
-    # -- S10 covariates ----------------------------------------------------
-    cov_cols = [c for c in wide_cols if str(c).startswith("cov_") and not str(c).endswith("_01")]
-    cov_declared = any(_s(c.get("covariate")) for rec in _extraction_records(key)
-                       for c in (rec.get("Covariates") or []) if isinstance(c, dict))
-    if cov_cols:
-        _push("S10", "study", "cov_*", "filled", f"wide:{len(cov_cols)} cov columns")
-    elif cov_declared:
-        _push("S10", "study", "cov_*", "missing", "Extraction:Covariates",
-              "coded covariates but no cov_* column in the wide")
-    else:
-        _push("S10", "study", "cov_*", "na", "Extraction:Covariates:(empty)",
-              "study has no participant covariates")
+    # -- S10 covariates: RETIRED (owner decision, 2026-11-19) ----------------
+    # The slot is no longer tracked: its only coding source (the `Covariates`
+    # field) was coded in 0 of 1,272 records, so the slot was a permanent gap.
+    # Existing cov_* columns in the wide datasets are untouched - the
+    # harmonization layer keeps labelling them from the sidecars.
 
     # -- S11 provenance ----------------------------------------------------
     if os.path.isfile(var_path):
@@ -584,7 +573,7 @@ def _print_summary(m, s, out_path, summ_path):
     print(f"  S5 dv_domain blank : {r_d:>5} rows / {n_d:>3} studies")
     for slot, label in (("S1", "no pid"), ("S2", "no condition column"),
                         ("S3", "no conditions.csv"), ("S9", "flags but no rules"),
-                        ("S11", "no variables.csv"), ("S10", "no covariates")):
+                        ("S11", "no variables.csv")):
         sub = m[(m["slot"] == slot) & (m["status"] == "missing")]
         print(f"  {slot} {label:<22}: {sub['study_key'].nunique():>3} studies")
     amb = m[(m["slot"] == "S7") & (m["status"] == "ambiguous")]["study_key"].nunique()

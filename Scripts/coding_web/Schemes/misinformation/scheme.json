@@ -775,7 +775,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none.",
+   "description": "Retired from hand coding (owner decision, 2026-11-19): coded in 0 of 1,272 records and hidden from the coder form (scheme coder.form=hide); nothing writes it any more. The field stays declared so already-stored values keep validating. Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none.",
    "instruction": "A list-valued field: mark a passage that supports the listed values - one entry per variable the paper controlled for, with the DV it belongs to and the reported correlation when the paper gives one. Empty array if the paper controls for nothing.",
    "show_if": null,
    "required_if": null,
@@ -785,7 +785,8 @@
    "source": {},
    "coder": {
     "auto": true,
-    "hidden": false
+    "hidden": false,
+    "form": "hide"
    }
   },
   {
@@ -11540,11 +11541,6 @@
     "weight": 2.0
    },
    {
-    "id": "S10",
-    "name": "covariates",
-    "weight": 1.0
-   },
-   {
     "id": "S11",
     "name": "provenance",
     "weight": 1.0
@@ -11863,11 +11859,6 @@
     "id": "S9",
     "name": "exclusions",
     "weight": 2.0
-   },
-   {
-    "id": "S10",
-    "name": "covariates",
-    "weight": 1.0
    },
    {
     "id": "S11",

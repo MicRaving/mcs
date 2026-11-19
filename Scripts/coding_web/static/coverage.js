@@ -6,8 +6,10 @@
    finished studies sink to the end).  Everything is named in plain
    words: the readiness sentence spells out the three pool counts, the
    audit chips read as human sentences and click through to the
-   disagreement, the slot chips carry the eleven questions with the
-   S-codes in tooltips only, and each row shows the three pool pills
+   disagreement, the slot chips carry the ten questions with the
+   S-codes in tooltips only (the S10 covariates slot was retired
+   2026-11-19 - its coding field was never coded), and each row shows
+   the three pool pills
    ("Joins the signal-detection pool" / "Joins the pre-post pool" /
    "Author exclusions apply") with a hover that defines the pool and
    names what is still missing.
@@ -284,7 +286,7 @@
       `<span class="cv-study">${sortBtn("study_key", "Study")}</span>` +
       `<span class="cv-score" title="How many questions this study still has to answer (the coverage pipeline's weighted score in the tooltip)">${sortBtn("missingness_score", "Gaps")}</span>` +
       `<span class="cv-flags" title="Which pooled analyses this study can join today - hover each pill for the definition and what is still missing">Pools</span>` +
-      `<span class="cv-slots" title="The eleven harmonization questions - hover a chip for the question and its state">` +
+      `<span class="cv-slots" title="The ten harmonization questions - hover a chip for the question and its state">` +
       slotCodes.map((s) => `<span class="cv-slothead" title="${esc((meta[s] || {}).question || s)}">${esc((meta[s] || {}).short || s)}</span>`).join("") +
       `</span><span class="cv-open"></span></div>`;
     const rows = studies.map((s) => {
