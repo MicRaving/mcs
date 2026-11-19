@@ -137,7 +137,7 @@ def run_harmonizer(folder):
     if not os.path.isfile(h):
         return False, None, "", ""
     proc = subprocess.run([sys.executable, "-X", "utf8", h],
-                          capture_output=True, check=False)
+                          capture_output=True, check=False, cwd=folder)
     return (proc.returncode == 0, proc.returncode,
             proc.stdout.decode("utf-8", "replace"),
             proc.stderr.decode("utf-8", "replace"))

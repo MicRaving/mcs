@@ -37,6 +37,74 @@ FULLTEXT_CRITERIA = [
 ]
 _CRIT_LABEL = {c["value"]: c["label"] for c in FULLTEXT_CRITERIA}
 
+# The CODING field's criterion vocabulary (owner decision 2026-11-19: "the eight
+# fulltext exclusion criteria").  The screening layer keeps its own ten classify
+# options (criteria.json); this is the canonical set the coding field records.
+# ``observational`` folds into C4 (not a primary experimental study); ``other``
+# is an administrative catch-all, never a recorded criterion.
+FIELD_CRITERIA = [
+    {"value": "C1", "label": "No misinformation intervention (C1)",
+     "short": "C1 no intervention"},
+    {"value": "C2", "label": "No control/comparison group (C2)",
+     "short": "C2 no control"},
+    {"value": "C3", "label": "Not English (C3)", "short": "C3 not English"},
+    {"value": "C4", "label": "Not a primary experimental study (C4)",
+     "short": "C4 not experimental"},
+    {"value": "irretrievable", "label": "Fulltext irretrievable",
+     "short": "irretrievable"},
+    {"value": "no_contrast", "label": "No eligible contrast reported",
+     "short": "no eligible contrast"},
+    {"value": "duplicate",
+     "label": "Duplicate/non-independent report of an included study",
+     "short": "duplicate report"},
+    {"value": "domain_mismatch",
+     "label": "Outcome/intervention outside misinformation susceptibility",
+     "short": "outside scope"},
+]
+FIELD_CRITERIA_VALUES = frozenset(c["value"] for c in FIELD_CRITERIA)
+
+# Master / screening label variants that mean one of the eight criteria.
+_CRIT_ALIAS = {
+    "insufficient reporting": "no_contrast",
+    "study ran but no eligible contrast is reported": "no_contrast",
+    "fulltext irretrievable": "irretrievable",
+    "no obtainable copy": "irretrievable",
+    "duplicate of an included study": "duplicate",
+    "non-independent report": "duplicate",
+    "no experimental intervention (observational)": "C4",
+    "not a primary experimental study": "C4",
+    "outcome/intervention outside misinformation susceptibility": "domain_mismatch",
+}
+
+
+def normalize_criterion(text):
+    """Canonical criterion value(s) for a recorded label, alias or value.
+
+    Returns a list of ``FIELD_CRITERIA`` values (C1..C4 tokens are extracted
+    too, so a combined master label yields every criterion it names), or an
+    empty list when nothing maps - the caller must then leave the field blank
+    and record an anomaly ("never invent a criterion").
+    """
+    s = str(text or "").strip()
+    if not s or s == "(unspecified)":
+        return []
+    out = []
+    for code in ("C1", "C2", "C3", "C4"):
+        if code.lower() in s.lower():
+            out.append(code)
+    if out:
+        return out
+    low = s.lower()
+    for alias, value in _CRIT_ALIAS.items():
+        if alias in low:
+            out.append(value)
+    if out:
+        return out
+    for c in FULLTEXT_CRITERIA:
+        if c["value"] in FIELD_CRITERIA_VALUES and c["label"].lower() == low:
+            out.append(c["value"])
+    return out
+
 AGREE_MIN = 2
 
 _MARK_LOCK = threading.Lock()

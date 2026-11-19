@@ -7,7 +7,7 @@ exclusions, and they disagree in both directions:
 * the workbook's screening verdicts exclude reports the coding never marked
   (a coded paper can sit on an ``Exclude``-stage report while every record of
   its ``Extraction/<Key>.json`` leaves ``Fulltext_Exclusion_Criterion`` blank);
-* the coding's ``Fulltext_Exclusion_Criterion`` field (C1-C4) marks papers the
+* the coding's ``Fulltext_Exclusion_Criterion`` field (the eight criteria) marks papers the
   screening verdicts never excluded (some sit on ``Include``-stage reports,
   more on ``Abstract excluded``-stage reports, a few on no master row at all).
 
@@ -16,8 +16,8 @@ Approved rule (this script implements exactly this, nothing more):
 1. A record is FULL-TEXT-EXCLUDED if EITHER source excludes it (UNION).
 2. master -> coding: every coded paper on a master-excluded report gets
    ``Fulltext_Exclusion_Criterion`` set on ALL its records, using the master
-   row's criterion mapped to C1-C4 via ``fulltext_lib.FULLTEXT_CRITERIA``.
-   When the master row's criterion is blank or does not map to C1-C4 the field
+   row's criterion mapped via `fulltext_lib.normalize_criterion` (the eight criteria).
+   When the master row's criterion is blank or does not map to a criterion the field
    is left blank and the paper is listed in the anomalies report - a criterion
    is never invented.  A paper that is already partially marked keeps its own
    coded value everywhere: blank records are completed from the paper's own
@@ -69,17 +69,15 @@ sys.path.insert(0, os.path.join(ROOT, "Scripts"))
 sys.path.insert(0, os.path.join(ROOT, "Scripts", "coding_web"))
 
 import prisma_report as PR  # noqa: E402  (master-row <-> study-key matching)
-import fulltext_lib as FL  # noqa: E402  (FULLTEXT_CRITERIA: the C1-C4 mapping)
+import fulltext_lib as FL  # noqa: E402  (the eight field criteria + the normalizer)
 from studio_lib import atomic_replace  # noqa: E402  (os.replace + lock retry)
 
 FIELD = "Fulltext_Exclusion_Criterion"
-CODES = ("C1", "C2", "C3", "C4")
-#: fulltext_lib's label per C-code (the master-write convention, rule 3).
-CRIT_LABEL = {c["value"]: c["label"] for c in FL.FULLTEXT_CRITERIA
-              if c["value"] in CODES}
-#: fulltext_lib's label (lower-cased) -> C-code, for the master -> coding map.
-LABEL_TO_CODE = {c["label"].lower(): c["value"] for c in FL.FULLTEXT_CRITERIA
-                 if c["value"] in CODES}
+#: the eight field criteria (owner decision 2026-11-19); C1..C4 keep their
+#: canonical order first, then the four non-C criteria in scheme order.
+CODES = tuple(c["value"] for c in FL.FIELD_CRITERIA)
+#: the canonical label per criterion (the master-write convention, rule 3).
+CRIT_LABEL = {c["value"]: c["label"] for c in FL.FIELD_CRITERIA}
 
 EXTRACTION = os.path.join(ROOT, "Extraction")
 BACKUP_DIR = os.path.join(ROOT, "temp", "homog", "backup")
@@ -99,49 +97,35 @@ def _norm(s) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# criterion mapping (master label -> C1-C4); never invents
+# criterion mapping (master label -> the eight criteria); never invents
 # --------------------------------------------------------------------------- #
 def map_label_to_codes(label: str):
-    """Map a master full-text criterion label to C-codes.
+    """Map a master full-text criterion label to the eight field criteria.
 
     Returns ``(codes, how)`` or ``None`` when the label does not map (the
     caller must then leave the coding field blank and record an anomaly -
-    "never invent a criterion").  Preference order: an explicit C1-C4 token
-    in the label, an exact ``fulltext_lib.FULLTEXT_CRITERIA`` label, then the
-    keyword fallback ``routes_apa._crit_label`` uses for the screening layer
-    (the "closest C-code ... when the label maps").
+    "never invent a criterion").  Delegates to
+    ``fulltext_lib.normalize_criterion`` (C1-C4 tokens, the master's label
+    aliases, then an exact canonical label).
     """
-    s = str(label or "").strip()
-    if not s or s == "(unspecified)":
-        return None
-    low = s.lower()
-    codes = [c for c, tok in (("C1", "c1"), ("C2", "c2"),
-                              ("C3", "c3"), ("C4", "c4")) if tok in low]
+    codes = FL.normalize_criterion(label)
     if codes:
-        return codes, "c-token in label"
-    code = LABEL_TO_CODE.get(low)
-    if code:
-        return [code], "fulltext_lib label"
-    # keyword fallback (routes_apa._crit_label): the closest C-code, only
-    # when the label actually names the criterion.
-    if "no misinformation" in low or "unrelated" in low:
-        return ["C1"], "keyword"
-    if "control" in low or "comparison" in low:
-        return ["C2"], "keyword"
-    if "english" in low:
-        return ["C3"], "keyword"
-    if "primary" in low or "experimental" in low:
-        return ["C4"], "keyword"
+        return codes, "fulltext_lib.normalize_criterion"
     return None
 
 
 def record_codes(rec: dict) -> list[str]:
-    """The C-codes one record's field carries (ordered C1..C4)."""
+    """The criteria one record's field carries (canonical order).
+
+    Accepts the eight criteria as values or inside free text, plus the legacy
+    alias strings the schema once offered ("insufficient reporting",
+    "fulltext irretrievable", "duplicate of an included study").
+    """
     v = rec.get(FIELD)
     values = v if isinstance(v, list) else ([v] if v not in (None, "") else [])
     out = []
     for x in values:
-        for part in re.findall(r"C[1-4]", str(x or "").upper()):
+        for part in FL.normalize_criterion(x):
             if part not in out:
                 out.append(part)
     return [c for c in CODES if c in out]
@@ -293,7 +277,7 @@ def build_plan(df, roots, stages, papers: dict[str, Paper]) -> Plan:
                     why = ("blank criterion on the excluded report"
                            if label in ("", "(unspecified)")
                            else f"criterion label {label!r} does not map to "
-                                f"C1-C4; field left blank")
+                                f"the eight criteria; field left blank")
                     plan.anomalies.append(
                         (pkey, "blank_or_unmappable_criterion", why))
                 else:
@@ -497,7 +481,7 @@ def print_plan(plan: Plan, papers: dict[str, Paper]) -> None:
     print("THREE-WAY DIFF (coding field vs master screening verdicts)")
     print("=" * 78)
     n_marked = sum(1 for p in papers.values() if p.marked)
-    print(f"coded papers: {len(papers)}   marked (C1-C4 field): {n_marked}")
+    print(f"coded papers: {len(papers)}   marked (criterion field): {n_marked}")
     print()
     print(f"A. master-excluded but UNMARKED - to be marked (rule 2): "
           f"{len(plan.mark)}")

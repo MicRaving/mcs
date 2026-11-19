@@ -119,9 +119,6 @@ def prisma_png(counts, path):
     db = t.get("database") or {}
     oth = t.get("other") or {}
     included = counts.get("included", 0)
-    coded = counts.get("coded", 0)
-    included_records = counts.get("included_records", 0)
-    dup_records = max(0, included_records - included)
 
     d.text((28, 14), "PRISMA 2020 flow diagram", font=f_title, fill="black")
 
@@ -195,9 +192,11 @@ def prisma_png(counts, path):
     # ---- included (receives both tracks) ----
     arrow(cx, y_assess + bh, cx, y_inc)
     # PRISMA's "studies included in review" = screening-included REPORTS.
-    # The coded-papers count is a different, larger population (studies
-    # excluded at full text are still fully coded) and is disclosed in the
-    # note panel below — never passed off as the included-studies box.
+    # Coded papers beyond the included set are NOT a PRISMA population: the
+    # excluded ones appear only as the flow's excluded branch below, and
+    # nothing else is reported on the diagram (owner decision 2026-11-19:
+    # the former "Also reported" note panel is not part of any PRISMA
+    # specification and was removed).
     box(lx, y_inc, bw, bh, f"Studies included in review\n(n = {included:,})", thick=True)
     d.line([ocx, y_assess + bh, ocx, y_inc + bh // 2], fill="black", width=2)
     arrow(ocx, y_inc + bh // 2, lx + bw, y_inc + bh // 2)
@@ -235,20 +234,17 @@ def prisma_png(counts, path):
         d.line([cx, y_split, px + pw // 2, y_split], fill="black", width=2)
         arrow(px + pw // 2, y_split, px + pw // 2, y_inc)
 
-    # ---- note: the neighbouring counts, labelled so they cannot be read as
-    # the included-studies box ------------------------------------------
-    note_i = panel_lines(px + pw - lx, [
-        ("Papers coded (studies excluded at full text are coded too)", coded),
-        ("Included records — of these, duplicate copies of included reports", dup_records),
-    ])
-    draw_panel(lx, y_inc + max(bh, h_exc) + 22, px + pw - lx, "Also reported", note_i)
+    # ---- note panels end here: no "Also reported" box ----
+    # (removed 2026-11-19, owner decision: not part of any PRISMA
+    #  specification.  Coded-but-excluded papers live in the excluded branch
+    #  above and nowhere else on the diagram.)
 
     # ---- phase labels ----
     vtext(28, (hy + y_id + bh) // 2, "Identification", f_phase)
     vtext(28, (y_scr + y_assess + bh) // 2, "Screening", f_phase)
     vtext(28, y_inc + bh // 2, "Included", f_phase)
 
-    used = y_inc + max(bh, h_exc) + 22 + panel_h(note_i) + 30
+    used = y_inc + max(bh, h_exc) + 40
     img.crop((0, 0, W, min(2400, used))).save(path, "PNG")
     return path
 

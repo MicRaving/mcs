@@ -264,11 +264,17 @@ def coded_papers() -> dict:
 
 
 #: The PRISMA box's short criterion labels (the diagram's breakdown line).
+#: The eight full-text exclusion criteria (owner decision 2026-11-19), in
+#: canonical order; a paper that fails several counts under each.
 CODED_EXCLUSION_SHORT = {
     "C1": "C1 no intervention",
     "C2": "C2 no control",
     "C3": "C3 not English",
-    "C4": "C4 not primary-experimental",
+    "C4": "C4 not experimental",
+    "irretrievable": "irretrievable",
+    "no_contrast": "no eligible contrast",
+    "duplicate": "duplicate report",
+    "domain_mismatch": "outside scope",
 }
 
 
@@ -348,10 +354,10 @@ def coded_fulltext_excluded(papers: dict | None = None) -> dict:
             multi += 1
         for c in crits:
             breakdown[c] = breakdown.get(c, 0) + 1
-    # canonical order first (C1..C4), then anything the sources additionally
-    # carry (the agreed file's own codes, an unusual coding value)
+    # canonical order first (the eight criteria), then anything the sources
+    # additionally carry (an unusual coding value, the agreed file's own codes)
     ordered = {}
-    for code in ("C1", "C2", "C3", "C4"):
+    for code in CODED_EXCLUSION_SHORT:
         if code in breakdown:
             ordered[CODED_EXCLUSION_SHORT[code]] = breakdown.pop(code)
     for code in sorted(breakdown):

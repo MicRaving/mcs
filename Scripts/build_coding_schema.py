@@ -337,57 +337,84 @@ def apply_campaign_overrides(payload):
             "editor": "text",
         })
 
-    # Full-text inclusion criteria (C1-C4): recorded on EVERY coding, so a study that fails an
+    # Full-text inclusion criteria: recorded on EVERY coding, so a study that fails an
     # inclusion criterion is still fully coded / harmonized / reproduced as normal (see AGENTS.md).
+    # The eight full-text exclusion criteria (owner decision 2026-11-19); the
+    # three legacy alias strings become their canonical values.
+    _FT_CRITERIA = [
+        {"value": "C1", "label": "No misinformation intervention (C1)"},
+        {"value": "C2", "label": "No control/comparison group (C2)"},
+        {"value": "C3", "label": "Not English (C3)"},
+        {"value": "C4", "label": "Not a primary experimental study (C4)"},
+        {"value": "irretrievable", "label": "Fulltext irretrievable (no obtainable copy)"},
+        {"value": "no_contrast",
+         "label": "No eligible contrast reported (study ran, but reports none)"},
+        {"value": "duplicate",
+         "label": "Duplicate/non-independent report of an included study"},
+        {"value": "domain_mismatch",
+         "label": "Outcome/intervention outside misinformation susceptibility"},
+    ]
     if not any(f.get("name") == "Fulltext_Exclusion_Criterion" for f in common):
         common.append({
             "name": "Fulltext_Exclusion_Criterion",
-            "label": "Full-text exclusion criterion (C1-C4)",
+            "label": "Full-text exclusion criterion",
             "group": "Metadata & Identification",
             "type": "multiselect",
             "base_type": "string",
             "description": ("Leave EMPTY when the study meets every inclusion criterion. Otherwise "
-                            "list the unmet criterion/criteria: C1 = No misinformation intervention; "
-                            "C2 = No control/comparison group; C3 = Not English; C4 = Not a primary "
-                            "experimental study. A study that fails a criterion is STILL fully coded, "
+                            "list the unmet criterion/criteria - the eight full-text exclusion "
+                            "criteria: C1 = No misinformation intervention; C2 = No "
+                            "control/comparison group; C3 = Not English; C4 = Not a primary "
+                            "experimental study (an observational study with no experimental "
+                            "intervention is C4); irretrievable = full text not obtainable; "
+                            "no_contrast = no eligible contrast reported; duplicate = "
+                            "non-independent report of an included study; domain_mismatch = "
+                            "outcome/intervention outside misinformation susceptibility. "
+                            "A study that fails a criterion is STILL fully coded, "
                             "harmonized and reproduced as normal."),
             "required": False,
             "derived": False,
             "module": None,
             "editor": "multiselect",
-            "options": [
-                {"value": "C1", "label": "No misinformation intervention (C1)"},
-                {"value": "C2", "label": "No control/comparison group (C2)"},
-                {"value": "C3", "label": "Not English (C3)"},
-                {"value": "C4", "label": "Not a primary experimental study (C4)"},
-                # Three non-criterion buckets the screening layer also uses, so the coding and
-                # the screening workbook share ONE canonical vocabulary (2026-10-02):
-                {"value": "insufficient reporting",
-                 "label": "insufficient reporting (study ran, but no eligible contrast is reported)"},
-                {"value": "fulltext irretrievable",
-                 "label": "fulltext irretrievable (no obtainable copy)"},
-                {"value": "duplicate of an included study",
-                 "label": "duplicate of an included study (non-independent report)"},
-            ],
+            "options": [dict(o) for o in _FT_CRITERIA],
         })
 
     # The fallback source (Scripts/coding_web/schema.json) ALREADY contains this field, so the
     # append above is skipped on a rebuild -- re-assert the canonical vocabulary onto whichever
     # instance exists, otherwise the rebuild silently keeps the old option list.
+    # Owner decision 2026-11-19: the eight full-text exclusion criteria.  The
+    # three legacy alias strings ("insufficient reporting", "fulltext
+    # irretrievable", "duplicate of an included study") become their canonical
+    # values (no coding ever carried them, so nothing is re-mapped).
+    _FT_CRITERIA = [
+        {"value": "C1", "label": "No misinformation intervention (C1)"},
+        {"value": "C2", "label": "No control/comparison group (C2)"},
+        {"value": "C3", "label": "Not English (C3)"},
+        {"value": "C4", "label": "Not a primary experimental study (C4)"},
+        {"value": "irretrievable", "label": "Fulltext irretrievable (no obtainable copy)"},
+        {"value": "no_contrast",
+         "label": "No eligible contrast reported (study ran, but reports none)"},
+        {"value": "duplicate",
+         "label": "Duplicate/non-independent report of an included study"},
+        {"value": "domain_mismatch",
+         "label": "Outcome/intervention outside misinformation susceptibility"},
+    ]
     for _f in common:
         if _f.get("name") == "Fulltext_Exclusion_Criterion":
-            _f["options"] = [
-                {"value": "C1", "label": "No misinformation intervention (C1)"},
-                {"value": "C2", "label": "No control/comparison group (C2)"},
-                {"value": "C3", "label": "Not English (C3)"},
-                {"value": "C4", "label": "Not a primary experimental study (C4)"},
-                {"value": "insufficient reporting",
-                 "label": "insufficient reporting (study ran, but no eligible contrast is reported)"},
-                {"value": "fulltext irretrievable",
-                 "label": "fulltext irretrievable (no obtainable copy)"},
-                {"value": "duplicate of an included study",
-                 "label": "duplicate of an included study (non-independent report)"},
-            ]
+            _f["options"] = [dict(o) for o in _FT_CRITERIA]
+            _f["label"] = "Full-text exclusion criterion"
+            _f["description"] = (
+                "Leave EMPTY when the study meets every inclusion criterion. Otherwise "
+                "list the unmet criterion/criteria - the eight full-text exclusion "
+                "criteria: C1 = No misinformation intervention; C2 = No "
+                "control/comparison group; C3 = Not English; C4 = Not a primary "
+                "experimental study (an observational study with no experimental "
+                "intervention is C4); irretrievable = full text not obtainable; "
+                "no_contrast = no eligible contrast reported; duplicate = "
+                "non-independent report of an included study; domain_mismatch = "
+                "outcome/intervention outside misinformation susceptibility. "
+                "A study that fails a criterion is STILL fully coded, harmonized "
+                "and reproduced as normal.")
 
     # Sample group whitelist + Attention_Cues group.
     for f in common:

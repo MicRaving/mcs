@@ -114,9 +114,14 @@ organisational authors are expected non-"canonical" matches).
    `python Scripts/build_coding_schema.py`) and every coding is checked with
    `python Scripts/B_validate.py --dir Extraction`.
    Every coding also sets the common field **`Fulltext_Exclusion_Criterion`**: leave it **empty**
-   when the study meets all inclusion criteria, otherwise list the unmet one(s) — **C1** no
-   misinformation intervention, **C2** no control/comparison group, **C3** not English, **C4** not a
-   primary experimental study.  A study that fails a criterion is **still fully coded, harmonized
+   when the study meets all inclusion criteria, otherwise list the unmet one(s) of the
+   eight full-text exclusion criteria (owner decision 2026-11-19): **C1** no
+   misinformation intervention, **C2** no control/comparison group, **C3** not English,
+   **C4** not a primary experimental study (an observational study is C4),
+   **irretrievable** no obtainable copy, **no_contrast** no eligible contrast reported,
+   **duplicate** non-independent report of an included study, **domain_mismatch**
+   outcome/intervention outside misinformation susceptibility.  A study that fails a
+   criterion is **still fully coded, harmonized
    and reproduced**; the field only keeps the screening layer / PRISMA flow consistent.
    - **Intervention-vs-control contrasts — encode in this preference order.** (a) the
      per-condition descriptives `n/M/SD` (preferred, always poolable); (b) the reported
@@ -262,7 +267,7 @@ after new papers are screened into `Extraction/`: set that task's schedule back 
 Two invariants the MM route must hold, both checked by `mm_verify_all.py`:
 * no `Study_ID` is shared by two study keys (`Study_ID` is the IRR join key) — fix a collision
   with `python Scripts/mm_align_study_ids.py --apply`;
-* `Fulltext_Exclusion_Criterion` carries only `C1`–`C4` or nothing.
+* `Fulltext_Exclusion_Criterion` carries only the eight criteria (`C1`-`C4`, `irretrievable`, `no_contrast`, `duplicate`, `domain_mismatch`) or nothing.
 
 **Coder-agent rules that matter.**  An agent may delete **only** its own scratch folder
 `temp/mm/<Key>/`; the router's state lives in `temp/mm_route/` and must survive.  A coding

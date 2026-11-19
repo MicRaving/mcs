@@ -3002,7 +3002,7 @@
   },
   {
    "name": "Fulltext_Exclusion_Criterion",
-   "label": "Full-text exclusion criterion (C1-C4)",
+   "label": "Full-text exclusion criterion",
    "group": "Metadata & Identification",
    "scope": "study",
    "type": "string",
@@ -3027,16 +3027,20 @@
      "label": "Not a primary experimental study (C4)"
     },
     {
-     "value": "insufficient reporting",
-     "label": "insufficient reporting (study ran, but no eligible contrast is reported)"
+     "value": "irretrievable",
+     "label": "Fulltext irretrievable (no obtainable copy)"
     },
     {
-     "value": "fulltext irretrievable",
-     "label": "fulltext irretrievable (no obtainable copy)"
+     "value": "no_contrast",
+     "label": "No eligible contrast reported (study ran, but reports none)"
     },
     {
-     "value": "duplicate of an included study",
-     "label": "duplicate of an included study (non-independent report)"
+     "value": "duplicate",
+     "label": "Duplicate/non-independent report of an included study"
+    },
+    {
+     "value": "domain_mismatch",
+     "label": "Outcome/intervention outside misinformation susceptibility"
     }
    ],
    "vocab": [],
@@ -3047,7 +3051,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal.\nC1 - No misinformation intervention (C1)\nC2 - No control/comparison group (C2)\nC3 - Not English (C3)\nC4 - Not a primary experimental study (C4)\ninsufficient reporting - the study ran, but no eligible contrast is reported\nfulltext irretrievable - no obtainable copy\nduplicate of an included study - non-independent report",
+   "description": "Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria - the eight full-text exclusion criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study (an observational study with no experimental intervention is C4); irretrievable = full text not obtainable; no_contrast = no eligible contrast reported; duplicate = non-independent report of an included study; domain_mismatch = outcome/intervention outside misinformation susceptibility. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal.",
    "instruction": "Leave it EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria and only those: C1 = no misinformation intervention, C2 = no control/comparison group, C3 = not English, C4 = not a primary experimental study. If the study meets C1-C4 but reports no eligible intervention-vs-control contrast (e.g. every arm is treated), leave the field empty and explain the design fact in Rationale_Notes - never write a label such as 'insufficient reporting' here. A failed criterion never excuses a thin coding: still code every experiment and every DV normally.",
    "show_if": null,
    "required_if": null,
@@ -3883,7 +3887,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "Which two cells this contrast compares.\n1 - Primary treatment vs no-treatment control\n2 - Treatment vs active/placebo control\n3 - Dose-response: different doses compared\n4 - Within-person: the same people, pre vs post\n5 - Factorial main effect: one factor's average\n6 - Simple effect: one cell of a factorial\n7 - Other: describe it\n8 - Misinformation vs no misinformation\n9 - Informative message vs control\n10 - Factorial interaction: factors jointly\n11 - Omnibus model term: a whole-model test - never the eligible primary effect\n12 - Moderator main effect: a moderator's average\n13 - Non-intervention factor: a factor that is not the intervention",
+    "description": "Which two cells this contrast compares.\n1 - Primary treatment vs no-treatment control\n2 - Treatment vs active/placebo control\n3 - Dose-response: different doses compared\n4 - Within-person: the same people, pre vs post\n5 - Factorial main effect: one factor's average\n6 - Simple effect: one cell of a factorial\n7 - Other: describe it\n8 - Misinformation vs no misinformation\n9 - Informative message vs control\n10 - Factorial interaction: factors jointly\n11 - Omnibus model term: a whole-model test - never the eligible primary effect\n12 - Moderator main effect: a moderator's average\n13 - Non-intervention factor: a factor that is not the intervention, 8=Misinformation vs no misinformation, 9=Informative message vs control, 10=Factorial interaction, 11=Omnibus model term, 12=Moderator main effect, 13=Non-intervention factor.",
     "instruction": "1 = primary treatment vs no-treatment control, 2 = treatment vs active/placebo control, 3 = dose-response, 4 = within-person, 5 = factorial main effect, 6 = simple effect, 7 = other, 8 = misinformation vs no misinformation, 9 = informative message vs control, 10 = factorial interaction, 11 = omnibus model term (never eligible), 12 = moderator main effect, 13 = non-intervention factor.",
     "show_if": null,
     "required_if": null,
@@ -11383,12 +11387,12 @@
     "lateral_reading_and_verification": {
      "1": "Sourcing",
      "2": "Lateral Reading",
-     "3": "Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources"
+     "3": "Both/Mixed"
     },
     "sourcing": {
      "1": "Sourcing",
      "2": "Lateral Reading",
-     "3": "Both/Mixed. Sourcing = leaving the original text to assess credibility of authors/publisher via third-party sources"
+     "3": "Both/Mixed"
     }
    },
    "Human_Trainer": {
@@ -11412,7 +11416,7 @@
      "1": "Professional independent fact-checker",
      "2": "Government/public-health institution",
      "3": "Peer/social correction (user comment)",
-     "4": "Algorithmic/ platform system message",
+     "4": "Algorithmic/platform system message",
      "5": "Anonymous/unattributed source",
      "6": "Trusted messenger (e.g. local health worker)",
      "7": "Other"
@@ -11421,14 +11425,14 @@
      "1": "General public/peers",
      "2": "In-group peers",
      "3": "Trained community members",
-     "4": "Expert-verified crowd",
+     "4": "Algorithmic/platform system message",
      "5": "Platform-mediated"
     },
     "warning_and_fact_checking_labels": {
      "1": "Professional fact-checker",
      "2": "Platform/algorithm",
      "3": "Crowd/community",
-     "4": "Government/health authority",
+     "4": "Algorithmic/platform system message",
      "5": "Unattributed"
     }
    },

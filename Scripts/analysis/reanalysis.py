@@ -122,13 +122,18 @@ def dprime(hr, cr, n=None, n_fa=None):
 
 
 def run_harmonizers():
+    """Run every stale per-study harmonizer.py (cwd = the study folder)."""
     ran = failed = 0
     failed_keys = []
     for d in sorted(glob.glob(os.path.join(DS, "*"))):
         h = os.path.join(d, "harmonizer.py")
         if os.path.isfile(h):
+            # cwd = the study folder: a harmonizer that writes its products
+            # with a relative name (some do) must never land them in the
+            # project root (the four "Pimentel (2025) - *.csv" strays were
+            # exactly that).
             proc = subprocess.run([sys.executable, "-X", "utf8", h],
-                                  capture_output=True, check=False)
+                                  capture_output=True, check=False, cwd=d)
             ran += 1
             if proc.returncode != 0:
                 # A crashed harmonizer would otherwise leave a stale CSV that the

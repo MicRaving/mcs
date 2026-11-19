@@ -293,8 +293,8 @@ def main():
         if n_ft_dropped:
             AL.log("fulltext_excluded_dropped", n_dv_rows=n_ft_dropped,
                    n_studies=len(ft_dropped_studies), studies=ft_dropped_studies,
-                   n_agreed_file=len(ft_agreed_keys), n_coding_field=len(ft_field_keys),
-                   agreed_file_only=sorted(set(ft_agreed_keys) - set(ft_field_keys)),
+                   n_coding_field=len(ft_field_keys), n_union_helper=len(ft_agreed_keys),
+                   helper_only=sorted(set(ft_agreed_keys) - set(ft_field_keys)),
                    coding_field_only=sorted(set(ft_field_keys) - set(ft_agreed_keys)))
     # Fully-within (single-arm, no-control) records: excluded from every pooled
     # model by default; opt in with INCLUDE_FULLY_WITHIN=1 / --include-fully-within.
@@ -510,9 +510,9 @@ def main():
     excluded_tbl = pd.DataFrame(SE.table())
     ft_tbl = pd.DataFrame({
         "study_key": ft_dropped_studies,
-        "criterion": ["Full-text exclusion (C1-C4)"] * len(ft_dropped_studies),
-        "source": [("coding field" if k in set(ft_field_keys) else "")
-                   + (" + agreed file" if k in set(ft_agreed_keys) else "")
+        "criterion": ["Full-text exclusion (the eight criteria)"] * len(ft_dropped_studies),
+        "source": [("criterion field" if k in set(ft_field_keys) else "")
+                   + (" + union helper" if k in set(ft_agreed_keys) else "")
                    for k in ft_dropped_studies]})
 
     def safe(df):
@@ -556,7 +556,7 @@ def main():
           f"| DiD guard dropped: {len(did_over)} | missing_metrics_reason dropped: {len(missing_drop)}")
     print(f"fulltext-excluded studies dropped from every pool: "
           f"{len(ft_dropped_studies)} studies / {n_ft_dropped} DV row(s) "
-          f"(coding field: {len(ft_field_keys)}, agreed file: {len(ft_agreed_keys)}); "
+          f"(criterion field: {len(ft_field_keys)}, union helper: {len(ft_agreed_keys)}); "
           f"see sheet 'Fulltext_Excluded' and Results/analysis_log.jsonl "
           f"kind=fulltext_excluded_dropped")
     print(SC.fully_within_report(len(fw_skipped), "record(s)")

@@ -146,9 +146,11 @@ def _prisma_counts():
       * "Records identified"  — every master row (``identified_records``);
       * "Records screened"     — deduplicated reports (``reports``);
       * "Studies included in review" — reports whose screening verdict is
-        Include (``included_studies``); NOT the coded-papers count, which is
-        reported separately ("papers coded") because studies excluded at full
-        text are still fully coded by design (AGENTS.md).
+        Include (``included_studies``); coded papers beyond the included set
+        are NOT a diagram population — the excluded ones appear only as the
+        flow's excluded branch ("coded but excluded at full text"), and
+        nothing else is reported on the diagram (the former "Also reported"
+        note panel was removed 2026-11-19: not in any PRISMA specification).
     The pooled analysis draws on yet another subset (studies with at least one
     poolable eligible contrast — the Analysis tab's "Contrasts (k)" card);
     the APA text says so explicitly rather than letting the numbers contradict.
