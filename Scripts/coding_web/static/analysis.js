@@ -85,7 +85,7 @@
   const COLUMN_LABEL = {
     layer: "Layer", spec: "Specification", exclusions: "Exclusions",
     study_key: "Study", experiment_id: "Experiment", k: "k",
-    n_studies: "Studies", n_quality_excluded: "Excluded (quality guard)",
+    n_studies: "Studies in pool", n_quality_excluded: "Excluded (quality guard)",
     n_data_available: "With primary data", n_paper_only: "Paper only",
     n_fallback_sharing: "Sharing fallback",
     dl_est: "Effect (DL, single-level)", est: "Effect", dl_se: "SE", se: "SE",
@@ -503,7 +503,8 @@
             "Bayesian small-study asymmetry: posterior slope of the effect on its standard error."),
       ] : [kpi("Bayes bias", "–", "not assessed")];
       cards = [
-        kpi("Contrasts (k)", esc(bp.k), `${esc(bp.n_studies ?? "–")} studies`),
+        kpi("Contrasts (k)", esc(bp.k), `${esc(bp.n_studies ?? "–")} studies with ≥1 poolable contrast`,
+            "", "Pooled studies: sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies and of the coded papers."),
         kpi("Pooled effect (Bayes)", fmt(bp.est), `95% CrI [${fmt(bp.lo)}, ${fmt(bp.hi)}]`,
             "", "Posterior mean of the pooled effect (the intended headline)."),
         kpi("P(effect > 0)", fmt(bp.p_gt0, 3), "posterior", bp.p_gt0 >= 0.95 ? "" : "warn",
@@ -520,13 +521,14 @@
       ];
     } else if (state.model === "bayes") {
       cards = [
-        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies`),
+        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies with ≥1 poolable contrast`),
         kpi("Pooled effect (Bayes)", "–", "not estimated"),
         ...bias,
       ];
     } else {
       cards = [
-        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies`),
+        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies with ≥1 poolable contrast`,
+            "", "Pooled studies: sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies and of the coded papers."),
         kpi(state.layer === "sdt" ? "Pooled Δd′ (multilevel, probit units)"
                                   : "Pooled effect (multilevel, Hedges g)",
           esc(est !== null ? fmt(est) : "–"),
@@ -545,6 +547,7 @@
         ? "Units: Δd′ in probit units, from discernment cells of studies with true and false stimuli. It is <b>not</b> comparable with the Meta layer’s Hedges g (SD units, all outcome types, more studies): on the same studies and cells, the SD-unit version of Δd′ lines up with g."
         : "Units: Hedges g (SD units) over all eligible contrasts. The SDT layer reports Δd′ (probit units) on fewer studies, so the two headline numbers are not directly comparable."}` +
         ` Compare the number of contrasts and studies (k) beside each, and the estimator (${state.model === "bayes" ? "Bayesian" : "multilevel; DL/RVE are in the tables"}).</p>` +
+      `<p class="an-note">“Studies” here = sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies in the PRISMA flow (Export tab) and of the coded papers (studies excluded at full text are still coded).</p>` +
       (estimand ? `<p class="an-note an-estimand" title="${esc(estimand)}">` +
         `Estimand: ${esc(estimand)}</p>` : "");
   }
@@ -1706,6 +1709,39 @@
     if (!img) return;
     img.hidden = false;
     img.src = `/api/analysis/prisma.png?t=${Date.now()}`;
+    renderPrismaCounts();
+  }
+
+  // The labelled numbers behind the diagram, so the boxes can never be read
+  // as each other: records identified = master rows; studies included in
+  // review = screening verdict; papers coded = the larger coding corpus.
+  async function renderPrismaCounts() {
+    const host = $("#apa-prisma-counts");
+    if (!host) return;
+    try {
+      const c = await api("/api/analysis/prisma/counts");
+      if (!c || !c.available) {
+        host.hidden = true;
+        return;
+      }
+      const src = Object.entries(c.other_sources || {})
+        .map(([k, v]) => `${esc(k)}: ${Number(v).toLocaleString()}`).join(" · ");
+      host.hidden = false;
+      host.innerHTML =
+        `Records identified: <b>${Number(c.records_identified).toLocaleString()}</b> ` +
+        `(every master_dataset.xlsx row; database searches ${Number(c.database_records).toLocaleString()}` +
+        `${src ? ` + other sources ${Number(c.other_records).toLocaleString()} — ${src}` : ""}) · ` +
+        `duplicate records removed: <b>${Number(c.duplicates_removed).toLocaleString()}</b> · ` +
+        `reports screened: <b>${Number(c.reports).toLocaleString()}</b> · ` +
+        `studies included in review (screening verdict “Include”): <b>${Number(c.included_studies).toLocaleString()}</b> · ` +
+        `papers coded: <b>${Number(c.coded_papers).toLocaleString()}</b> ` +
+        `(studies excluded at full text are still coded, so this is larger than the included set; ` +
+        `included records ${Number(c.included_records).toLocaleString()}, of which ` +
+        `${Number(c.duplicate_included_records).toLocaleString()} duplicate copies) · ` +
+        `pooled-analysis studies (with ≥1 poolable contrast): the “Contrasts (k)” card above.`;
+    } catch {
+      host.hidden = true;
+    }
   }
 
   async function downloadApa() {

@@ -112,7 +112,10 @@ def prisma_png(counts, path):
     t = counts.get("tracks") or {}
     db = t.get("database") or {}
     oth = t.get("other") or {}
-    coded = counts.get("included", 0)
+    included = counts.get("included", 0)
+    coded = counts.get("coded", 0)
+    included_records = counts.get("included_records", 0)
+    dup_records = max(0, included_records - included)
 
     d.text((28, 14), "PRISMA 2020 flow diagram", font=f_title, fill="black")
 
@@ -138,6 +141,10 @@ def prisma_png(counts, path):
     ar_i = panel_lines(pw, [(k, v) for k, v in (db.get("abstract_reasons") or {}).items()])
     ft_i = panel_lines(pw, group_items(db))
     oft_i = panel_lines(opw, group_items(oth))
+    # PRISMA 2020: duplicate RECORDS removed before screening (the count is
+    # canonical, across both tracks).
+    dup_i = panel_lines(pw, [("Duplicate records removed",
+                              counts.get("duplicates", 0))])
 
     y_id = 118
     y_scr = 286
@@ -145,21 +152,24 @@ def prisma_png(counts, path):
     y_inc = y_assess + max(bh, panel_h(ft_i), panel_h(oft_i)) + 36
 
     # ---- left track ----
-    box(lx, y_id, bw, bh, f"Records identified\n(n = {db.get('identified', 0):,})")
+    # Records identified: master ROWS from database exports (the true record
+    # count), not the deduplicated report count.
+    box(lx, y_id, bw, bh, f"Records identified from databases\n(n = {db.get('records', 0):,})")
     box(lx, y_scr, bw, bh, f"Records screened\n(n = {db.get('screened', 0):,})")
     box(lx, y_assess, bw, bh, f"Reports assessed for eligibility\n(n = {db.get('assessed', 0):,})")
     arrow(cx, y_id + bh, cx, y_scr)
     arrow(cx, y_scr + bh, cx, y_assess)
+    draw_panel(px, y_id, pw, "Records removed before screening", dup_i)
+    arrow(lx + bw, y_id + bh // 2, px, y_id + bh // 2)
     draw_panel(px, y_scr, pw, "Records excluded", ar_i)
     arrow(lx + bw, y_scr + bh // 2, px, y_scr + bh // 2)
     draw_panel(px, y_assess, pw, "Records excluded", ft_i)
     arrow(lx + bw, y_assess + bh // 2, px, y_assess + bh // 2)
 
     # ---- right track (sources straight to full text) ----
-    mapping = {"Meta-analyses / reviews": "reviews", "Other sources": "author recommendations"}
     src_lines = []
     for k, v in (oth.get("sources") or {}).items():
-        src_lines += wrap(f"{mapping.get(k, k.lower())} (n = {v:,})", f_small, ow - 24)
+        src_lines += wrap(f"{k} (n = {v:,})", f_small, ow - 24)
     src_h = 16 + (f_box.size + 6) + len(src_lines) * (f_small.size + 6)
     d.rectangle([ox, y_id, ox + ow, y_id + src_h], outline="black", width=2, fill="white")
     cy = y_id + 10
@@ -178,16 +188,28 @@ def prisma_png(counts, path):
 
     # ---- included (receives both tracks) ----
     arrow(cx, y_assess + bh, cx, y_inc)
-    box(lx, y_inc, bw, bh, f"Studies included\n(n = {coded:,})", thick=True)
+    # PRISMA's "studies included in review" = screening-included REPORTS.
+    # The coded-papers count is a different, larger population (studies
+    # excluded at full text are still fully coded) and is disclosed in the
+    # note panel below — never passed off as the included-studies box.
+    box(lx, y_inc, bw, bh, f"Studies included in review\n(n = {included:,})", thick=True)
     d.line([ocx, y_assess + bh, ocx, y_inc + bh // 2], fill="black", width=2)
     arrow(ocx, y_inc + bh // 2, lx + bw, y_inc + bh // 2)
+
+    # ---- note: the neighbouring counts, labelled so they cannot be read as
+    # the included-studies box ------------------------------------------
+    note_i = panel_lines(px + pw - lx, [
+        ("Papers coded (studies excluded at full text are coded too)", coded),
+        ("Included records — of these, duplicate copies of included reports", dup_records),
+    ])
+    draw_panel(lx, y_inc + bh + 22, px + pw - lx, "Also reported", note_i)
 
     # ---- phase labels ----
     vtext(28, (hy + y_id + bh) // 2, "Identification", f_phase)
     vtext(28, (y_scr + y_assess + bh) // 2, "Screening", f_phase)
     vtext(28, y_inc + bh // 2, "Included", f_phase)
 
-    used = y_inc + bh + 30
+    used = y_inc + bh + 22 + panel_h(note_i) + 30
     img.crop((0, 0, W, min(2400, used))).save(path, "PNG")
     return path
 
@@ -336,6 +358,31 @@ def build_docx(ctx, path):
             p3.alignment = WD_ALIGN_PARAGRAPH.LEFT
         return t
 
+    def figure_block(fig):
+        """APA figure: bold number, italic title above the image, then the image.
+
+        The picture is set to the text-column width (the document's existing
+        convention) and then clamped to the usable page height, so a tall
+        per-moderator forest (a capped high-cardinality moderator can be dozens
+        of levels) is scaled down instead of running past the bottom margin.  A
+        picture that cannot be read is skipped (the caption stays); one broken
+        image must not take the whole export down.
+        """
+        p = doc.add_paragraph(); r = p.add_run(f"Figure {ctx['_figure_no']}"); r.bold = True
+        p2 = doc.add_paragraph(); r2 = p2.add_run(fig.get("title", "")); r2.italic = True
+        keep_next(p); keep_next(p2)
+        if fig.get("path") and os.path.exists(fig["path"]):
+            try:
+                pic = doc.add_picture(fig["path"], width=Inches(6.4))
+                max_h = Inches(8.6)
+                if pic.height and pic.height > max_h:
+                    ratio = max_h / pic.height
+                    pic.width = int(pic.width * ratio)
+                    pic.height = int(pic.height * ratio)
+            except Exception:
+                pass
+        ctx["_figure_no"] += 1
+
     # ---------------- Title + Method ----------------
     title = doc.add_paragraph(); tr = title.add_run(ctx.get("title", "Methods and Results"))
     tr.bold = True
@@ -350,12 +397,7 @@ def build_docx(ctx, path):
                         tb.get("note", ""))
             ctx["_table_no"] += 1
         for fig in sec.get("figures", []):
-            p = doc.add_paragraph(); r = p.add_run(f"Figure {ctx['_figure_no']}"); r.bold = True
-            p2 = doc.add_paragraph(); r2 = p2.add_run(fig.get("title", "")); r2.italic = True
-            keep_next(p); keep_next(p2)
-            if fig.get("path") and os.path.exists(fig["path"]):
-                doc.add_picture(fig["path"], width=Inches(6.4))
-            ctx["_figure_no"] += 1
+            figure_block(fig)
 
     # ---------------- Results ----------------
     h(1, "Results")
@@ -368,12 +410,7 @@ def build_docx(ctx, path):
                         tb.get("note", ""))
             ctx["_table_no"] += 1
         for fig in sec.get("figures", []):
-            p = doc.add_paragraph(); r = p.add_run(f"Figure {ctx['_figure_no']}"); r.bold = True
-            p2 = doc.add_paragraph(); r2 = p2.add_run(fig.get("title", "")); r2.italic = True
-            keep_next(p); keep_next(p2)
-            if fig.get("path") and os.path.exists(fig["path"]):
-                doc.add_picture(fig["path"], width=Inches(6.4))
-            ctx["_figure_no"] += 1
+            figure_block(fig)
 
     doc.save(path)
     return path

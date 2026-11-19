@@ -2105,7 +2105,16 @@ def _moderator_single_figure(name, kind, entries, rows):
         ax.set_title(f"{label} (continuous) · k={len(pts)}", fontsize=9)
         ax.grid(alpha=0.25)
     else:
-        entries = entries or []
+        # A level whose pooled estimate is not finite (all-NaN moderator) is
+        # dropped; if none remain the figure is skipped rather than emitted
+        # as an empty frame.
+        def _fin(x):
+            try:
+                return math.isfinite(float(x))
+            except (TypeError, ValueError):
+                return False
+        entries = [e for e in (entries or [])
+                   if _fin(e.get("estimate")) and _fin(e.get("lo")) and _fin(e.get("hi"))]
         if not entries:
             return None
         names = [e["label"] for e in entries][::-1]
