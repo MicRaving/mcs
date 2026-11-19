@@ -670,6 +670,15 @@ def legacy_schema_view(scheme):
         base = field.get("type") or "string"
         options = list(field.get("options") or [])
         vocab = list(field.get("vocab") or [])
+        vocab_labels = {}
+        if options and field.get("editor") in ("multiselect", "chips"):
+            # The scheme may carry human display labels for a token field's
+            # levels.  They ride on ``vocab_labels`` so the coding form can
+            # show them beside every stored token; a value is never touched.
+            vocab_labels = {
+                str(o.get("value")): str(o.get("label"))
+                for o in options if o.get("value") is not None
+            }
         if options and vocab and field.get("editor") in ("multiselect", "chips"):
             # The v3.1 document carried the levels of a multi-label field in
             # its ``vocab`` and left ``options`` empty.  The scheme derives an
@@ -693,7 +702,12 @@ def legacy_schema_view(scheme):
             "editor": field.get("editor") or "text",
             "options": options,
             "vocab": vocab,
+            "vocab_labels": vocab_labels,
             "role": field.get("role"),
+            # the scheme's own coder-visibility mechanisms, passed through so
+            # the form can honor them (fail-open: an absent key shows)
+            "show_if": field.get("show_if") or None,
+            "coder": field.get("coder") or {},
         }
 
     # Every field of the scheme, by name (the first occurrence wins).

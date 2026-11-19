@@ -660,7 +660,9 @@ body.view-analysis #coder-mode { display: none !important; }
 .field-label.has-help::after, .side-hint.has-help::after {
   content: attr(data-help);
   position: absolute; left: 0; bottom: calc(100% + 8px); transform: translateY(4px);
-  width: max-content; max-width: 320px; white-space: normal; text-align: left;
+  /* pre-line: the description's level lines (one per level) each render on
+     their own line, and long lines still wrap */
+  width: max-content; max-width: 320px; white-space: pre-line; text-align: left;
   background: var(--ink); color: var(--panel); font: 500 11.5px/1.45 var(--font);
   padding: 7px 9px; border-radius: var(--r-sm); box-shadow: var(--shadow-2);
   opacity: 0; pointer-events: none; transition: opacity .14s, transform .14s; z-index: 60;

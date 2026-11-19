@@ -106,6 +106,36 @@ VOCAB_FOR_FIELD = {
 
 NUM_RE = re.compile(r"(\d+)\s*=\s*")
 
+# 2026-10-22 label humanization: the level labels a coder SEES live in ONE
+# place - ``scheme_legacy.VOCAB_OPTION_LABELS`` - so a schema.json rebuild and
+# a scheme conversion can never disagree about them.  The stored VALUES are
+# still the raw tokens.
+import scheme_legacy as _SL
+
+SCORE_TYPES_DESCRIPTION = (
+    "How the score is computed (choose all).\n"
+    "separate_true - Separate true: true items scored alone\n"
+    "separate_false - Separate false: false items scored alone\n"
+    "separate_manipulative - Separate manipulative: manipulative items scored alone\n"
+    "separate_nonmanipulative - Separate non-manipulative: clean items scored alone\n"
+    "discernment_difference - Discernment difference: true minus false\n"
+    "composite - Composite: items pooled into one score\n"
+    "signal_detection_auc - SDT AUC: area under the ROC curve\n"
+    "signal_detection_d_prime - SDT d': sensitivity (zHit minus zFA)\n"
+    "signal_detection_c - SDT c: response bias\n"
+    "signal_detection_other - SDT other: another signal-detection index\n"
+    "dichotomous_accuracy - Dichotomous accuracy: 0/1 correct\n"
+    "continuous_accuracy - Continuous accuracy: graded accuracy\n"
+    "proportion - Proportion: a share of responses\n"
+    "proportion_difference - Proportion difference: difference of shares\n"
+    "behavioral_choice - Behavioral choice: an option chosen\n"
+    "count - Count: a number of instances\n"
+    "single_item - Single item: one item only\n"
+    "behavioral_intention - Behavioral intention: self-reported intent\n"
+    "change_score - Change score: post minus pre\n"
+    "other - Other: describe it in Discernment Defined As"
+)
+
 # ---------------------------------------------------------------------------
 # Campaign-level schema corrections (2026-09-19, analysis-tab fix).
 #
@@ -450,7 +480,10 @@ def apply_campaign_overrides(payload):
         if f.get("name") == "Intervention_Type":
             f["vocab"] = list(itypes)
             if "options" in f:
-                f["options"] = [{"value": t, "label": t} for t in itypes]
+                # humanized labels from the ONE table (values stay the tokens)
+                label_of = dict(_SL.VOCAB_OPTION_LABELS.get("Intervention_Type") or [])
+                f["options"] = [{"value": t, "label": label_of.get(t, t)}
+                                for t in itypes]
             if f.get("description"):
                 f["description"] = _drop_retired(
                     f["description"], RETIRED_INTERVENTION_TYPES)
@@ -460,8 +493,7 @@ def apply_campaign_overrides(payload):
         if f.get("name") == "score_types":
             if "vocab" in f:
                 f["vocab"] = list(stypes)
-            f["description"] = ("Controlled multi-label list: " +
-                                ", ".join(stypes) + ".")
+            f["description"] = SCORE_TYPES_DESCRIPTION
 
     # ------------------------------------------------------------------
     # Follow-up moderator-collapse vocabularies (2026-09-19, PI-approved).

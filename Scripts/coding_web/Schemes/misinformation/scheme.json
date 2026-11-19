@@ -198,7 +198,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Merged publication form (one moderator). Controlled vocabulary: paper_peer_reviewed, paper_unreviewed, thesis, dissertation, preprint, working_paper, conference_paper, unpublished_manuscript, report. Splits `paper` into peer-reviewed vs unreviewed.",
+   "description": "Form of the publication.\npaper_peer_reviewed - Paper (peer-reviewed): journal article that passed external peer review\npaper_unreviewed - Paper (unreviewed): article without external peer review\nthesis - Thesis: master's-level thesis\ndissertation - Dissertation: doctoral dissertation\npreprint - Preprint: author-shared, not yet peer reviewed\nworking_paper - Working paper: institute working paper\nconference_paper - Conference paper: proceedings or presentation\nunpublished_manuscript - Unpublished manuscript: not published anywhere\nreport - Report: institutional or technical report",
    "instruction": "Metadata field: read the publication form from page 1 (the journal line, the thesis statement or the preprint banner). Use only the codes in the options list.",
    "show_if": null,
    "required_if": null,
@@ -436,7 +436,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=cell sizes explicitly reported, 0=not reported (must be inferred), null=unclear.",
+   "description": "Does the paper print the per-condition sample sizes?\n0 - not reported (must be inferred): sizes must be derived from the total N\n1 - cell sizes explicitly reported: every condition's n is printed",
    "instruction": "1 = the paper reports the cell size of every condition explicitly, 0 = the cell sizes must be inferred, null = unclear. When you set 0, say in Rationale_Notes how the cell sizes were obtained.",
    "show_if": null,
    "required_if": null,
@@ -469,7 +469,7 @@
     },
     {
      "value": 3,
-     "label": "Other (specify in Rationale_Notes)"
+     "label": "Other (say how in the Rationale Notes)"
     }
    ],
    "vocab": [],
@@ -480,7 +480,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Reported, 2=Equal split of total N, 3=Other (specify in Rationale_Notes).",
+   "description": "How the per-condition sample sizes were obtained.\n1 - Reported: cell sizes printed as-is\n2 - Equal split of total N: assumed n = N / arms\n3 - Other (say how in the Rationale Notes): any other derivation - state it in Rationale Notes",
    "instruction": "1 = the cell sizes are reported, 2 = an equal split of the total N was assumed, 3 = another derivation - then specify it in Rationale_Notes.",
    "show_if": null,
    "required_if": null,
@@ -596,7 +596,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Mean/SD, 2=Median/Range, 3=Categorical band, 4=Not reported.",
+   "description": "How the paper reports age.\n1 - Mean/SD: mean with standard deviation\n2 - Median/Range: median and/or range\n3 - Categorical band: age brackets (e.g. 18-25)\n4 - Not reported: no age information",
    "instruction": "1 = mean/SD, 2 = median/range, 3 = categorical band, 4 = not reported. This field says how the paper reports age; Age_Mean and Age_SD carry the numbers.",
    "show_if": null,
    "required_if": null,
@@ -644,7 +644,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Children, 2=Adolescents, 3=Adults, 4=Mixed. Null if cannot be determined.",
+   "description": "Age group of the sample.\n1 - Children: under ~13\n2 - Adolescents: roughly 13-17\n3 - Adults: 18 and over\n4 - Mixed: more than one age group",
    "instruction": "1 = children, 2 = adolescents, 3 = adults, 4 = mixed. Derive it from the sample the paper describes; null when it cannot be determined.",
    "show_if": null,
    "required_if": null,
@@ -731,7 +731,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Percentages, 2=Counts, 3=Not reported.",
+   "description": "How the paper reports gender.\n1 - Percentages: shares per gender\n2 - Counts: numbers per gender\n3 - Not reported: no gender breakdown",
    "instruction": "1 = the paper reports percentages, 2 = counts, 3 = not reported. Gender_Ratio carries the numbers.",
    "show_if": null,
    "required_if": null,
@@ -882,7 +882,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=sample spans multiple countries, 0=single country, null=unclear.",
+   "description": "Does the sample span more than one country?\n0 - single country\n1 - sample spans multiple countries",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact - the sample spans more than one country (1) or a single country (0). Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -922,7 +922,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Western, 0=not, null=unclear.",
+   "description": "WEIRD-W: is the sample Western? Leave empty when unclear.\n0 - not: not a Western sample\n1 - Western: Western country or population",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact (the sample's Western status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -962,7 +962,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Educated/high-education, 0=not, null=unclear.",
+   "description": "WEIRD-E: is the sample highly educated? Leave empty when unclear.\n0 - not: not education-heavy\n1 - Educated/high-education: university-heavy or highly educated",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact (the sample's education level, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -1002,7 +1002,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Industrialized, 0=not, null=unclear.",
+   "description": "WEIRD-I: industrialized economy? Leave empty when unclear.\n0 - not: not industrialized\n1 - Industrialized: industrialized economy",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact (the sample's industrialized status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -1042,7 +1042,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Rich/high-income, 0=not, null=unclear.",
+   "description": "WEIRD-R: rich / high-income? Leave empty when unclear.\n0 - not: not high-income\n1 - Rich/high-income: rich economy",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact (the sample's income status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -1082,7 +1082,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Democratic, 0=not, null=unclear.",
+   "description": "WEIRD-D: democratic political system? Leave empty when unclear.\n0 - not: not democratic\n1 - Democratic: democratic system",
    "instruction": "A boolean/derived coding: mark the sentence that states the underlying fact (the sample's democratic status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
    "show_if": null,
    "required_if": null,
@@ -1142,7 +1142,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Lab, 2=Field, 3=Classroom, 4=Online panel survey, 5=Online experiment, 6=Simulated field, 7=Other.",
+   "description": "Where the study ran.\n1 - Lab: controlled laboratory setting\n2 - Field: real-world setting\n3 - Classroom: school or university class\n4 - Online panel survey: paid panel (Prolific/MTurk) survey\n5 - Online experiment: web-hosted experiment\n6 - Simulated field: mock feed/site inside the study\n7 - Other: say which in the notes",
    "instruction": "Mark the sentence or the method section that states where the study ran: 1 lab, 2 field, 3 classroom, 4 online panel survey, 5 online experiment, 6 simulated field, 7 other.",
    "show_if": null,
    "required_if": null,
@@ -1197,7 +1197,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Open URL, 2=Upon request, 3=Not available, 4=Not stated.",
+   "description": "Are the study data public?\n1 - Open URL: direct download link given\n2 - Upon request: available on request only\n3 - Not available: no data access\n4 - Not stated: the paper says nothing",
    "instruction": "1 = the paper gives an open URL, 2 = the data are available on request, 3 = the data are not available, 4 = not stated. An absence coding: for 4, mark the nearest relevant statement and say in Rationale_Notes that the paper contains no explicit statement.",
    "show_if": null,
    "required_if": null,
@@ -1300,7 +1300,8 @@
    "source": {},
    "coder": {
     "auto": false,
-    "hidden": false
+    "hidden": false,
+    "form": "hide"
    }
   },
   {
@@ -1330,7 +1331,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=analysis code available, 0=not, null=not stated.",
+   "description": "Is analysis code available? Leave empty when not stated.\n0 - not: no code offered\n1 - analysis code available: code is shared",
    "instruction": "1 = the paper offers analysis code, 0 = it does not, null = not stated. A boolean/derived coding: mark the sentence that states the underlying fact (the availability statement, a repository link or the open-science badge).",
    "show_if": null,
    "required_if": null,
@@ -1374,7 +1375,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=None, 2=Registered (no URL given), 3=Registered (URL given).",
+   "description": "Was the analysis preregistered?\n1 - None: no preregistration\n2 - Registered (no URL given): registered, no link printed\n3 - Registered (URL given): registered with a link",
    "instruction": "1 = no preregistration, 2 = registered but no URL given, 3 = registered with a URL. An absence coding: for 1, mark the nearest relevant statement (e.g. the open-science statement) and say in Rationale_Notes that the paper contains no explicit statement of a preregistration.",
    "show_if": null,
    "required_if": null,
@@ -1407,7 +1408,11 @@
    "moderator": true,
    "description": "URL of the preregistration, or null.",
    "instruction": "Copy the preregistration URL exactly as the paper prints it. Leave it empty when the paper registers without a URL (preregistration_status = 2) or does not register at all.",
-   "show_if": null,
+   "show_if": {
+    "field": "preregistration_status",
+    "op": "equals",
+    "value": 3
+   },
    "required_if": null,
    "module": null,
    "module_options": {},
@@ -1453,7 +1458,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=No mention, 1=Mentioned, 2=Institution named, 3=Institution and protocol number.",
+   "description": "How is ethics approval reported?\n0 - No mention: nothing said\n1 - Mentioned: approval stated\n2 - Institution named: the board/committee is named\n3 - Institution and protocol number: full approval details",
    "instruction": "0 = the paper does not mention ethics, 1 = it mentions ethics approval, 2 = it names the institution, 3 = it gives the institution and the protocol number. Mark the sentence (or the ethics-approval footnote) that states it.",
    "show_if": null,
    "required_if": null,
@@ -1493,7 +1498,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=informed consent reported, 0=not, null=not stated.",
+   "description": "Was informed consent reported? Leave empty when not stated.\n0 - not: consent not reported\n1 - informed consent reported: consent was obtained",
    "instruction": "1 = the paper reports that informed consent was obtained, 0 = it does not, null = not stated. A boolean/derived coding: mark the sentence that states the underlying fact (the consent sentence in the participants or ethics section).",
    "show_if": null,
    "required_if": null,
@@ -1597,7 +1602,11 @@
    "moderator": true,
    "description": "Array of objects, [{\"factor\": string, \"levels\": [string]}].",
    "instruction": "A list-valued field: mark a passage that supports the listed values - one entry per factor with its levels, e.g. [{'factor': 'inoculation', 'levels': ['yes', 'no']}].",
-   "show_if": null,
+   "show_if": {
+    "field": "design_factors",
+    "op": "not_empty",
+    "value": null
+   },
    "required_if": null,
    "module": null,
    "module_options": {},
@@ -1639,7 +1648,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Between-subjects, 2=Within-subjects, 3=Mixed.",
+   "description": "How were participants allocated?\n1 - Between-subjects: each person sees one condition\n2 - Within-subjects: every person sees all conditions\n3 - Mixed: both between and within factors",
    "instruction": "1 = between-subjects, 2 = within-subjects, 3 = mixed. Mark the sentence that states how participants were allocated.",
    "show_if": null,
    "required_if": null,
@@ -1692,7 +1701,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other.",
+   "description": "The unit the analysis treats as one observation.\n1 - Participant: person-level\n2 - Item/headline: stimulus-level\n3 - Dyad/group: pair- or group-level\n4 - Other: say which",
    "instruction": "1 = participant, 2 = item/headline, 3 = dyad/group, 4 = other. Mark the sentence that states the unit the analysis treats as the observation - and set 2 when the paper analyses headlines or claims as the data points.",
    "show_if": null,
    "required_if": null,
@@ -1784,7 +1793,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other.",
+   "description": "What does the control arm receive?\n1 - No-treatment/Passive: nothing or a neutral task\n2 - Placebo (unrelated content): filler content, no intervention\n3 - Active (alternative intervention): a different intervention\n4 - Waitlist: the intervention comes later\n5 - Misinformation-only: misinformation with no counter-content\n6 - Other: say which",
    "instruction": "1 = no-treatment/passive, 2 = placebo (unrelated content), 3 = active (alternative intervention), 4 = waitlist, 5 = misinformation-only, 6 = other. Mark the sentence that describes the control arm. A contrast is eligible_primary = 1 only when this control receives no misinformation intervention of its own.",
    "show_if": null,
    "required_if": null,
@@ -1812,7 +1821,64 @@
    "base_type": "list",
    "nullable": false,
    "editor": "multiselect",
-   "options": [],
+   "options": [
+    {
+     "value": "inoculation",
+     "label": "Inoculation"
+    },
+    {
+     "value": "prebunking_warning",
+     "label": "Prebunking / warning"
+    },
+    {
+     "value": "lateral_reading",
+     "label": "Lateral reading"
+    },
+    {
+     "value": "credibility_labels",
+     "label": "Source-credibility labels"
+    },
+    {
+     "value": "media_literacy_tips",
+     "label": "Media-literacy tips"
+    },
+    {
+     "value": "fact_checking_training",
+     "label": "Fact-checking training"
+    },
+    {
+     "value": "openmindedness_intervention",
+     "label": "Open-mindedness training"
+    },
+    {
+     "value": "debunking_and_rebuttals",
+     "label": "Debunking / rebuttal"
+    },
+    {
+     "value": "community_correction",
+     "label": "Community correction"
+    },
+    {
+     "value": "accuracy_prompts",
+     "label": "Accuracy prompt"
+    },
+    {
+     "value": "friction",
+     "label": "Friction"
+    },
+    {
+     "value": "social_norms",
+     "label": "Social norms"
+    },
+    {
+     "value": "platform_exposure_reduction",
+     "label": "Platform exposure reduction"
+    },
+    {
+     "value": "other",
+     "label": "Other"
+    }
+   ],
    "vocab": [
     "inoculation",
     "prebunking_warning",
@@ -1851,7 +1917,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Multi-label list of intervention types from the merged vocabulary: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Multi-type experiments are allowed (e.g. [\"inoculation\", \"friction\"]). The former intervention_module field was removed on 2026-09-17; the module-specific coding fields are now implied by these types.",
+   "description": "The intervention families this experiment delivers (choose all; multi-type experiments are allowed).\ninoculation - Inoculation: preemptive warning plus refutation builds resistance\nprebunking_warning - Prebunking / warning: a brief warning shown before or beside content\nlateral_reading - Lateral reading: leave the page, check the source elsewhere\ncredibility_labels - Source-credibility labels: trust badges or ratings on sources\nmedia_literacy_tips - Media-literacy tips: short tips for spotting false content\nfact_checking_training - Fact-checking training: a taught fact-checking workflow\nopenmindedness_intervention - Open-mindedness training: actively open-minded thinking, consider-the-opposite\ndebunking_and_rebuttals - Debunking / rebuttal: a correction shown after exposure\ncommunity_correction - Community correction: peer or community notes and flags\naccuracy_prompts - Accuracy prompt: a nudge to think about accuracy\nfriction - Friction: an extra step or pause before sharing\nsocial_norms - Social norms: descriptive or injunctive norm messages\nplatform_exposure_reduction - Platform exposure reduction: downranking, removal or deplatforming\nother - Other: say what in Intervention Type Detail",
    "instruction": "A list-valued field: mark a passage that supports the listed values - one code per intervention the experiment delivers; a multi-type experiment is allowed. When the paper separates the components, keep the `Interventions[]` arms explicit and bind every DV to its arm with `Intervention_ID`.",
    "show_if": null,
    "required_if": null,
@@ -1890,7 +1956,11 @@
    "moderator": true,
    "description": "REQUIRED when Intervention_Type includes \"other\"; specify the combined/specific approach. Otherwise null.",
    "instruction": "REQUIRED when Intervention_Type includes 'other': write the combined or specific approach the paper used. Otherwise leave it empty.",
-   "show_if": null,
+   "show_if": {
+    "field": "Intervention_Type",
+    "op": "contains",
+    "value": "other"
+   },
    "required_if": null,
    "module": null,
    "module_options": {},
@@ -2012,7 +2082,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Text, 2=Video, 3=Game/Gamified, 4=Mixed, 5=Other (specify in detail/notes), 6=Personal training.",
+   "description": "How the intervention is delivered.\n1 - Text: reading material\n2 - Video: video clip or lecture\n3 - Game/Gamified: game or interactive module\n4 - Mixed: more than one modality\n5 - Other (specify in detail/notes): say which\n6 - Personal training: in-person training session",
    "instruction": "1 = text, 2 = video, 3 = game/gamified, 4 = mixed, 5 = other (say which in the notes), 6 = personal training. Mark the method-section sentence that describes the delivery channel.",
    "show_if": null,
    "required_if": null,
@@ -2061,7 +2131,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Single massed session, 2=Spaced (multiple continuous sessions), 3=Boosted (delayed follow-up session).",
+   "description": "How exposure to the intervention is scheduled.\n1 - Single massed session: once, in one block\n2 - Spaced (multiple continuous sessions): repeated over days\n3 - Boosted (delayed follow-up session): an extra later session",
    "instruction": "1 = a single massed session, 2 = spaced over several continuous sessions, 3 = boosted (a delayed follow-up session). Mark the procedure-section sentence that describes the schedule.",
    "show_if": null,
    "required_if": null,
@@ -2105,7 +2175,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Direct Instruction, 2=Guided Inquiry, 3=Co-created/Collaborative.",
+   "description": "Teaching approach of the intervention.\n1 - Direct Instruction: learners are told how to evaluate\n2 - Guided Inquiry: guided discovery with prompts\n3 - Co-created/Collaborative: learners produce the answers together",
    "instruction": "1 = direct instruction, 2 = guided inquiry, 3 = co-created/collaborative. Mark the procedure sentence that describes how the material was taught.",
    "show_if": null,
    "required_if": null,
@@ -2161,7 +2231,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer, 5=Anthropomorphic Agent, 6=Other.",
+   "description": "Who delivers the intervention.\n1 - Researcher: a study team member\n2 - Teacher: a school or university teacher\n3 - Peer: a fellow student or participant\n4 - Computer: software delivers it\n5 - Anthropomorphic Agent: a character, robot or AI persona\n6 - Other: say who",
    "instruction": "1 = researcher, 2 = teacher, 3 = peer, 4 = computer, 5 = anthropomorphic agent, 6 = other. Mark the sentence that names who delivered the intervention.",
    "show_if": null,
    "required_if": null,
@@ -2236,7 +2306,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=None, 1=Knowledge of Results (correct/incorrect), 2=Elaborated (explanation), 3=Forced Mastery.",
+   "description": "Does practice give feedback?\n0 - None: no feedback\n1 - Knowledge of Results (correct/incorrect): right/wrong only\n2 - Elaborated (explanation): why the answer is right\n3 - Forced Mastery: repeat until a criterion is met",
    "instruction": "0 = none, 1 = knowledge of results (correct/incorrect), 2 = elaborated (an explanation), 3 = forced mastery. Mark the procedure sentence that describes the feedback given during the intervention.",
    "show_if": null,
    "required_if": null,
@@ -2271,7 +2341,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Array of applicable strings: [\"Visual Signaling/Highlighting\", \"Explicit Ignore Instructions\", \"Physiological/Emotional Focus\"].",
+   "description": "Cues that hold attention to the message (choose all).\nVisual Signaling/Highlighting: content marked up or highlighted\nExplicit Ignore Instructions: told to ignore the distractor\nPhysiological/Emotional Focus: bodily or emotional engagement cues",
    "instruction": "A list-valued field: mark a passage that supports the listed values - every cue the intervention used to hold attention: visual signalling/highlighting, explicit ignore instructions, physiological/emotional focus.",
    "show_if": null,
    "required_if": null,
@@ -2320,7 +2390,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=Neutral, 1=Intentional Negative Trigger, 2=Humor/Positive Reinforcement.",
+   "description": "Emotional design of the material.\n0 - Neutral: no emotional framing\n1 - Intentional Negative Trigger: fear or threat deliberately evoked\n2 - Humor/Positive Reinforcement: humor or warmth",
    "instruction": "0 = neutral, 1 = intentional negative trigger, 2 = humour/positive reinforcement. Mark the sentence that describes the affective framing of the intervention.",
    "show_if": null,
    "required_if": null,
@@ -2360,7 +2430,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Array of applicable strings: [\"Model teaching\", \"Visual aids\"].",
+   "description": "Media that carry the intervention (choose all).\nVisual aids: charts or infographics\nVideo: moving footage\nAudio: sound only\nText: written material\nInteractive/gamified: clickable or game-like\nModel teaching: demonstration by a model\nPhysical materials: handouts or posters\nOther: say which",
    "instruction": "A list-valued field: mark a passage that supports the listed values - the media supports the intervention used, e.g. ['Model teaching', 'Visual aids'].",
    "show_if": null,
    "required_if": null,
@@ -2398,7 +2468,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Array of applicable strings: [\"Interview techniques\", \"Sketching/narrative\", \"Verbal labelling\"].",
+   "description": "How the intervention communicates (choose all).\nSketching/narrative: drawn or story-based retelling\nVerbal labelling: naming the techniques aloud\nInterview techniques: question-and-answer practice\nGroup discussion: shared deliberation\nDebate: structured pro versus con\nOther: say which",
    "instruction": "A list-valued field: mark a passage that supports the listed values - the communication strategies used, e.g. ['Interview techniques', 'Sketching/narrative', 'Verbal labelling'].",
    "show_if": null,
    "required_if": null,
@@ -2446,7 +2516,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Passive, 2=Active, 3=Constructive, 4=Interactive.",
+   "description": "Learner engagement mode (ICAP).\n1 - Passive: receives only\n2 - Active: does something with the material\n3 - Constructive: generates new content\n4 - Interactive: co-creates with others",
    "instruction": "1 = passive, 2 = active, 3 = constructive, 4 = interactive. Mark the sentence that describes how far the intervention made the learner engage with the material.",
    "show_if": null,
    "required_if": null,
@@ -2490,7 +2560,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Individual, 2=Prosocial, 3=Competitive.",
+   "description": "Social setting of the intervention.\n1 - Individual: done alone\n2 - Prosocial: cooperative\n3 - Competitive: contest framing",
    "instruction": "1 = individual, 2 = prosocial, 3 = competitive. Mark the sentence that describes whether the intervention was done alone, in a prosocial setting or in a competitive one.",
    "show_if": null,
    "required_if": null,
@@ -2530,7 +2600,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=Absent, 1=Present.",
+   "description": "Do learners retrieve the material from memory?\n0 - Absent: no retrieval\n1 - Present: recall is practised",
    "instruction": "0 = absent, 1 = present. Mark the procedure sentence that shows whether the intervention made learners retrieve the material (e.g. practice tests, recall prompts).",
    "show_if": null,
    "required_if": null,
@@ -2570,7 +2640,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=No, 1=Yes (manipulative vs. neutral examples).",
+   "description": "Are manipulative and neutral examples contrasted?\n0 - No: no contrast\n1 - Yes (manipulative vs. neutral examples): the two kinds are shown side by side",
    "instruction": "0 = no, 1 = yes - the intervention contrasted manipulative with neutral examples. Mark the passage that shows the contrast.",
    "show_if": null,
    "required_if": null,
@@ -2610,7 +2680,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=Implicit, 1=Explicit.",
+   "description": "Is the manipulation concept named?\n0 - Implicit: techniques not named\n1 - Explicit: the concept is labelled",
    "instruction": "0 = implicit, 1 = explicit. Mark the passage that shows whether the intervention named the concept explicitly.",
    "show_if": null,
    "required_if": null,
@@ -2650,7 +2720,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=Blocked, 1=Interleaved.",
+   "description": "Is practice mixed or blocked?\n0 - Blocked: one type at a time\n1 - Interleaved: types mixed together",
    "instruction": "0 = blocked, 1 = interleaved. Mark the passage that shows whether the material or the practice was mixed or blocked.",
    "show_if": null,
    "required_if": null,
@@ -2691,7 +2761,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Array of applicable strings: [\"Recall tests\", \"Easy-to-hard sequencing\"].",
+   "description": "Practice formats used (choose all).\nRecall tests: retrieval quizzes\nEasy-to-hard sequencing: difficulty ramps up\nClassification/sorting: sorting items into types\nCompare-and-contrast: side-by-side comparison\nSelf-explanation/reflection: explain your own answer\nGuided practice: scaffolded exercises\nFeedback-based practice: practice driven by feedback\nMedia production: making media oneself\nOther: say which",
    "instruction": "A list-valued field: mark a passage that supports the listed values - the practice strategies used, e.g. ['Recall tests', 'Easy-to-hard sequencing'].",
    "show_if": null,
    "required_if": null,
@@ -2731,7 +2801,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "0=No, 1=Yes (explicit support/indicators).",
+   "description": "Is learner confidence explicitly supported?\n0 - No: no support\n1 - Yes (explicit support/indicators): mastery feedback or efficacy prompts",
    "instruction": "0 = no, 1 = yes - the intervention explicitly supported self-efficacy (e.g. mastery feedback, efficacy statements). Mark the passage that shows it.",
    "show_if": null,
    "required_if": null,
@@ -2775,7 +2845,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Synthetic, 2=Real, 3=Mixed.",
+   "description": "Are the stimuli fabricated for the study?\n1 - Synthetic: made up for the study\n2 - Real: real published content\n3 - Mixed: both kinds",
    "instruction": "1 = synthetic stimuli, 2 = real stimuli, 3 = mixed. Mark the method sentence that says how the stimuli were made.",
    "show_if": null,
    "required_if": null,
@@ -2848,7 +2918,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "1=Headlines, 2=Claims, 3=Source, 4=Headline+Claim, 5=Claim+Source, 6=Headline+Source, 7=Video, 8=Images, 9=Other.",
+   "description": "What the stimuli are.\n1 - Headlines: headline-style posts\n2 - Claims: standalone claims\n3 - Source: source information alone\n4 - Headline+Claim: both\n5 - Claim+Source: both\n6 - Headline+Source: both\n7 - Video: video stimuli\n8 - Images: picture stimuli\n9 - Other: say which",
    "instruction": "1 = headlines, 2 = claims, 3 = source, 4 = headline+claim, 5 = claim+source, 6 = headline+source, 7 = video, 8 = images, 9 = other. Mark the stimuli-section sentence (or the table heading) that names the material.",
    "show_if": null,
    "required_if": null,
@@ -2976,7 +3046,7 @@
    "required": false,
    "derived": false,
    "moderator": true,
-   "description": "Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal.",
+   "description": "Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal.\nC1 - No misinformation intervention (C1)\nC2 - No control/comparison group (C2)\nC3 - Not English (C3)\nC4 - Not a primary experimental study (C4)\ninsufficient reporting - the study ran, but no eligible contrast is reported\nfulltext irretrievable - no obtainable copy\nduplicate of an included study - non-independent report",
    "instruction": "Leave it EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria and only those: C1 = no misinformation intervention, C2 = no control/comparison group, C3 = not English, C4 = not a primary experimental study. If the study meets C1-C4 but reports no eligible intervention-vs-control contrast (e.g. every arm is treated), leave the field empty and explain the design fact in Rationale_Notes - never write a label such as 'insufficient reporting' here. A failed criterion never excuses a thin coding: still code every experiment and every DV normally.",
    "show_if": null,
    "required_if": null,
@@ -3017,7 +3087,8 @@
    "source": {},
    "coder": {
     "auto": true,
-    "hidden": false
+    "hidden": false,
+    "form": "hide"
    }
   },
   {
@@ -3048,7 +3119,8 @@
    "source": {},
    "coder": {
     "auto": true,
-    "hidden": false
+    "hidden": false,
+    "form": "hide"
    }
   },
   {
@@ -3079,7 +3151,8 @@
    "source": {},
    "coder": {
     "auto": true,
-    "hidden": false
+    "hidden": false,
+    "form": "hide"
    }
   },
   {
@@ -3159,7 +3232,44 @@
     "base_type": "list",
     "nullable": false,
     "editor": "multiselect",
-    "options": [],
+    "options": [
+     {
+      "value": "technique_recognition",
+      "label": "Technique recognition"
+     },
+     {
+      "value": "credibility",
+      "label": "Credibility"
+     },
+     {
+      "value": "sharing_intention",
+      "label": "Sharing intention"
+     },
+     {
+      "value": "search_behavior",
+      "label": "Search behavior"
+     },
+     {
+      "value": "attitude_policy",
+      "label": "Attitude / policy"
+     },
+     {
+      "value": "trust",
+      "label": "Trust"
+     },
+     {
+      "value": "media_literacy_attitudes",
+      "label": "Media-literacy attitudes"
+     },
+     {
+      "value": "critical_thinking",
+      "label": "Critical thinking"
+     },
+     {
+      "value": "other",
+      "label": "Other"
+     }
+    ],
     "vocab": [
      "technique_recognition",
      "credibility",
@@ -3205,7 +3315,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19.",
+    "description": "The outcome's domain (choose all).\ntechnique_recognition - Technique recognition: spotting manipulation tactics\ncredibility - Credibility: perceived accuracy or credibility of claims/sources\nsharing_intention - Sharing intention: willingness to share\nsearch_behavior - Search behavior: information-seeking actions\nattitude_policy - Attitude/policy: opinions or policy views\ntrust - Trust: trust in media or institutions\nmedia_literacy_attitudes - Media-literacy attitudes: confidence in one's skills\ncritical_thinking - Critical thinking: general reasoning\nother - Other: say which in the DV name",
     "instruction": "Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they are coded as 'other' (the retired label 'affect' is also read as 'other'). The domain decides dv_polarity: a credibility score is better when it is higher for TRUE news, a sharing score is worse when it is higher for FALSE news, and technique_recognition mixes the two - derive the polarity per DV, never per domain.",
     "show_if": null,
     "required_if": null,
@@ -3227,7 +3337,88 @@
     "base_type": "list",
     "nullable": false,
     "editor": "multiselect",
-    "options": [],
+    "options": [
+     {
+      "value": "separate_true",
+      "label": "Separate true"
+     },
+     {
+      "value": "separate_false",
+      "label": "Separate false"
+     },
+     {
+      "value": "separate_manipulative",
+      "label": "Separate manipulative"
+     },
+     {
+      "value": "separate_nonmanipulative",
+      "label": "Separate non-manipulative"
+     },
+     {
+      "value": "discernment_difference",
+      "label": "Discernment difference"
+     },
+     {
+      "value": "composite",
+      "label": "Composite"
+     },
+     {
+      "value": "signal_detection_auc",
+      "label": "SDT AUC"
+     },
+     {
+      "value": "signal_detection_d_prime",
+      "label": "SDT d'"
+     },
+     {
+      "value": "signal_detection_c",
+      "label": "SDT c"
+     },
+     {
+      "value": "signal_detection_other",
+      "label": "SDT other"
+     },
+     {
+      "value": "dichotomous_accuracy",
+      "label": "Dichotomous accuracy"
+     },
+     {
+      "value": "continuous_accuracy",
+      "label": "Continuous accuracy"
+     },
+     {
+      "value": "proportion",
+      "label": "Proportion"
+     },
+     {
+      "value": "proportion_difference",
+      "label": "Proportion difference"
+     },
+     {
+      "value": "behavioral_choice",
+      "label": "Behavioral choice"
+     },
+     {
+      "value": "count",
+      "label": "Count"
+     },
+     {
+      "value": "single_item",
+      "label": "Single item"
+     },
+     {
+      "value": "behavioral_intention",
+      "label": "Behavioral intention"
+     },
+     {
+      "value": "change_score",
+      "label": "Change score"
+     },
+     {
+      "value": "other",
+      "label": "Other"
+     }
+    ],
     "vocab": [
      "separate_true",
      "separate_false",
@@ -3278,7 +3469,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other.",
+    "description": "How the score is computed (choose all).\nseparate_true - Separate true: true items scored alone\nseparate_false - Separate false: false items scored alone\nseparate_manipulative - Separate manipulative: manipulative items scored alone\nseparate_nonmanipulative - Separate non-manipulative: clean items scored alone\ndiscernment_difference - Discernment difference: true minus false\ncomposite - Composite: items pooled into one score\nsignal_detection_auc - SDT AUC: area under the ROC curve\nsignal_detection_d_prime - SDT d': sensitivity (zHit minus zFA)\nsignal_detection_c - SDT c: response bias\nsignal_detection_other - SDT other: another signal-detection index\ndichotomous_accuracy - Dichotomous accuracy: 0/1 correct\ncontinuous_accuracy - Continuous accuracy: graded accuracy\nproportion - Proportion: a share of responses\nproportion_difference - Proportion difference: difference of shares\nbehavioral_choice - Behavioral choice: an option chosen\ncount - Count: a number of instances\nsingle_item - Single item: one item only\nbehavioral_intention - Behavioral intention: self-reported intent\nchange_score - Change score: post minus pre\nother - Other: describe it in Discernment Defined As",
     "instruction": "Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, signal_detection_other, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them. The veracity component decides dv_polarity: a score that is higher for true news is better, a score that is higher for false news is worse.",
     "show_if": null,
     "required_if": null,
@@ -3349,7 +3540,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=higher score is better/protective, 0=higher score is worse, null=not applicable.",
+    "description": "Direction of a good score (per DV, never assumed).\n1 - higher score is better/protective: more discernment or accuracy\n0 - higher score is worse: more misinformation belief or sharing\n(empty = not applicable)",
     "instruction": "1 = higher is better/protective, 0 = higher is worse, null = not applicable. Derive it per DV, never assume it: more discernment, more credibility for TRUE news, LESS sharing of FALSE news and more analytic processing are better (1). A rating where higher means more belief in or sharing of false information is 0. The polarity depends on the domain and on the stimulus veracity, so read dv_domain and score_types before answering.",
     "show_if": null,
     "required_if": null,
@@ -3409,7 +3600,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=Limited Likert, 2=Slider/continuous, 3=Proportion/percentage, 4=Count, 5=Signal-detection index, 6=Dichotomous, 7=Other.",
+    "description": "The response scale's form.\n1 - Limited Likert: fixed points (e.g. 1-7)\n2 - Slider/continuous: any value in a range\n3 - Proportion/percentage: 0-100 share\n4 - Count: a number of instances\n5 - Signal-detection index: d', AUC or c\n6 - Dichotomous: two values\n7 - Other: say which",
     "instruction": "1 = limited Likert, 2 = slider/continuous, 3 = proportion/percentage, 4 = count, 5 = signal-detection index, 6 = dichotomous, 7 = other.",
     "show_if": null,
     "required_if": null,
@@ -3442,7 +3633,11 @@
     "moderator": true,
     "description": "Number of response scale points, if applicable.",
     "instruction": "The number of response-scale points the DV used (e.g. 7 for a 7-point Likert). Null when the DV is not a scale.",
-    "show_if": null,
+    "show_if": {
+     "field": "scale_type",
+     "op": "not_empty",
+     "value": null
+    },
     "required_if": null,
     "module": null,
     "module_options": {},
@@ -3473,7 +3668,11 @@
     "moderator": true,
     "description": "Minimum possible score/value.",
     "instruction": "The minimum possible score or value of the DV.",
-    "show_if": null,
+    "show_if": {
+     "field": "scale_type",
+     "op": "not_empty",
+     "value": null
+    },
     "required_if": null,
     "module": null,
     "module_options": {},
@@ -3504,7 +3703,11 @@
     "moderator": true,
     "description": "Maximum possible score/value.",
     "instruction": "The maximum possible score or value of the DV.",
-    "show_if": null,
+    "show_if": {
+     "field": "scale_type",
+     "op": "not_empty",
+     "value": null
+    },
     "required_if": null,
     "module": null,
     "module_options": {},
@@ -3679,7 +3882,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=Primary treatment vs no-treatment control, 2=Treatment vs active/placebo control, 3=Dose-response, 4=Within-person, 5=Factorial main effect, 6=Simple effect, 7=Other, 8=Misinformation vs no misinformation, 9=Informative message vs control, 10=Factorial interaction, 11=Omnibus model term, 12=Moderator main effect, 13=Non-intervention factor.",
+    "description": "Which two cells this contrast compares.\n1 - Primary treatment vs no-treatment control\n2 - Treatment vs active/placebo control\n3 - Dose-response: different doses compared\n4 - Within-person: the same people, pre vs post\n5 - Factorial main effect: one factor's average\n6 - Simple effect: one cell of a factorial\n7 - Other: describe it\n8 - Misinformation vs no misinformation\n9 - Informative message vs control\n10 - Factorial interaction: factors jointly\n11 - Omnibus model term: a whole-model test - never the eligible primary effect\n12 - Moderator main effect: a moderator's average\n13 - Non-intervention factor: a factor that is not the intervention",
     "instruction": "1 = primary treatment vs no-treatment control, 2 = treatment vs active/placebo control, 3 = dose-response, 4 = within-person, 5 = factorial main effect, 6 = simple effect, 7 = other, 8 = misinformation vs no misinformation, 9 = informative message vs control, 10 = factorial interaction, 11 = omnibus model term (never eligible), 12 = moderator main effect, 13 = non-intervention factor.",
     "show_if": null,
     "required_if": null,
@@ -3719,7 +3922,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=eligible primary meta-analytic contrast (intervention vs no-inoculation control), 0=not primary, null=unclear.",
+    "description": "Is this the contrast the meta-analysis pools?\n1 - eligible primary meta-analytic contrast (intervention vs no-inoculation control): the intervention versus a control that got no misinformation intervention\n0 - not primary: any other contrast",
     "instruction": "1 = the eligible primary meta-analytic contrast: the primary intervention vs a NO-misinformation-intervention control. 0 = everything else: active comparators, dose contrasts, within-person training gains, moderator terms, omnibus terms, interactions, descriptives and arm-vs-arm contrasts. Never code an omnibus term or a decomposition more than once as eligible.",
     "show_if": null,
     "required_if": null,
@@ -3833,7 +4036,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=Immediate, 2=Delayed, 3=Both, 4=Cross-sectional, 5=Other.",
+    "description": "When the outcome is measured.\n1 - Immediate: right after the intervention\n2 - Delayed: at a follow-up\n3 - Both: immediate and delayed\n4 - Cross-sectional: one shot, no post\n5 - Other: say which",
     "instruction": "1 = immediate, 2 = delayed, 3 = both, 4 = cross-sectional, 5 = other.",
     "show_if": null,
     "required_if": null,
@@ -3866,7 +4069,11 @@
     "moderator": true,
     "description": "Numeric delay in weeks; null if only immediate effects are reported.",
     "instruction": "The numeric delay in weeks between the intervention and the measured outcome; null if only immediate effects are reported.",
-    "show_if": null,
+    "show_if": {
+     "field": "posttest_type",
+     "op": "not_equals",
+     "value": 1
+    },
     "required_if": null,
     "module": null,
     "module_options": {},
@@ -4958,7 +5165,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "1=reported as an inequality (e.g. p<.001), 0=exact value.",
+    "description": "Is the p-value an inequality?\n0 - exact value\n1 - reported as an inequality (e.g. p<.001)",
     "instruction": "1 = the p-value was reported as an inequality (e.g. p < .001), 0 = an exact value.",
     "show_if": null,
     "required_if": null,
@@ -5417,47 +5624,47 @@
     "options": [
      {
       "value": "d",
-      "label": "d"
+      "label": "Cohen's d"
      },
      {
       "value": "g",
-      "label": "g"
+      "label": "Hedges' g"
      },
      {
       "value": "eta2p",
-      "label": "eta2p"
+      "label": "Partial eta squared"
      },
      {
       "value": "beta",
-      "label": "beta"
+      "label": "Regression coefficient"
      },
      {
       "value": "odds_ratio",
-      "label": "odds_ratio"
+      "label": "Odds ratio"
      },
      {
       "value": "r",
-      "label": "r"
+      "label": "Correlation r"
      },
      {
       "value": "means",
-      "label": "means"
+      "label": "Group means/SDs only"
      },
      {
       "value": "none",
-      "label": "none"
+      "label": "None reported"
      },
      {
       "value": "dprime",
-      "label": "dprime"
+      "label": "d' (signal detection)"
      },
      {
       "value": "c",
-      "label": "c"
+      "label": "c criterion (signal detection)"
      },
      {
       "value": "other",
-      "label": "other"
+      "label": "Other (describe in Conversion Method)"
      }
     ],
     "vocab": [],
@@ -5513,7 +5720,7 @@
     "required": false,
     "derived": false,
     "moderator": true,
-    "description": "Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none.",
+    "description": "Which effect size the paper reports.\nd - Cohen's d\ng - Hedges' g\neta2p - Partial eta squared\nbeta - Regression coefficient\nodds_ratio - Odds ratio\nr - Correlation r\nmeans - Group means/SDs only\ndprime - d' (signal detection)\nc - c criterion (signal detection)\nother - Other: describe it in Conversion Method\nnone - None reported",
     "instruction": "Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, means, dprime, c, other, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used. A mis-coded value here silently drops the row from the pool, with nothing in the logs to say why.",
     "show_if": null,
     "required_if": null,
@@ -5823,7 +6030,8 @@
     "source": {},
     "coder": {
      "auto": true,
-     "hidden": false
+     "hidden": false,
+     "form": "hide"
     }
    }
   ],
@@ -6100,7 +6308,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Fact-based, 2=Technique-based, 3=Logic-based.",
+     "description": "What the inoculation teaches resistance to.\n1 - Fact-based: defends specific facts\n2 - Technique-based: exposes manipulation techniques\n3 - Logic-based: teaches the general logic of manipulation",
      "instruction": "1 = fact-based, 2 = technique-based, 3 = logic-based. Mark the sentence that describes what the inoculation taught.",
      "show_if": null,
      "required_if": null,
@@ -6144,7 +6352,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "0=Absent, 1=Implicit, 2=Explicit forewarning.",
+     "description": "Does the message forewarn a threat (a manipulation risk)?\n0 - Absent: no threat\n1 - Implicit: subtly raised\n2 - Explicit forewarning: openly stated up front",
      "instruction": "0 = absent, 1 = implicit, 2 = explicit forewarning. Mark the sentence that shows whether a threat was signalled.",
      "show_if": null,
      "required_if": null,
@@ -6219,7 +6427,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Passive inoculation (text reading, video viewing), 2=Active inoculation (gamified interactive roleplay), 3=Mixed.",
+     "description": "How the inoculation is experienced.\n1 - Passive inoculation (text reading, video viewing): read or watch only\n2 - Active inoculation (gamified interactive roleplay): play a role\n3 - Mixed: both",
      "instruction": "1 = passive inoculation (reading a text, watching a video), 2 = active (gamified, interactive role-play), 3 = mixed. Mark the procedure-section sentence.",
      "show_if": null,
      "required_if": null,
@@ -6267,7 +6475,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "0=None/neutral, 1=Defender perspective, 2=Misinformation creator/evil perspective (e.g. Bad News game), 3=Both.",
+     "description": "Whose perspective the learner takes.\n0 - None/neutral: no role\n1 - Defender perspective: the reader protecting themselves\n2 - Misinformation creator/evil perspective (e.g. Bad News game): play the manipulator\n3 - Both: both perspectives",
      "instruction": "0 = none/neutral, 1 = defender perspective, 2 = misinformation-creator/evil perspective (e.g. the Bad News game), 3 = both.",
      "show_if": null,
      "required_if": null,
@@ -6320,7 +6528,68 @@
      "base_type": "list",
      "nullable": false,
      "editor": "multiselect",
-     "options": [],
+     "options": [
+      {
+       "value": "emotional_manipulation",
+       "label": "Emotional manipulation"
+      },
+      {
+       "value": "fake_experts",
+       "label": "Fake experts"
+      },
+      {
+       "value": "conspiracy",
+       "label": "Conspiracy"
+      },
+      {
+       "value": "polarization",
+       "label": "Polarization"
+      },
+      {
+       "value": "amplification",
+       "label": "Amplification"
+      },
+      {
+       "value": "trolling",
+       "label": "Trolling"
+      },
+      {
+       "value": "naturalistic_fallacy",
+       "label": "Naturalistic fallacy"
+      },
+      {
+       "value": "ad_hominem",
+       "label": "Ad hominem"
+      },
+      {
+       "value": "false_dichotomy",
+       "label": "False dichotomy"
+      },
+      {
+       "value": "coherence_break",
+       "label": "Coherence break"
+      },
+      {
+       "value": "discrediting",
+       "label": "Discrediting"
+      },
+      {
+       "value": "scapegoating",
+       "label": "Scapegoating"
+      },
+      {
+       "value": "false_balance",
+       "label": "False balance"
+      },
+      {
+       "value": "conjunction_fallacy",
+       "label": "Conjunction fallacy"
+      },
+      {
+       "value": "impersonation",
+       "label": "Impersonation"
+      }
+     ],
      "vocab": [
       "emotional_manipulation",
       "fake_experts",
@@ -6345,7 +6614,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Standardized controlled names: [\"emotional_manipulation\", \"fake_experts\", \"conspiracy\", \"polarization\", \"amplification\", \"trolling\", \"naturalistic_fallacy\", \"ad_hominem\", \"false_dichotomy\", \"coherence_break\", \"discrediting\", \"scapegoating\", \"false_balance\"].",
+     "description": "Standardised technique names (choose all).\nemotional_manipulation - Emotional manipulation: plays on feelings\nfake_experts - Fake experts: false authority invoked\nconspiracy - Conspiracy: hidden-motive narrative\npolarization - Polarization: us-versus-them framing\namplification - Amplification: reach inflated (bots, brigading)\ntrolling - Trolling: provocation for disruption\nnaturalistic_fallacy - Naturalistic fallacy: 'natural means good' reasoning\nad_hominem - Ad hominem: attacks the source, not the claim\nfalse_dichotomy - False dichotomy: only two options offered\ncoherence_break - Coherence break: internal inconsistency exploited\ndiscrediting - Discrediting: undermines credible sources\nscapegoating - Scapegoating: blames one group\nfalse_balance - False balance: fringe equals mainstream\nconjunction_fallacy - Conjunction fallacy: plausible detail misleads\nimpersonation - Impersonation: pretends to be another outlet or person",
      "instruction": "A list-valued field: mark a passage that supports the listed values - one standardized name per technique the inoculation refuted, e.g. ['emotional_manipulation', 'fake_experts'].",
      "show_if": null,
      "required_if": null,
@@ -6389,7 +6658,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "0=Absent, 1=Implicit, 2=Explicit.",
+     "description": "How explicit the forewarning is.\n0 - Absent: none\n1 - Implicit: hinted\n2 - Explicit: stated plainly",
      "instruction": "0 = absent, 1 = implicit, 2 = explicit. Mark the sentence that shows how explicitly the threat was forewarned.",
      "show_if": null,
      "required_if": null,
@@ -6429,7 +6698,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Explicit refutation included, 0=Threat forewarning only, null=Unclear.",
+     "description": "Does the inoculation include a refutation?\n0 - Threat forewarning only: a warning, no refutation\n1 - Explicit refutation included: the falsehood is countered",
      "instruction": "1 = an explicit refutation was included, 0 = threat forewarning only, null = unclear. Mark the sentence that shows the refutation.",
      "show_if": null,
      "required_if": null,
@@ -6500,7 +6769,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "0=No booster, 1=Booster administered at follow-up.",
+     "description": "Was a booster given later?\n0 - No booster\n1 - Booster administered at follow-up",
      "instruction": "0 = no booster, 1 = a booster was administered at follow-up. Mark the procedure-section sentence that names the booster session.",
      "show_if": null,
      "required_if": null,
@@ -6533,7 +6802,11 @@
      "moderator": true,
      "description": "Description of any delayed booster session content, or null.",
      "instruction": "A free-text field: describe the content of the delayed booster session. Leave it empty when there was no booster - never invent a value.",
-     "show_if": null,
+     "show_if": {
+      "field": "Booster_Session_Administered",
+      "op": "equals",
+      "value": 1
+     },
      "required_if": null,
      "module": "inoculation",
      "module_options": {},
@@ -6596,7 +6869,40 @@
      "base_type": "list",
      "nullable": false,
      "editor": "chips",
-     "options": [],
+     "options": [
+      {
+       "value": "lateral_reading",
+       "label": "Lateral reading"
+      },
+      {
+       "value": "reverse_image_search",
+       "label": "Reverse image search"
+      },
+      {
+       "value": "click_restraint",
+       "label": "Click restraint"
+      },
+      {
+       "value": "wikipedia_source_tracking",
+       "label": "Wikipedia source tracking"
+      },
+      {
+       "value": "original_context_tracing",
+       "label": "Original context tracing"
+      },
+      {
+       "value": "source_credibility_check",
+       "label": "Source credibility check"
+      },
+      {
+       "value": "fact_checking_site_use",
+       "label": "Fact-checking site use"
+      },
+      {
+       "value": "CRAAP_checklist",
+       "label": "CRAAP checklist"
+      }
+     ],
      "vocab": [],
      "controlled_values": [],
      "legacy_options": [],
@@ -6605,7 +6911,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "List of verification heuristics taught: [\"lateral_reading\", \"reverse_image_search\", \"click_restraint\", \"wikipedia_source_tracking\", \"original_context_tracing\", \"source_credibility_check\", \"fact_checking_site_use\", \"CRAAP_checklist\"].",
+     "description": "Verification heuristics taught (choose all).\nlateral_reading - Lateral reading: open new tabs, check the source elsewhere\nreverse_image_search - Reverse image search: look the image up\nclick_restraint - Click restraint: skim results before clicking\nwikipedia_source_tracking - Wikipedia source tracking: follow the citations\noriginal_context_tracing - Original context tracing: find the original post\nsource_credibility_check - Source credibility check: judge the outlet\nfact_checking_site_use - Fact-checking site use: check a fact-checking site\nCRAAP_checklist - CRAAP checklist: currency, relevance, authority, accuracy, purpose",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the verification heuristics taught, e.g. ['lateral_reading', 'click_restraint'].",
      "show_if": null,
      "required_if": null,
@@ -6665,7 +6971,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Classroom curriculum/course modules (teacher modeling and guided practice), 2=Short standalone instructional video, 3=Gamified interactive learning module, 4=Prompt/pop-up nudge during browsing, 5=Written guidelines/cheatsheet, 6=Self-guided web platform, 7=Other.",
+     "description": "Format of the instruction.\n1 - Classroom curriculum/course modules (teacher modeling and guided practice)\n2 - Short standalone instructional video\n3 - Gamified interactive learning module\n4 - Prompt/pop-up nudge during browsing\n5 - Written guidelines/cheatsheet\n6 - Self-guided web platform\n7 - Other: say which",
      "instruction": "1 = classroom curriculum/course module, 2 = short standalone instructional video, 3 = gamified interactive module, 4 = prompt/pop-up nudge, 5 = written guidelines/cheatsheet, 6 = self-guided web platform, 7 = other.",
      "show_if": null,
      "required_if": null,
@@ -6744,7 +7050,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace), 2=Controlled website credibility judgment task, 3=Self-reported verification-strategy usage, 4=Knowledge/skill assessment quiz.",
+     "description": "How learning is assessed.\n1 - Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace)\n2 - Controlled website credibility judgment task\n3 - Self-reported verification-strategy usage\n4 - Knowledge/skill assessment quiz",
      "instruction": "1 = technique-adoption paradigm (authentic web evaluation with screen recording or digital trace), 2 = controlled website-credibility judgment task, 3 = self-reported verification-strategy usage, 4 = knowledge/skill assessment quiz.",
      "show_if": null,
      "required_if": null,
@@ -6815,7 +7121,24 @@
      "base_type": "list",
      "nullable": false,
      "editor": "chips",
-     "options": [],
+     "options": [
+      {
+       "value": "opened_new_tabs",
+       "label": "Opened new tabs"
+      },
+      {
+       "value": "search_engine_queries",
+       "label": "Search engine queries"
+      },
+      {
+       "value": "time_on_source_domain",
+       "label": "Time on source domain"
+      },
+      {
+       "value": "external_credibility_references",
+       "label": "External credibility references"
+      }
+     ],
      "vocab": [],
      "controlled_values": [],
      "legacy_options": [],
@@ -6824,7 +7147,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "List of tracked metrics: [\"opened_new_tabs\", \"search_engine_queries\", \"time_on_source_domain\", \"external_credibility_references\"].",
+     "description": "Tracked web navigation metrics (choose all).\nopened_new_tabs - Opened new tabs: tab opens while evaluating\nsearch_engine_queries - Search engine queries: searches issued\ntime_on_source_domain - Time on source domain: dwell time per domain\nexternal_credibility_references - External credibility references: credibility sources opened",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the tracked metrics, e.g. ['opened_new_tabs', 'time_on_source_domain'].",
      "show_if": null,
      "required_if": null,
@@ -6876,7 +7199,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Middle/high-school students, 2=College/university students, 3=General adult public, 4=Older adults, 5=Professionals (e.g. teachers, journalists).",
+     "description": "Who the training targets.\n1 - Middle/high-school students\n2 - College/university students\n3 - General adult public\n4 - Older adults\n5 - Professionals (e.g. teachers, journalists)",
      "instruction": "1 = middle/high-school students, 2 = college/university students, 3 = general adult public, 4 = older adults, 5 = professionals (teachers, journalists).",
      "show_if": null,
      "required_if": null,
@@ -6909,7 +7232,7 @@
       },
       {
        "value": 3,
-       "label": "Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources"
+       "label": "Both/Mixed"
       }
      ],
      "vocab": [],
@@ -6920,7 +7243,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Sourcing, 2=Lateral Reading, 3=Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources.",
+     "description": "Which source-evaluation concept is taught.\n1 - Sourcing: judge the source at hand\n2 - Lateral Reading: leave the page, check the source elsewhere\n3 - Both/Mixed: both concepts",
      "instruction": "1 = sourcing, 2 = lateral reading, 3 = both/mixed. Sourcing = leaving the text to assess the author/publisher via third-party sources; lateral reading = reading what other sources say about the source.",
      "show_if": null,
      "required_if": null,
@@ -6937,7 +7260,7 @@
        },
        {
         "value": 3,
-        "label": "Both/Mixed. Sourcing = leaving the original text to assess credibility of authors/publisher via third-party sources"
+        "label": "Both/Mixed"
        }
       ]
      },
@@ -6997,7 +7320,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Array: [\"Explicit strategy instruction\", \"Modeling/demonstration\", \"Scaffolded practice\", \"Feedback\", \"Group discussion\"].",
+     "description": "Training strategies used (choose all).\nExplicit strategy instruction: the strategy is taught directly\nModeling/demonstration: shown an example\nScaffolded practice: guided exercises\nFeedback: answers get a response\nGroup discussion: talked through together",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the training strategies used, e.g. ['Explicit strategy instruction', 'Modeling/demonstration'].",
      "show_if": null,
      "required_if": null,
@@ -7049,7 +7372,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Researcher, 2=Teacher, 3=Peer, 4=Computer/AI, 5=Other.",
+     "description": "Who delivers the training.\n1 - Researcher\n2 - Teacher\n3 - Peer\n4 - Computer/AI\n5 - Other: say who",
      "instruction": "1 = researcher, 2 = teacher, 3 = peer, 4 = computer/AI, 5 = other. Mark the sentence that names who delivered the training.",
      "show_if": null,
      "required_if": null,
@@ -7106,7 +7429,52 @@
      "base_type": "list",
      "nullable": false,
      "editor": "chips",
-     "options": [],
+     "options": [
+      {
+       "value": "be_skeptical_of_headlines",
+       "label": "Be skeptical of headlines"
+      },
+      {
+       "value": "inspect_the_url",
+       "label": "Inspect the URL"
+      },
+      {
+       "value": "investigate_the_source",
+       "label": "Investigate the source"
+      },
+      {
+       "value": "watch_for_unusual_formatting",
+       "label": "Watch for unusual formatting"
+      },
+      {
+       "value": "check_the_photos_images",
+       "label": "Check the photos/images"
+      },
+      {
+       "value": "inspect_dates",
+       "label": "Inspect dates"
+      },
+      {
+       "value": "check_evidence_and_references",
+       "label": "Check evidence and references"
+      },
+      {
+       "value": "cross_check_other_reports",
+       "label": "Cross-check other reports"
+      },
+      {
+       "value": "check_if_satire",
+       "label": "Check if it is satire"
+      },
+      {
+       "value": "consider_the_source",
+       "label": "Consider the source"
+      },
+      {
+       "value": "look_for_expert_consensus",
+       "label": "Look for expert consensus"
+      }
+     ],
      "vocab": [],
      "controlled_values": [],
      "legacy_options": [],
@@ -7115,7 +7483,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Subset of tips: [\"be_skeptical_of_headlines\", \"inspect_the_url\", \"investigate_the_source\", \"watch_for_unusual_formatting\", \"check_the_photos_images\", \"inspect_dates\", \"check_evidence_and_references\", \"cross_check_other_reports\", \"check_if_satire\", \"consider_the_source\", \"look_for_expert_consensus\"].",
+     "description": "The tips actually delivered (choose all).\nbe_skeptical_of_headlines - Be skeptical of headlines\ninspect_the_url - Inspect the URL\ninvestigate_the_source - Investigate the source\nwatch_for_unusual_formatting - Watch for unusual formatting\ncheck_the_photos_images - Check the photos/images\ninspect_dates - Inspect dates\ncheck_evidence_and_references - Check evidence and references\ncross_check_other_reports - Cross-check other reports\ncheck_if_satire - Check if it is satire\nconsider_the_source - Consider the source\nlook_for_expert_consensus - Look for expert consensus",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the tips actually delivered, e.g. ['be_skeptical_of_headlines', 'inspect_the_url'].",
      "show_if": null,
      "required_if": null,
@@ -7171,7 +7539,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Static graphic/infographic embedded in feed/survey, 2=Platform advertisement/sponsored post (e.g. Meta tips campaign), 3=Text message/ WhatsApp micro-course, 4=Print pamphlet/flyer, 5=Short video clip, 6=Other.",
+     "description": "How the tips reach the user.\n1 - Static graphic/infographic embedded in feed/survey\n2 - Platform advertisement/sponsored post (e.g. Meta tips campaign)\n3 - Text message/ WhatsApp micro-course\n4 - Print pamphlet/flyer\n5 - Short video clip\n6 - Other: say which",
      "instruction": "1 = static graphic/infographic embedded in a feed or survey, 2 = platform advertisement/sponsored post, 3 = text message or WhatsApp micro-course, 4 = print pamphlet/flyer, 5 = short video clip, 6 = other.",
      "show_if": null,
      "required_if": null,
@@ -7215,7 +7583,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Single one-off exposure, 2=Multi-day repeated micro-lessons (e.g. 5-day SMS), 3=Always-accessible sidebar/guide.",
+     "description": "Delivery schedule of the tips.\n1 - Single one-off exposure: seen once\n2 - Multi-day repeated micro-lessons (e.g. 5-day SMS)\n3 - Always-accessible sidebar/guide",
      "instruction": "1 = a single one-off exposure, 2 = multi-day repeated micro-lessons, 3 = an always-accessible sidebar/guide.",
      "show_if": null,
      "required_if": null,
@@ -7263,7 +7631,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Global North, 2=Global South, 3=Cross-national, 4=Other/unclear.",
+     "description": "Economic context of the deployment.\n1 - Global North\n2 - Global South\n3 - Cross-national: both\n4 - Other/unclear",
      "instruction": "1 = Global North, 2 = Global South, 3 = cross-national, 4 = other/unclear.",
      "show_if": null,
      "required_if": null,
@@ -7307,7 +7675,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=General urban/internet users, 2=Rural / lower education and digital literacy population, 3=Mixed.",
+     "description": "Who the tips target.\n1 - General urban/internet users\n2 - Rural / lower education and digital literacy population\n3 - Mixed",
      "instruction": "1 = general urban/internet users, 2 = rural or lower-education and lower-digital-literacy population, 3 = mixed.",
      "show_if": null,
      "required_if": null,
@@ -7351,7 +7719,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Selective discernment increased (lower belief/sharing of false, preserved belief of true), 2=General skepticism induced (decreased belief in both true and false), 3=No significant effect.",
+     "description": "What the tips achieved.\n1 - Selective discernment increased (lower belief/sharing of false, preserved belief of true)\n2 - General skepticism induced (decreased belief in both true and false)\n3 - No significant effect",
      "instruction": "1 = selective discernment increased (belief/sharing of false fell, belief of true preserved), 2 = general scepticism induced (belief in both true and false fell), 3 = no significant effect. Code it from the reported pattern, not from the authors' label.",
      "show_if": null,
      "required_if": null,
@@ -7391,7 +7759,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Generic/topic-agnostic tips, 0=Topic-specific tips, null=Unclear.",
+     "description": "Are the tips generic or topic-specific?\n0 - Topic-specific tips: tied to one topic\n1 - Generic/topic-agnostic tips: apply anywhere",
      "instruction": "1 = generic/topic-agnostic tips, 0 = topic-specific tips, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -7425,7 +7793,40 @@
      "base_type": "list",
      "nullable": false,
      "editor": "chips",
-     "options": [],
+     "options": [
+      {
+       "value": "claim_decomposition",
+       "label": "Claim decomposition"
+      },
+      {
+       "value": "search_operator_use",
+       "label": "Search operator use"
+      },
+      {
+       "value": "fact_checking_website_use",
+       "label": "Fact-checking website use"
+      },
+      {
+       "value": "reverse_image_search",
+       "label": "Reverse image search"
+      },
+      {
+       "value": "original_context_tracing",
+       "label": "Original context tracing"
+      },
+      {
+       "value": "SIFT",
+       "label": "SIFT (stop, investigate, find, trace)"
+      },
+      {
+       "value": "evidence_tracing",
+       "label": "Evidence tracing"
+      },
+      {
+       "value": "expert_consensus_lookup",
+       "label": "Expert consensus lookup"
+      }
+     ],
      "vocab": [],
      "controlled_values": [],
      "legacy_options": [],
@@ -7434,7 +7835,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Subset: [\"claim_decomposition\", \"search_operator_use\", \"fact_checking_website_use\", \"reverse_image_search\", \"original_context_tracing\", \"SIFT\", \"evidence_tracing\", \"expert_consensus_lookup\"].",
+     "description": "Fact-checking strategies taught (choose all).\nclaim_decomposition - Claim decomposition: break the claim into parts\nsearch_operator_use - Search operator use: advanced search syntax\nfact_checking_website_use - Fact-checking website use: consult a fact-checking site\nreverse_image_search - Reverse image search: look the image up\noriginal_context_tracing - Original context tracing: find the original post\nSIFT - SIFT: stop, investigate, find, trace\nevidence_tracing - Evidence tracing: follow the evidence\nexpert_consensus_lookup - Expert consensus lookup: check what experts say",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the fact-checking strategies taught, e.g. ['claim_decomposition', 'SIFT'].",
      "show_if": null,
      "required_if": null,
@@ -7482,7 +7883,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Claim/fact verification, 2=Source verification, 3=Both claim and source, 4=Other.",
+     "description": "What the verification targets.\n1 - Claim/fact verification: the content itself\n2 - Source verification: who published it\n3 - Both claim and source\n4 - Other: say which",
      "instruction": "1 = claim/fact verification, 2 = source verification, 3 = both claim and source, 4 = other.",
      "show_if": null,
      "required_if": null,
@@ -7538,7 +7939,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Direct instruction, 2=Modeling/demonstration, 3=Scaffolded practice with feedback, 4=Gamified practice, 5=Self-directed materials, 6=Mixed.",
+     "description": "How the training is taught.\n1 - Direct instruction: the workflow is told\n2 - Modeling/demonstration: an example is shown\n3 - Scaffolded practice with feedback: guided practice\n4 - Gamified practice: game-like drills\n5 - Self-directed materials: work alone\n6 - Mixed",
      "instruction": "1 = direct instruction, 2 = modeling/demonstration, 3 = scaffolded practice with feedback, 4 = gamified practice, 5 = self-directed materials, 6 = mixed.",
      "show_if": null,
      "required_if": null,
@@ -7609,7 +8010,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (corrective/elaborated feedback during practice), 0=No, null=Unclear.",
+     "description": "Is feedback given during practice?\n0 - No\n1 - Yes (corrective/elaborated feedback during practice)",
      "instruction": "1 = corrective/elaborated feedback was given during practice, 0 = no, null = unclear. Mark the procedure-section sentence that shows the feedback.",
      "show_if": null,
      "required_if": null,
@@ -7650,7 +8051,7 @@
       },
       {
        "value": 2,
-       "label": "Consider-the-opposite/ counterargument generation"
+       "label": "Consider-the-opposite/counterargument generation"
       },
       {
        "value": 3,
@@ -7666,7 +8067,7 @@
       },
       {
        "value": 6,
-       "label": "Reflection/ metacognitive prompt"
+       "label": "Reflection/metacognitive prompt"
       },
       {
        "value": 7,
@@ -7681,7 +8082,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Actively open-minded thinking (AOT) training, 2=Consider-the-opposite/ counterargument generation, 3=Perspective-taking induction, 4=Intellectual-humility training, 5=Values affirmation, 6=Reflection/ metacognitive prompt, 7=Other.",
+     "description": "The open-mindedness mechanism used.\n1 - Actively open-minded thinking (AOT) training\n2 - Consider-the-opposite/ counterargument generation\n3 - Perspective-taking induction\n4 - Intellectual-humility training\n5 - Values affirmation\n6 - Reflection/ metacognitive prompt\n7 - Other: say which",
      "instruction": "1 = actively open-minded thinking (AOT) training, 2 = consider-the-opposite/counterargument generation, 3 = perspective-taking induction, 4 = intellectual-humility training, 5 = values affirmation, 6 = reflection/metacognitive prompt, 7 = other.",
      "show_if": null,
      "required_if": null,
@@ -7733,7 +8134,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Belief updating/receptivity to correction, 2=Myside bias reduction, 3=Sharing behaviour, 4=Openness attitudes, 5=Multiple.",
+     "description": "What the intervention tries to move.\n1 - Belief updating/receptivity to correction\n2 - Myside bias reduction\n3 - Sharing behaviour\n4 - Openness attitudes\n5 - Multiple",
      "instruction": "1 = belief updating/receptivity to correction, 2 = myside-bias reduction, 3 = sharing behaviour, 4 = openness attitudes, 5 = multiple.",
      "show_if": null,
      "required_if": null,
@@ -7781,7 +8182,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Single brief exercise, 2=Multi-session training, 3=Integrated into curriculum, 4=Booster session.",
+     "description": "How the training is structured.\n1 - Single brief exercise\n2 - Multi-session training\n3 - Integrated into curriculum\n4 - Booster session",
      "instruction": "1 = a single brief exercise, 2 = multi-session training, 3 = integrated into the curriculum, 4 = a booster session.",
      "show_if": null,
      "required_if": null,
@@ -7837,7 +8238,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Text exercise, 2=Video, 3=Interactive dialogue, 4=Group discussion, 5=Task/quiz, 6=Mixed.",
+     "description": "Delivery medium.\n1 - Text exercise\n2 - Video\n3 - Interactive dialogue\n4 - Group discussion\n5 - Task/quiz\n6 - Mixed",
      "instruction": "1 = text exercise, 2 = video, 3 = interactive dialogue, 4 = group discussion, 5 = task/quiz, 6 = mixed.",
      "show_if": null,
      "required_if": null,
@@ -7924,7 +8325,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Topic rebuttal / factual debunking (correcting facts directly), 2=Technique rebuttal (exposing rhetorical tactics/fallacies), 3=Combined topic and technique rebuttal.",
+     "description": "What the rebuttal attacks.\n1 - Topic rebuttal / factual debunking (correcting facts directly)\n2 - Technique rebuttal (exposing rhetorical tactics/fallacies)\n3 - Combined topic and technique rebuttal",
      "instruction": "1 = topic rebuttal (the facts corrected directly), 2 = technique rebuttal (rhetorical tactics exposed), 3 = combined topic and technique rebuttal.",
      "show_if": null,
      "required_if": null,
@@ -7946,7 +8347,24 @@
      "base_type": "list",
      "nullable": false,
      "editor": "chips",
-     "options": [],
+     "options": [
+      {
+       "value": "fact_first_statement",
+       "label": "Fact lead (truth first)"
+      },
+      {
+       "value": "salience_warning_pre_exposure",
+       "label": "Warning before repeating the myth"
+      },
+      {
+       "value": "misinformation_specification_and_flaw_explanation",
+       "label": "Name the myth and explain its flaw"
+      },
+      {
+       "value": "alternative_causal_explanation",
+       "label": "Alternative explanation"
+      }
+     ],
      "vocab": [],
      "controlled_values": [],
      "legacy_options": [],
@@ -7955,7 +8373,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Subset of the 4 debunking steps present: [\"fact_first_statement\", \"salience_warning_pre_exposure\", \"misinformation_specification_and_flaw_explanation\", \"alternative_causal_explanation\"].",
+     "description": "Which of the four debunking steps are present (choose all).\nfact_first_statement - Fact lead: state the truth first\nsalience_warning_pre_exposure - Warning before the misconception is repeated\nmisinformation_specification_and_flaw_explanation - Name the falsehood and explain its flaw\nalternative_causal_explanation - Give an alternative explanation",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the debunking steps that are present, e.g. ['fact_first_statement', 'alternative_causal_explanation'].",
      "show_if": null,
      "required_if": null,
@@ -7995,7 +8413,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Explicit alternative causal model provided, 0=Simple retraction/negation only, null=Unclear.",
+     "description": "Does the correction explain what really happened?\n0 - Simple retraction/negation only: 'that is false' alone\n1 - Explicit alternative causal model provided",
      "instruction": "1 = an explicit alternative causal model was provided, 0 = a simple retraction/negation only, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -8039,7 +8457,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Narrative correction (story/case-based), 2=Non-narrative correction (factual/list-based), 3=Visual/infographic.",
+     "description": "Form of the correction.\n1 - Narrative correction (story/case-based)\n2 - Non-narrative correction (factual/list-based)\n3 - Visual/infographic",
      "instruction": "1 = narrative (story/case-based) correction, 2 = non-narrative (factual/list-based), 3 = visual/infographic.",
      "show_if": null,
      "required_if": null,
@@ -8076,7 +8494,7 @@
       },
       {
        "value": 4,
-       "label": "Algorithmic/ platform system message"
+       "label": "Algorithmic/platform system message"
       },
       {
        "value": 5,
@@ -8099,7 +8517,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Professional independent fact-checker, 2=Government/public-health institution, 3=Peer/social correction (user comment), 4=Algorithmic/ platform system message, 5=Anonymous/unattributed source, 6=Trusted messenger (e.g. local health worker), 7=Other.",
+     "description": "Who delivers the debunk.\n1 - Professional independent fact-checker\n2 - Government/public-health institution\n3 - Peer/social correction (user comment)\n4 - Algorithmic/ platform system message\n5 - Anonymous/unattributed source\n6 - Trusted messenger (e.g. local health worker)\n7 - Other: say who",
      "instruction": "1 = professional independent fact-checker, 2 = government/public-health institution, 3 = peer/social correction, 4 = algorithmic/platform system message, 5 = anonymous/unattributed source, 6 = trusted messenger, 7 = other. Mark the sentence that names who delivered the correction.",
      "show_if": null,
      "required_if": null,
@@ -8120,7 +8538,7 @@
        },
        {
         "value": 4,
-        "label": "Expert-verified crowd"
+        "label": "Algorithmic/platform system message"
        },
        {
         "value": 5,
@@ -8142,7 +8560,7 @@
        },
        {
         "value": 4,
-        "label": "Government/health authority"
+        "label": "Algorithmic/platform system message"
        },
        {
         "value": 5,
@@ -8188,7 +8606,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Immediate correction (same exposure instance), 2=Delayed correction (subsequent session/turn), 3=Pre-exposure rebuttal.",
+     "description": "When the correction arrives.\n1 - Immediate correction (same exposure instance)\n2 - Delayed correction (subsequent session/turn)\n3 - Pre-exposure rebuttal: before the misinformation",
      "instruction": "1 = immediate correction (the same exposure instance), 2 = delayed correction (a later session or turn), 3 = pre-exposure rebuttal.",
      "show_if": null,
      "required_if": null,
@@ -8243,7 +8661,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (open-ended inferential reasoning/scenario comprehension), 0=No (isolated item belief/accuracy rating only).",
+     "description": "Is the continued influence effect measured?\n0 - No (isolated item belief/accuracy rating only)\n1 - Yes (open-ended inferential reasoning/scenario comprehension)",
      "instruction": "1 = yes - the design assessed continued influence with open-ended inferential reasoning or scenario comprehension, 0 = no - only an isolated belief or accuracy item was measured.",
      "show_if": null,
      "required_if": null,
@@ -8283,7 +8701,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (same correction delivered more than once), 0=No, null=Unclear.",
+     "description": "Is the correction repeated?\n0 - No\n1 - Yes (same correction delivered more than once)",
      "instruction": "1 = the same correction was delivered more than once, 0 = no, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -8323,7 +8741,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (correction challenges a salient identity/worldview), 0=No, null=Unclear.",
+     "description": "Does the correction threaten an identity?\n0 - No\n1 - Yes (correction challenges a salient identity/worldview)",
      "instruction": "1 = the correction challenges a salient identity or worldview, 0 = no, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -8391,7 +8809,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Community notes/context annotations, 2=Peer comment correction, 3=Collective intelligence/judgment platform, 4=Crowd flagging/reporting, 5=Collective evaluation task, 6=Other.",
+     "description": "How the crowd corrects.\n1 - Community notes/context annotations\n2 - Peer comment correction\n3 - Collective intelligence/judgment platform\n4 - Crowd flagging/reporting\n5 - Collective evaluation task\n6 - Other: say which",
      "instruction": "1 = community notes/context annotations, 2 = peer comment correction, 3 = collective intelligence/judgment platform, 4 = crowd flagging/reporting, 5 = collective evaluation task, 6 = other.",
      "show_if": null,
      "required_if": null,
@@ -8435,7 +8853,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Visible to all users, 2=Visible only to a subgroup, 3=Collapsed/behind a click, null=Unclear.",
+     "description": "Who can see the correction.\n1 - Visible to all users\n2 - Visible only to a subgroup\n3 - Collapsed/behind a click",
      "instruction": "1 = visible to all users, 2 = visible only to a subgroup, 3 = collapsed/behind a click, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -8487,7 +8905,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Belief accuracy, 2=Sharing/engagement, 3=Correction adoption, 4=Discernment, 5=Multiple.",
+     "description": "The community platform's primary outcome.\n1 - Belief accuracy\n2 - Sharing/engagement\n3 - Correction adoption\n4 - Discernment\n5 - Multiple",
      "instruction": "1 = belief accuracy, 2 = sharing/engagement, 3 = correction adoption, 4 = discernment, 5 = multiple.",
      "show_if": null,
      "required_if": null,
@@ -8551,7 +8969,7 @@
       },
       {
        "value": 2,
-       "label": "Categorical/ color-coded badge (green trustworthy/red untrustworthy)"
+       "label": "Categorical/color-coded badge (green trustworthy/red untrustworthy)"
       },
       {
        "value": 3,
@@ -8578,7 +8996,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Continuous journalistic index (e.g. NewsGuard 0-100), 2=Categorical/ color-coded badge (green trustworthy/red untrustworthy), 3=Binary trust seal/warning shield, 4=Crowdsourced trust metric, 5=The Trust Project transparency indicators, 6=Other.",
+     "description": "The credibility rating shown.\n1 - Continuous journalistic index (e.g. NewsGuard 0-100)\n2 - Categorical/ color-coded badge (green trustworthy/red untrustworthy)\n3 - Binary trust seal/warning shield\n4 - Crowdsourced trust metric\n5 - The Trust Project transparency indicators\n6 - Other: say which",
      "instruction": "1 = continuous journalistic index (e.g. NewsGuard 0-100), 2 = categorical/colour-coded badge, 3 = binary trust seal or warning shield, 4 = crowdsourced trust metric, 5 = The Trust Project transparency indicators, 6 = other.",
      "show_if": null,
      "required_if": null,
@@ -8622,7 +9040,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Domain/news-outlet level, 2=Specific publication channel/page, 3=Individual author/journalist.",
+     "description": "What the rating evaluates.\n1 - Domain/news-outlet level\n2 - Specific publication channel/page\n3 - Individual author/journalist",
      "instruction": "1 = domain/news-outlet level, 2 = a specific publication channel or page, 3 = individual author/journalist.",
      "show_if": null,
      "required_if": null,
@@ -8674,7 +9092,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Browser extension/add-on in natural browsing, 2=In-feed badge beside the headline, 3=Search-engine results page snippet label, 4=Survey experimental card overlay, 5=Other.",
+     "description": "Where the label appears.\n1 - Browser extension/add-on in natural browsing\n2 - In-feed badge beside the headline\n3 - Search-engine results page snippet label\n4 - Survey experimental card overlay\n5 - Other: say where",
      "instruction": "1 = browser extension/add-on in natural browsing, 2 = in-feed badge beside the headline, 3 = search-engine results snippet label, 4 = survey experimental card overlay, 5 = other.",
      "show_if": null,
      "required_if": null,
@@ -8714,7 +9132,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Simple badge/score only, 2=Expandable nutrition label with specific criteria (transparency, corrections, ownership).",
+     "description": "How much the rating explains.\n1 - Simple badge/score only: no criteria shown\n2 - Expandable nutrition label with specific criteria (transparency, corrections, ownership)",
      "instruction": "1 = a simple badge/score only, 2 = an expandable label with specific criteria (transparency, corrections, ownership).",
      "show_if": null,
      "required_if": null,
@@ -8754,7 +9172,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (tracked domain visits/exposure quality via digital trace), 0=No (isolated headline evaluation only).",
+     "description": "Is the quality of the information diet tracked?\n0 - No (isolated headline evaluation only)\n1 - Yes (tracked domain visits/exposure quality via digital trace)",
      "instruction": "1 = yes - the design tracked domain visits or exposure quality via a digital trace, 0 = no - an isolated headline evaluation only.",
      "show_if": null,
      "required_if": null,
@@ -8806,7 +9224,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Independent rating org (NewsGuard/Trust Project), 2=Platform, 3=Researchers, 4=Crowd, 5=Other.",
+     "description": "Who produces the label.\n1 - Independent rating org (NewsGuard/Trust Project)\n2 - Platform\n3 - Researchers\n4 - Crowd\n5 - Other: say who",
      "instruction": "1 = an independent rating organisation (NewsGuard/Trust Project), 2 = a platform, 3 = the researchers, 4 = a crowd, 5 = other.",
      "show_if": null,
      "required_if": null,
@@ -8862,7 +9280,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=General warning label (content may be disputed/inaccurate), 2=Specific fact-checking label (fact-checker attribution + rating), 3=Contextual information label (background without rating).",
+     "description": "The label attached to content.\n1 - General warning label (content may be disputed/inaccurate)\n2 - Specific fact-checking label (fact-checker attribution + rating)\n3 - Contextual information label (background without rating)",
      "instruction": "1 = general warning label, 2 = specific fact-checking label (fact-checker attribution plus a rating), 3 = contextual information label without a rating.",
      "show_if": null,
      "required_if": null,
@@ -8906,7 +9324,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Binary (\"False\"/\"Disputed\"), 2=Graded/multi-level (e.g. False, Partly False, Altered, Missing Context), 3=Numeric scale.",
+     "description": "How fine the veracity rating is.\n1 - Binary ('False'/'Disputed')\n2 - Graded/multi-level (e.g. False, Partly False, Altered, Missing Context)\n3 - Numeric scale",
      "instruction": "1 = binary ('False'/'Disputed'), 2 = graded/multi-level (e.g. False, Partly False, Altered, Missing Context), 3 = a numeric scale.",
      "show_if": null,
      "required_if": null,
@@ -8950,7 +9368,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=In-line tag below/above headline, 2=Interstitial warning/obscuring overlay (click-through), 3=Post-interaction warning (after share click).",
+     "description": "How the label is shown.\n1 - In-line tag below/above headline\n2 - Interstitial warning/obscuring overlay (click-through)\n3 - Post-interaction warning (after share click)",
      "instruction": "1 = an in-line tag below/above the headline, 2 = an interstitial warning or obscuring overlay, 3 = a post-interaction warning after the share click.",
      "show_if": null,
      "required_if": null,
@@ -8994,7 +9412,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Named independent fact-checker (PolitiFact, Snopes), 2=Platform message (\"Independent fact-checkers\"), 3=Unspecified source.",
+     "description": "Is the fact-checker named?\n1 - Named independent fact-checker (PolitiFact, Snopes)\n2 - Platform message ('Independent fact-checkers')\n3 - Unspecified source",
      "instruction": "1 = a named independent fact-checker, 2 = a platform message ('Independent fact-checkers'), 3 = an unspecified source.",
      "show_if": null,
      "required_if": null,
@@ -9034,7 +9452,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (tested whether unlabelled false headlines gained spurious accuracy), 0=No (only labelled vs control).",
+     "description": "Is the implied-truth effect tested?\n0 - No (only labelled vs control)\n1 - Yes (tested whether unlabelled false headlines gained spurious accuracy)",
      "instruction": "1 = yes - the design tested whether unlabelled false headlines gained spurious accuracy, 0 = no - only labelled vs control.",
      "show_if": null,
      "required_if": null,
@@ -9082,7 +9500,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Accuracy/veracity judgments, 2=Sharing intentions/click-to-share, 3=Belief in underlying claim, 4=Both accuracy and sharing.",
+     "description": "What the label study measures.\n1 - Accuracy/veracity judgments\n2 - Sharing intentions/click-to-share\n3 - Belief in underlying claim\n4 - Both accuracy and sharing",
      "instruction": "1 = accuracy/veracity judgments, 2 = sharing intentions / click-to-share, 3 = belief in the underlying claim, 4 = both accuracy and sharing.",
      "show_if": null,
      "required_if": null,
@@ -9130,7 +9548,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=General users, 2=Targeted at sharers, 3=Targeted at consumers, 4=Both.",
+     "description": "Who the label targets.\n1 - General users\n2 - Targeted at sharers\n3 - Targeted at consumers\n4 - Both",
      "instruction": "1 = general users, 2 = targeted at sharers, 3 = targeted at consumers, 4 = both.",
      "show_if": null,
      "required_if": null,
@@ -9194,7 +9612,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Direct headline accuracy evaluation (rate veracity of a single neutral/unrelated headline), 2=Explicit prime/reminder (text prompt reminding user accuracy matters), 3=Educational video/multimedia prime on the value of accurate information, 4=Passive accuracy salience banner/header, 5=Other prompt format.",
+     "description": "How accuracy is prompted.\n1 - Direct headline accuracy evaluation (rate veracity of a single neutral/unrelated headline)\n2 - Explicit prime/reminder (text prompt reminding user accuracy matters)\n3 - Educational video/multimedia prime on the value of accurate information\n4 - Passive accuracy salience banner/header\n5 - Other prompt format: say which",
      "instruction": "1 = direct headline accuracy evaluation, 2 = an explicit prime/reminder, 3 = an educational video/multimedia prime, 4 = a passive accuracy-salience banner/header, 5 = other prompt format.",
      "show_if": null,
      "required_if": null,
@@ -9242,7 +9660,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=True, 2=False, 3=Neutral/non-political, 4=Both true and false shown, null=Not applicable.",
+     "description": "Veracity of the prompt item.\n1 - True\n2 - False\n3 - Neutral/non-political\n4 - Both true and false shown",
      "instruction": "1 = true, 2 = false, 3 = neutral/non-political, 4 = both true and false shown, null = not applicable.",
      "show_if": null,
      "required_if": null,
@@ -9286,7 +9704,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Politically concordant, 2=Politically discordant, 3=Politically neutral/apolitical, null=Not applicable.",
+     "description": "Political slant of the prompt headline.\n1 - Politically concordant: matches the reader\n2 - Politically discordant: opposes the reader\n3 - Politically neutral/apolitical",
      "instruction": "1 = politically concordant, 2 = politically discordant, 3 = politically neutral/apolitical, null = not applicable.",
      "show_if": null,
      "required_if": null,
@@ -9330,7 +9748,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Prior to feed browsing task, 2=In-line during feed browsing (periodically), 3=At immediate point of sharing decision.",
+     "description": "When the prompt appears.\n1 - Prior to feed browsing task\n2 - In-line during feed browsing (periodically)\n3 - At immediate point of sharing decision",
      "instruction": "1 = before the feed-browsing task, 2 = in-line during feed browsing, 3 = at the immediate point of the sharing decision.",
      "show_if": null,
      "required_if": null,
@@ -9374,7 +9792,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Survey/lab simulation (headline-discernment paradigm), 2=Social media platform direct message (field experiment, e.g. Twitter DM), 3=Platform public feed/interstitial.",
+     "description": "Where the prompt is delivered.\n1 - Survey/lab simulation (headline-discernment paradigm)\n2 - Social media platform direct message (field experiment, e.g. Twitter DM)\n3 - Platform public feed/interstitial",
      "instruction": "1 = a survey/lab simulation (headline-discernment paradigm), 2 = a social-media platform direct message (field experiment), 3 = a platform public feed or interstitial.",
      "show_if": null,
      "required_if": null,
@@ -9484,7 +9902,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Sharing discernment (Sharing True minus Sharing False), 2=Accuracy discernment (Belief True minus Belief False), 3=Raw false-sharing reduction only, 4=Quality score of shared domains (digital trace data).",
+     "description": "The headline discernment measure.\n1 - Sharing discernment (Sharing True minus Sharing False)\n2 - Accuracy discernment (Belief True minus Belief False)\n3 - Raw false-sharing reduction only\n4 - Quality score of shared domains (digital trace data)",
      "instruction": "1 = sharing discernment (sharing true minus sharing false), 2 = accuracy discernment (belief true minus belief false), 3 = raw false-sharing reduction only, 4 = quality score of the shared domains (digital-trace data).",
      "show_if": null,
      "required_if": null,
@@ -9552,7 +9970,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Read-before-sharing prompt (open/read article link), 2=Pause-and-think reflection prompt, 3=Second-step confirmation modal (extra click), 4=Cognitive justification requirement (write why true/false), 5=Time delay constraint (mandatory wait timer), 6=Other.",
+     "description": "The friction added.\n1 - Read-before-sharing prompt (open/read article link)\n2 - Pause-and-think reflection prompt\n3 - Second-step confirmation modal (extra click)\n4 - Cognitive justification requirement (write why true/false)\n5 - Time delay constraint (mandatory wait timer)\n6 - Other: say which",
      "instruction": "1 = read-before-sharing prompt, 2 = pause-and-think reflection prompt, 3 = second-step confirmation modal, 4 = cognitive justification requirement, 5 = time delay constraint, 6 = other.",
      "show_if": null,
      "required_if": null,
@@ -9596,7 +10014,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Non-blocking warning/banner, 2=Blocking pop-up modal requiring user input, 3=Hard delay timer.",
+     "description": "How blocking the friction is.\n1 - Non-blocking warning/banner\n2 - Blocking pop-up modal requiring user input\n3 - Hard delay timer",
      "instruction": "1 = non-blocking warning/banner, 2 = a blocking pop-up modal requiring user input, 3 = a hard delay timer.",
      "show_if": null,
      "required_if": null,
@@ -9644,7 +10062,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Share/Retweet action, 2=Post creation/submission, 3=External link navigation, 4=Like/Upvote.",
+     "description": "Which action is slowed.\n1 - Share/Retweet action\n2 - Post creation/submission\n3 - External link navigation\n4 - Like/Upvote",
      "instruction": "1 = share/retweet action, 2 = post creation/submission, 3 = external link navigation, 4 = like/upvote.",
      "show_if": null,
      "required_if": null,
@@ -9688,7 +10106,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Universal friction (all links/shares), 2=Unopened-link trigger only, 3=Suspect/flagged content trigger only.",
+     "description": "Which content triggers the friction.\n1 - Universal friction (all links/shares)\n2 - Unopened-link trigger only\n3 - Suspect/flagged content trigger only",
      "instruction": "1 = universal friction (all links/shares), 2 = an unopened-link trigger only, 3 = a suspect/flagged-content trigger only.",
      "show_if": null,
      "required_if": null,
@@ -9736,7 +10154,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Sharing intention (self-report), 2=Observed platform sharing (digital trace), 3=Link click-through/reading rate, 4=Sharing discernment (true vs. false sharing-rate delta).",
+     "description": "What the friction study measures.\n1 - Sharing intention (self-report)\n2 - Observed platform sharing (digital trace)\n3 - Link click-through/reading rate\n4 - Sharing discernment (true vs. false sharing-rate delta)",
      "instruction": "1 = sharing intention (self-report), 2 = observed platform sharing (digital trace), 3 = link click-through/reading rate, 4 = sharing discernment (the true vs false sharing-rate delta).",
      "show_if": null,
      "required_if": null,
@@ -9776,7 +10194,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Yes (rationale shown), 0=No (silent friction), null=Unclear.",
+     "description": "Is the friction explained to the user?\n0 - No (silent friction)\n1 - Yes (rationale shown)",
      "instruction": "1 = yes - the rationale was shown, 0 = silent friction, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -9836,7 +10254,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Descriptive norm (what most people do), 2=Injunctive norm (what is approved/disapproved), 3=Dynamic norm (trending change in peer behaviour), 4=Combined descriptive and injunctive.",
+     "description": "The norm conveyed.\n1 - Descriptive norm (what most people do)\n2 - Injunctive norm (what is approved/disapproved)\n3 - Dynamic norm (trending change in peer behaviour)\n4 - Combined descriptive and injunctive",
      "instruction": "1 = descriptive norm (what most people do), 2 = injunctive norm (what is approved/disapproved), 3 = dynamic norm (a trending change in peer behaviour), 4 = combined descriptive and injunctive.",
      "show_if": null,
      "required_if": null,
@@ -9876,7 +10294,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Positive/truth-promoting framing, 2=Negative/misinformation-discouraging framing.",
+     "description": "Valence of the norm message.\n1 - Positive/truth-promoting framing\n2 - Negative/misinformation-discouraging framing",
      "instruction": "1 = positive/truth-promoting framing, 2 = negative/misinformation-discouraging framing.",
      "show_if": null,
      "required_if": null,
@@ -9928,7 +10346,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Broad platform peer group, 2=National/fellow-citizen group, 3=Ideological/in-group peers, 4=Unspecified/generic social consensus, 5=Local community.",
+     "description": "The group the norm references.\n1 - Broad platform peer group\n2 - National/fellow-citizen group\n3 - Ideological/in-group peers\n4 - Unspecified/generic social consensus\n5 - Local community",
      "instruction": "1 = a broad platform peer group, 2 = a national/fellow-citizen group, 3 = ideological in-group peers, 4 = unspecified/generic social consensus, 5 = a local community.",
      "show_if": null,
      "required_if": null,
@@ -9957,7 +10375,7 @@
       },
       {
        "value": 2,
-       "label": "Simulated social counter/ upvote ratio"
+       "label": "Simulated social counter/upvote ratio"
       },
       {
        "value": 3,
@@ -9976,7 +10394,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Statistical normative statement/banner, 2=Simulated social counter/ upvote ratio, 3=Peer comment feedback prompt, 4=Interactive norm elicitation task.",
+     "description": "How the norm is shown.\n1 - Statistical normative statement/banner\n2 - Simulated social counter/ upvote ratio\n3 - Peer comment feedback prompt\n4 - Interactive norm elicitation task",
      "instruction": "1 = a statistical normative statement/banner, 2 = a simulated social counter or upvote ratio, 3 = a peer comment feedback prompt, 4 = an interactive norm elicitation task.",
      "show_if": null,
      "required_if": null,
@@ -10024,7 +10442,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Sharing intentions, 2=Belief in misinformation, 3=Flagging/reporting suspicious content, 4=Discernment score.",
+     "description": "The outcome the norm moves.\n1 - Sharing intentions\n2 - Belief in misinformation\n3 - Flagging/reporting suspicious content\n4 - Discernment score",
      "instruction": "1 = sharing intentions, 2 = belief in misinformation, 3 = flagging/reporting suspicious content, 4 = a discernment score.",
      "show_if": null,
      "required_if": null,
@@ -10068,7 +10486,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Ideological in-group source, 2=Out-group/general source, 3=Not applicable, null=Unclear.",
+     "description": "Is the norm source in-group?\n1 - Ideological in-group source\n2 - Out-group/general source\n3 - Not applicable",
      "instruction": "1 = an ideological in-group source, 2 = an out-group/general source, 3 = not applicable, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -10136,7 +10554,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Downranking/demotion in feed or search, 2=Removal/deletion of content, 3=Deplatforming/account removal, 4=Reduced distribution/reach, 5=Warning interruption before exposure, 6=Other.",
+     "description": "How exposure is reduced.\n1 - Downranking/demotion in feed or search\n2 - Removal/deletion of content\n3 - Deplatforming/account removal\n4 - Reduced distribution/reach\n5 - Warning interruption before exposure\n6 - Other: say which",
      "instruction": "1 = downranking/demotion in feed or search, 2 = removal/deletion of content, 3 = deplatforming/account removal, 4 = reduced distribution/reach, 5 = a warning interruption before exposure, 6 = other.",
      "show_if": null,
      "required_if": null,
@@ -10219,7 +10637,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Untrustworthy sources/domains, 2=False content items, 3=Engagement/reach threshold, 4=Universal exposure limit, 5=Other.",
+     "description": "What gets targeted.\n1 - Untrustworthy sources/domains\n2 - False content items\n3 - Engagement/reach threshold\n4 - Universal exposure limit\n5 - Other: say which",
      "instruction": "1 = untrustworthy sources/domains, 2 = false content items, 3 = an engagement/reach threshold, 4 = a universal exposure limit, 5 = other.",
      "show_if": null,
      "required_if": null,
@@ -10271,7 +10689,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=User-level randomization, 2=Cluster/geography randomization, 3=Platform-wide policy, 4=Natural experiment, 5=Other.",
+     "description": "How the reduction is assigned.\n1 - User-level randomization\n2 - Cluster/geography randomization\n3 - Platform-wide policy\n4 - Natural experiment\n5 - Other: say which",
      "instruction": "1 = user-level randomization, 2 = cluster/geography randomization, 3 = a platform-wide policy, 4 = a natural experiment, 5 = other.",
      "show_if": null,
      "required_if": null,
@@ -10319,7 +10737,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Low-quality/untrustworthy, 2=False/misleading, 3=Harmful, 4=Mixed, null=Unclear.",
+     "description": "How harmful the targeted content is.\n1 - Low-quality/untrustworthy\n2 - False/misleading\n3 - Harmful\n4 - Mixed",
      "instruction": "1 = low-quality/untrustworthy, 2 = false/misleading, 3 = harmful, 4 = mixed, null = unclear.",
      "show_if": null,
      "required_if": null,
@@ -10410,7 +10828,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Direct Instruction, 2=Interactive/Practice, 3=Game-based, 4=Other.",
+     "description": "How the intervention is taught.\n1 - Direct Instruction: told how\n2 - Interactive/Practice: learner practises\n3 - Game-based: learner plays\n4 - Other: say which",
      "instruction": "1 = direct instruction, 2 = interactive/practice, 3 = game-based, 4 = other.",
      "show_if": null,
      "required_if": null,
@@ -10473,7 +10891,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Pre-exposure/prebunking, 2=Concurrent, 3=Post-exposure/debunking, 4=Mixed.",
+     "description": "When the message meets the misinformation.\n1 - Pre-exposure/prebunking: before it\n2 - Concurrent: at the same time\n3 - Post-exposure/debunking: after it\n4 - Mixed",
      "instruction": "1 = pre-exposure/prebunking, 2 = concurrent, 3 = post-exposure/debunking, 4 = mixed.",
      "show_if": null,
      "required_if": null,
@@ -10521,7 +10939,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Specific claim, 2=Technique/generalizable, 3=General/abstract, 4=Other.",
+     "description": "What the correction covers.\n1 - Specific claim: one claim\n2 - Technique/generalizable: a technique\n3 - General/abstract: the general problem\n4 - Other: say which",
      "instruction": "1 = a specific claim, 2 = technique/generalizable, 3 = general/abstract, 4 = other.",
      "show_if": null,
      "required_if": null,
@@ -10567,7 +10985,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "Array of applicable strings: [\"Correction\", \"Warning\", \"Skills training\", \"Feedback\", \"Nudge\", \"Platform downranking/exposure reduction\", \"Community messaging\"].",
+     "description": "Components the intervention combines (choose all).\nCorrective information: the facts put right\nThreat/forewarning: warned up front\nRefutation: the falsehood countered\nTechnique exposure: manipulation tactics shown\nNarrative/storytelling: told as a story\nDiscussion/interaction: talked through\nEmotion induction/regulation: feelings steered\nSource salience: who said it, made clear\nInstruction: explicit teaching\nNudge: a small prompt\nFeedback: a response to answers\nCommunity messaging: peer-delivered message\nPlatform/exposure reduction: reach cut\nOther: say which",
      "instruction": "A list-valued field: mark a passage that supports the listed values - the components the intervention combined, e.g. ['Correction', 'Warning', 'Skills training'].",
      "show_if": null,
      "required_if": null,
@@ -10658,7 +11076,7 @@
      "required": false,
      "derived": false,
      "moderator": true,
-     "description": "1=Quantitative rating scales, 2=Multiple-choice/forced-choice, 3=Open response/qualitative, 4=Mixed.",
+     "description": "How source evaluation is measured.\n1 - Quantitative rating scales\n2 - Multiple-choice/forced-choice\n3 - Open response/qualitative\n4 - Mixed",
      "instruction": "1 = quantitative rating scales, 2 = multiple-choice/forced-choice, 3 = open response/qualitative, 4 = mixed.",
      "show_if": null,
      "required_if": null,

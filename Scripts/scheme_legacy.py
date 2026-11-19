@@ -178,6 +178,171 @@ LEGACY_OPTIONS = {
     ],
 }
 
+#: Human display labels for the levels of a token field (chips / multiselect).
+#: The stored VALUES stay the snake_case tokens the corpus and the pipeline
+#: resolve; these labels are what a CODER SEES next to every token, in the
+#: chip, in the suggestion row and in the hover help.  The coding form reads
+#: them through the legacy view's ``vocab_labels`` (studio_lib.field_view),
+#: which keeps ``options`` empty for token fields so the agreement layer still
+#: reads a multi-label field as multi-label.  ``build_coding_schema.py`` reads
+#: this same table for the Intervention_Type override, so a schema.json rebuild
+#: and a scheme conversion can never disagree about a label.
+VOCAB_OPTION_LABELS = {
+    "Intervention_Type": [
+        ("inoculation", "Inoculation"),
+        ("prebunking_warning", "Prebunking / warning"),
+        ("lateral_reading", "Lateral reading"),
+        ("credibility_labels", "Source-credibility labels"),
+        ("media_literacy_tips", "Media-literacy tips"),
+        ("fact_checking_training", "Fact-checking training"),
+        ("openmindedness_intervention", "Open-mindedness training"),
+        ("debunking_and_rebuttals", "Debunking / rebuttal"),
+        ("community_correction", "Community correction"),
+        ("accuracy_prompts", "Accuracy prompt"),
+        ("friction", "Friction"),
+        ("social_norms", "Social norms"),
+        ("platform_exposure_reduction", "Platform exposure reduction"),
+        ("other", "Other"),
+    ],
+    "dv_domain": [
+        ("technique_recognition", "Technique recognition"),
+        ("credibility", "Credibility"),
+        ("sharing_intention", "Sharing intention"),
+        ("search_behavior", "Search behavior"),
+        ("attitude_policy", "Attitude / policy"),
+        ("trust", "Trust"),
+        ("media_literacy_attitudes", "Media-literacy attitudes"),
+        ("critical_thinking", "Critical thinking"),
+        ("other", "Other"),
+    ],
+    "score_types": [
+        ("separate_true", "Separate true"),
+        ("separate_false", "Separate false"),
+        ("separate_manipulative", "Separate manipulative"),
+        ("separate_nonmanipulative", "Separate non-manipulative"),
+        ("discernment_difference", "Discernment difference"),
+        ("composite", "Composite"),
+        ("signal_detection_auc", "SDT AUC"),
+        ("signal_detection_d_prime", "SDT d'"),
+        ("signal_detection_c", "SDT c"),
+        ("signal_detection_other", "SDT other"),
+        ("dichotomous_accuracy", "Dichotomous accuracy"),
+        ("continuous_accuracy", "Continuous accuracy"),
+        ("proportion", "Proportion"),
+        ("proportion_difference", "Proportion difference"),
+        ("behavioral_choice", "Behavioral choice"),
+        ("count", "Count"),
+        ("single_item", "Single item"),
+        ("behavioral_intention", "Behavioral intention"),
+        ("change_score", "Change score"),
+        ("other", "Other"),
+    ],
+    "Technique_Taxonomy": [
+        ("emotional_manipulation", "Emotional manipulation"),
+        ("fake_experts", "Fake experts"),
+        ("conspiracy", "Conspiracy"),
+        ("polarization", "Polarization"),
+        ("amplification", "Amplification"),
+        ("trolling", "Trolling"),
+        ("naturalistic_fallacy", "Naturalistic fallacy"),
+        ("ad_hominem", "Ad hominem"),
+        ("false_dichotomy", "False dichotomy"),
+        ("coherence_break", "Coherence break"),
+        ("discrediting", "Discrediting"),
+        ("scapegoating", "Scapegoating"),
+        ("false_balance", "False balance"),
+        ("conjunction_fallacy", "Conjunction fallacy"),
+        ("impersonation", "Impersonation"),
+    ],
+    "Verification_Strategy_Type": [
+        ("lateral_reading", "Lateral reading"),
+        ("reverse_image_search", "Reverse image search"),
+        ("click_restraint", "Click restraint"),
+        ("wikipedia_source_tracking", "Wikipedia source tracking"),
+        ("original_context_tracing", "Original context tracing"),
+        ("source_credibility_check", "Source credibility check"),
+        ("fact_checking_site_use", "Fact-checking site use"),
+        ("CRAAP_checklist", "CRAAP checklist"),
+    ],
+    "Tracked_Behavioral_Indicators": [
+        ("opened_new_tabs", "Opened new tabs"),
+        ("search_engine_queries", "Search engine queries"),
+        ("time_on_source_domain", "Time on source domain"),
+        ("external_credibility_references", "External credibility references"),
+    ],
+    "Tips_Content_Checklist": [
+        ("be_skeptical_of_headlines", "Be skeptical of headlines"),
+        ("inspect_the_url", "Inspect the URL"),
+        ("investigate_the_source", "Investigate the source"),
+        ("watch_for_unusual_formatting", "Watch for unusual formatting"),
+        ("check_the_photos_images", "Check the photos/images"),
+        ("inspect_dates", "Inspect dates"),
+        ("check_evidence_and_references", "Check evidence and references"),
+        ("cross_check_other_reports", "Cross-check other reports"),
+        ("check_if_satire", "Check if it is satire"),
+        ("consider_the_source", "Consider the source"),
+        ("look_for_expert_consensus", "Look for expert consensus"),
+    ],
+    "Fact_Check_Strategy": [
+        ("claim_decomposition", "Claim decomposition"),
+        ("search_operator_use", "Search operator use"),
+        ("fact_checking_website_use", "Fact-checking website use"),
+        ("reverse_image_search", "Reverse image search"),
+        ("original_context_tracing", "Original context tracing"),
+        ("SIFT", "SIFT (stop, investigate, find, trace)"),
+        ("evidence_tracing", "Evidence tracing"),
+        ("expert_consensus_lookup", "Expert consensus lookup"),
+    ],
+    "Correction_Structure_Steps": [
+        ("fact_first_statement", "Fact lead (truth first)"),
+        ("salience_warning_pre_exposure", "Warning before repeating the myth"),
+        ("misinformation_specification_and_flaw_explanation", "Name the myth and explain its flaw"),
+        ("alternative_causal_explanation", "Alternative explanation"),
+    ],
+}
+
+#: Fields the CODING FORM never offers for hand coding.  Each is owned by
+#: another writer - the pipeline, the PDF mark button or the
+#: correspondence-author harvest - so a hand-typed value could only duplicate
+#: or damage it:
+#: * ``data_available`` - populated by the reanalysis layer, not paper-coded;
+#: * ``source_span`` - written by the coding form's own "Mark source" button
+#:   (a PDF rectangle object nobody hand-types);
+#: * ``Corresponding_Author_*`` - written by the harvest
+#:   (``Scripts/code_corresponding_author.py``); the queue and the agents use
+#:   the file, not the form.
+FORM_HIDDEN = frozenset({
+    "data_available",
+    "source_span",
+    "Corresponding_Author_Name",
+    "Corresponding_Author_Email",
+    "Corresponding_Author_Source",
+})
+
+#: ``show_if`` conditions: fields that only matter given a previous answer.
+#: The condition evaluator is fail-open (``scheme_lib.eval_condition``): an
+#: unanswered reference field shows the dependent field rather than hiding it,
+#: and the coding form also shows a field that already carries a value.
+FORM_SHOW_IF = {
+    # "REQUIRED when Intervention_Type includes 'other'" (its instruction)
+    "Intervention_Type_Detail": {
+        "field": "Intervention_Type", "op": "contains", "value": "other"},
+    # the URL only exists when the paper registered WITH a link (level 3)
+    "preregistration_url": {
+        "field": "preregistration_status", "op": "equals", "value": 3},
+    # booster content only exists when a booster was administered
+    "Booster_Content": {
+        "field": "Booster_Session_Administered", "op": "equals", "value": 1},
+    # the levels of factors that were not manipulated are never described
+    "factor_levels": {"field": "design_factors", "op": "not_empty"},
+    # scale detail only exists once a scale type is chosen
+    "scale_points": {"field": "scale_type", "op": "not_empty"},
+    "scale_min": {"field": "scale_type", "op": "not_empty"},
+    "scale_max": {"field": "scale_type", "op": "not_empty"},
+    # a delay in weeks only exists when the posttest is not immediate
+    "delay_weeks": {"field": "posttest_type", "op": "not_equals", "value": 1},
+}
+
 #: Fields the CORPUS carries that the legacy v3.1 schema never declared.
 #: They are added to the scheme because the pipeline reads them (or because a
 #: contrast's provenance needs them); the remaining undeclared corpus keys are
@@ -330,6 +495,23 @@ def _decorate(field, scope):
     else:
         manual = name in CODER_MANUAL_FIELDS
         field["coder"] = {"auto": not manual, "hidden": False}
+    # ``hidden`` above is the STREAMLINED coder pass's flag (CODER_DV_HIDE);
+    # ``form`` says the coding form itself never offers the field for hand
+    # coding.  A machine-owned field hides only while it carries no value, so
+    # a value that is already there stays visible for review - the same
+    # fail-open rule as ``scheme_lib.eval_condition``.
+    if name in FORM_HIDDEN:
+        field["coder"] = dict(field.get("coder") or {}, form="hide")
+    # A dependent field only shows when its condition holds (fail-open).
+    show_if = FORM_SHOW_IF.get(name)
+    if show_if:
+        field["show_if"] = dict(show_if)
+    # Human display labels for a token field's levels: the stored values stay
+    # the tokens; the legacy view serves these as ``vocab_labels``.
+    labels = VOCAB_OPTION_LABELS.get(name)
+    if labels and not field.get("options"):
+        field["options"] = [{"value": value, "label": label}
+                           for value, label in labels]
     locate = CODER_LOCATE.get(name)
     if locate:
         field["source"] = {"locate": list(locate)}
