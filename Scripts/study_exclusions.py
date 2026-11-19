@@ -31,30 +31,67 @@ import os
 
 # Full-text exclusions agreed by the coders in Coding Studio are published to
 # ``Screening/fulltext_agreed.json``; every stage drops those whole studies.
+# That file does not exist in either known project today, so the load-bearing
+# source is the canonical coding's own ``Fulltext_Exclusion_Criterion`` field
+# (AGENTS.md: C1-C4 on every record; non-empty = the study fails an inclusion
+# criterion).  The two are UNIONED so a study flagged by either source is
+# dropped everywhere (owner decision 2026-11-19: a full-text-excluded study is
+# never part of any inferential or descriptive result).
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FULLTEXT_PATH = os.path.join(_ROOT, "Screening", "fulltext_agreed.json")
+_EXTRACTION_DIR = os.path.join(_ROOT, "Extraction")
 _FULLTEXT_CACHE = {"mtime": None, "keys": set()}
+_CRITERION_FIELD = "Fulltext_Exclusion_Criterion"
+
+
+def _criterion_field_keys():
+    """Study keys whose canonical coding records a full-text exclusion (C1-C4).
+
+    Scanned once per process and cached: the pipeline scripts call this once
+    per run, and the app calls it per request but reads only these files.
+    """
+    keys = set()
+    try:
+        names = os.listdir(_EXTRACTION_DIR)
+    except OSError:
+        return keys
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(_EXTRACTION_DIR, name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
+        recs = data if isinstance(data, list) else [data]
+        for rec in recs:
+            if isinstance(rec, dict) and str(rec.get(_CRITERION_FIELD) or "").strip():
+                keys.add(name[: -len(".json")])
+                break
+    return keys
 
 
 def fulltext_excluded_keys():
-    """Study keys excluded at full text by coder agreement (cached by mtime)."""
+    """Study keys excluded at full text (agreed file ∪ coding criterion field)."""
+    keys = _criterion_field_keys()
     try:
         mtime = os.path.getmtime(_FULLTEXT_PATH)
     except OSError:
         _FULLTEXT_CACHE.update(mtime=None, keys=set())
-        return set()
+        return keys
     if _FULLTEXT_CACHE["mtime"] == mtime and _FULLTEXT_CACHE["keys"]:
-        return _FULLTEXT_CACHE["keys"]
-    keys = set()
+        return keys | _FULLTEXT_CACHE["keys"]
+    agreed = set()
     try:
         with open(_FULLTEXT_PATH, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
-            keys = {str(k) for k in data}
+            agreed = {str(k) for k in data}
     except Exception:
-        keys = set()
-    _FULLTEXT_CACHE.update(mtime=mtime, keys=keys)
-    return keys
+        agreed = set()
+    _FULLTEXT_CACHE.update(mtime=mtime, keys=agreed)
+    return keys | agreed
 
 
 def is_fulltext_excluded(study_key):

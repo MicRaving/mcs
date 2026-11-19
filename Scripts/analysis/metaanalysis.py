@@ -169,6 +169,8 @@ def main():
     study_rows, dv_rows = [], []
     fw_skipped = []
     omnibus_skipped = []
+    ft_agreed_keys = []
+    ft_field_keys = []
     for p in sorted(glob.glob(os.path.join(EXTRACT, "*.json"))):
         key = os.path.splitext(os.path.basename(p))[0]
         try:
@@ -178,6 +180,23 @@ def main():
             AL.log("extraction_skipped", study=key, error=f"{type(e).__name__}: {e}")
             continue
         data = data if isinstance(data, list) else [data]
+        # Owner decision (2026-11-19): a study with an agreed full-text exclusion
+        # (C1-C4) is fully coded for the PRISMA flow, but is NEVER part of any
+        # inferential or descriptive result.  Rows stay visible in the export
+        # (flagged) and are removed from the analysis set below, exactly like
+        # the non-independent experiments.  Two sources, union: the agreed
+        # screening file (``Screening/fulltext_agreed.json``, when it exists)
+        # and the canonical coding's own ``Fulltext_Exclusion_Criterion`` field
+        # (the file is absent from both known projects today, so the field is
+        # the load-bearing source).
+        ft_agreed = SE.is_fulltext_excluded(key)
+        ft_field = any(str(o.get("Fulltext_Exclusion_Criterion") or "").strip()
+                       for o in data if isinstance(o, dict))
+        ft_excl = bool(ft_agreed or ft_field)
+        if ft_agreed:
+            ft_agreed_keys.append(key)
+        if ft_field:
+            ft_field_keys.append(key)
         for o in data:
             if not isinstance(o, dict):
                 continue
@@ -189,7 +208,8 @@ def main():
             if fw and not SC.include_fully_within():
                 fw_skipped.append({"study_key": key, "Study_ID": o.get("Study_ID")})
             study_rows.append({k: v for k, v in o.items() if k not in ("DV_Metrics", "Covariates")}
-                              | {"study_key": key, "study_excluded": excl, "fully_within": fw})
+                              | {"study_key": key, "study_excluded": excl, "fully_within": fw,
+                                 "fulltext_excluded": ft_excl})
             explicit_iv = SC.record_has_interventions(o)
             # Per-intervention model (PER_INTERVENTION_MODEL.md): for a record with
             # explicit ``Interventions`` also expose one effective study row per
@@ -199,7 +219,8 @@ def main():
                     eff = SC.effective_record(o, iv)
                     study_rows.append(
                         {k: v for k, v in eff.items() if k not in ("DV_Metrics", "Covariates")}
-                        | {"study_key": key, "study_excluded": excl, "fully_within": fw})
+                        | {"study_key": key, "study_excluded": excl, "fully_within": fw,
+                           "fulltext_excluded": ft_excl})
             for iv, eff, i, dv in SC.effective_dvs_unique(o, key):
                 if not isinstance(dv, dict):
                     continue
@@ -246,7 +267,8 @@ def main():
                     "reported": dv.get("effect_size_type_reported"),
                     "missing_reason": dv.get("missing_metrics_reason"),
                     "study_excluded": excl,
-                    "fully_within": fw}
+                    "fully_within": fw,
+                    "fulltext_excluded": ft_excl}
                 if _iid:
                     row["Intervention_ID"] = _iid
                     row["Intervention_Type"] = eff.get("Intervention_Type")
@@ -257,6 +279,23 @@ def main():
     # from the analysis set, so they cannot be double-counted in any pooled result.
     analysis_dvs = dvs[~dvs["study_excluded"]] if "study_excluded" in dvs.columns else dvs
     analysis_dvs = analysis_dvs.copy()
+    # Full-text-excluded studies (agreed screening verdict C1-C4): visible in the
+    # export, flagged ``fulltext_excluded``, removed from every pooled model
+    # (owner decision 2026-11-19 - "never included in any inferential or
+    # descriptive result").
+    n_ft_dropped = 0
+    ft_dropped_studies = []
+    if "fulltext_excluded" in analysis_dvs.columns:
+        _ft = analysis_dvs["fulltext_excluded"].fillna(False).astype(bool)
+        n_ft_dropped = int(_ft.sum())
+        ft_dropped_studies = sorted(analysis_dvs.loc[_ft, "study_key"].unique().tolist())
+        analysis_dvs = analysis_dvs[~_ft].copy()
+        if n_ft_dropped:
+            AL.log("fulltext_excluded_dropped", n_dv_rows=n_ft_dropped,
+                   n_studies=len(ft_dropped_studies), studies=ft_dropped_studies,
+                   n_agreed_file=len(ft_agreed_keys), n_coding_field=len(ft_field_keys),
+                   agreed_file_only=sorted(set(ft_agreed_keys) - set(ft_field_keys)),
+                   coding_field_only=sorted(set(ft_field_keys) - set(ft_agreed_keys)))
     # Fully-within (single-arm, no-control) records: excluded from every pooled
     # model by default; opt in with INCLUDE_FULLY_WITHIN=1 / --include-fully-within.
     n_fw_dropped = 0
@@ -469,6 +508,12 @@ def main():
                             "max_weight_share_rve": dep["max_weight_share_rve"]})
     domain_counts = pd.DataFrame(dc_rows)
     excluded_tbl = pd.DataFrame(SE.table())
+    ft_tbl = pd.DataFrame({
+        "study_key": ft_dropped_studies,
+        "criterion": ["Full-text exclusion (C1-C4)"] * len(ft_dropped_studies),
+        "source": [("coding field" if k in set(ft_field_keys) else "")
+                   + (" + agreed file" if k in set(ft_agreed_keys) else "")
+                   for k in ft_dropped_studies]})
 
     def safe(df):
         d = df.copy()
@@ -503,10 +548,17 @@ def main():
         safe(pd.DataFrame(omnibus_skipped)).to_excel(xl, sheet_name="Omnibus_Guard", index=False)
         if len(excluded_tbl):
             safe(excluded_tbl).to_excel(xl, sheet_name="Excluded_Experiments", index=False)
+        if len(ft_tbl):
+            safe(ft_tbl).to_excel(xl, sheet_name="Fulltext_Excluded", index=False)
     SC.publish_output(_partial, OUT)
     print(f"studies: {len(studies)} | dv rows: {len(dvs)} | analysis dv rows: {len(analysis_dvs)} "
           f"| excluded experiments: {len(excluded_tbl)} | eligible contrasts with effects: {len(effects)} "
           f"| DiD guard dropped: {len(did_over)} | missing_metrics_reason dropped: {len(missing_drop)}")
+    print(f"fulltext-excluded studies dropped from every pool: "
+          f"{len(ft_dropped_studies)} studies / {n_ft_dropped} DV row(s) "
+          f"(coding field: {len(ft_field_keys)}, agreed file: {len(ft_agreed_keys)}); "
+          f"see sheet 'Fulltext_Excluded' and Results/analysis_log.jsonl "
+          f"kind=fulltext_excluded_dropped")
     print(SC.fully_within_report(len(fw_skipped), "record(s)")
           + f"; {n_fw_dropped} analysis DV row(s) dropped")
     print(f"omnibus guard: {len(omnibus_skipped)} eligible contrast row(s) refused "
