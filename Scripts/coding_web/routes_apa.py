@@ -138,9 +138,12 @@ def _prisma_counts():
     deduplicated master component): a row is a DATABASE record when it carries
     the ``ebsco_export`` tag or, untagged, still names its database export
     (``shortDBName`` / ``longDBName`` / ``src_file``) — later exports arrive
-    without the tag and must not be misfiled as "other sources".  Named
-    reference lists of prior meta-analyses, hand-added Zotero records, records
-    added during coding and blank legacy rows are OTHER-source records.
+    without the tag and must not be misfiled as "other sources".  OTHER-source
+    rows are itemised as: reference lists of prior meta-analyses (including
+    the untagged records carried over from an earlier corpus version, which
+    entered that way and are merged into that line), references of the
+    included works (hand-added Zotero records) and unpublished work (records
+    added during coding).
 
     The diagram's populations, all labelled there:
       * "Records identified"  — every master row (``identified_records``);
@@ -245,15 +248,23 @@ def _prisma_counts():
                     return True
             return False
 
+        # The other-methods box's source lines (owner decision 2026-11-19):
+        #   * records carried over from an earlier corpus version carry no
+        #     Hit_Source tag - they entered through reference lists, so they
+        #     are MERGED into that line and the label says so;
+        #   * hand-added Zotero records are references of the included works;
+        #   * records added during coding are unpublished work.
+        _REF_LISTS = ("Reference lists of prior meta-analyses and records "
+                      "carried over from an earlier corpus")
+
         def _other_label(i):
             hit = str(df.at[i, "Hit_Source"]).strip() if "Hit_Source" in df.columns else ""
             if hit == "zotero_screening":
-                return "hand-added records (Zotero)"
+                return "References of included works"
             if hit == "coded_extraction":
-                return "added during coding"
-            if hit:
-                return "reference lists of prior meta-analyses"
-            return "records carried over from the previous master"
+                return "Unpublished work"
+            # a tagged reference-list row and an untagged carried-over row: one line
+            return _REF_LISTS
 
         for i in range(len(df)):
             if _is_db_record(i):
