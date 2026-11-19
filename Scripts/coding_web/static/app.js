@@ -84,6 +84,10 @@
   const SNAP = 150;
   const WIDE = 1341;
   const fieldIndex = new Map();
+  /* Names whose value OTHER fields' visibility depends on (their show_if):
+     committing one re-renders the form so a dependent field appears or
+     disappears immediately. */
+  const condTargets = new Set();
   // Per-DV effect fields filled automatically in coder mode, so a manual entry
   // is never overwritten and a later manual effect can clear the derived ones.
   const dvAutoFill = new Map();   // "recIdx:dvIdx" -> Set(fieldName)
@@ -405,11 +409,12 @@
   // intervention is selected (its type lives on the intervention, not overrides).
   function interventionTypeField(f) {
     const vocab = (f.vocab && f.vocab.length) ? f.vocab : interventionTypes();
+    const labels = (f.vocab_labels && typeof f.vocab_labels === "object") ? f.vocab_labels : {};
     return Object.assign({}, f, {
       editor: "select",
       type: "string",
       base_type: "string",
-      options: vocab.map((v) => ({ value: v, label: v })),
+      options: vocab.map((v) => ({ value: v, label: labels[v] || v })),
     });
   }
 
@@ -518,8 +523,11 @@
     const cur = inter.Intervention_Type || "";
     const vocab = interventionTypes();
     const opts = vocab.includes(cur) || !cur ? vocab : vocab.concat([cur]);
+    // the arm type shows its human label (the stored value stays the token)
+    const itField = fieldIndex.get("Intervention_Type") || {};
+    const itLabels = (itField.vocab_labels && typeof itField.vocab_labels === "object") ? itField.vocab_labels : {};
     if (!cur) typeSel.appendChild(new Option("— choose type —", ""));
-    opts.forEach((v) => typeSel.appendChild(new Option(v, v)));
+    opts.forEach((v) => typeSel.appendChild(new Option(itLabels[v] || v, v)));
     typeSel.value = cur;
     typeSel.title = "Intervention type";
     typeSel.addEventListener("change", () => {
@@ -979,7 +987,111 @@
   /* ================================================================ field controls */
   const emptyAsNull = (def) => (def.type || "").includes("|null") && def.base_type === "string";
 
+  /* ------------------------------------------------- scheme visibility rules */
+  /* The scheme's own mechanisms (Scripts/scheme_lib.py + the converted scheme):
+     a field carries ``show_if`` ("show only if a previous answer says so")
+     and may carry ``coder.form === "hide"`` (another writer owns it - the
+     pipeline, the mark-source button or the correspondence-author harvest -
+     so the form never offers it for hand coding).  Both are evaluated here,
+     and both fail OPEN: a malformed or unanswered condition shows the field,
+     and a conditioned field that already carries a value stays visible so a
+     condition can never hide data. */
+
+  function condValueText(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    return String(v).trim();
+  }
+
+  function condAsList(v) { return Array.isArray(v) ? v : [v]; }
+
+  function condAsNumber(v) {
+    if (typeof v === "number") return v;
+    const n = Number(condValueText(v));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /* Mirrors scheme_lib.eval_condition (same ops, same fail-open rules). */
+  function condHolds(cond, obj) {
+    if (!cond || typeof cond !== "object") return true;
+    const field = String(cond.field || "").trim();
+    const op = String(cond.op || "").toLowerCase();
+    if (!field || !op) return true;
+    const raw = obj ? obj[field] : undefined;
+    const txt = (x) => condValueText(x).toLowerCase();
+    if (op === "not_empty") {
+      if (raw === null || raw === undefined) return false;
+      if (Array.isArray(raw)) return raw.length > 0;
+      return condValueText(raw) !== "";
+    }
+    if (op === "empty") {
+      if (raw === null || raw === undefined) return true;
+      if (Array.isArray(raw)) return raw.length === 0;
+      return condValueText(raw) === "";
+    }
+    if (raw === null || raw === undefined) return true;   // cannot decide -> show
+    if (op === "gt" || op === "gte" || op === "lt" || op === "lte") {
+      const left = condAsNumber(raw), right = condAsNumber(cond.value);
+      if (left === null || right === null) return true;
+      if (op === "gt") return left > right;
+      if (op === "gte") return left >= right;
+      if (op === "lt") return left < right;
+      return left <= right;
+    }
+    const texts = condAsList(raw).map(txt).filter((t) => t !== "");
+    if (op === "in") {
+      const wanted = new Set(condAsList(cond.value).map((x) => txt(x)));
+      return texts.some((t) => wanted.has(t));
+    }
+    if (op === "not_in") {
+      const wanted = new Set(condAsList(cond.value).map((x) => txt(x)));
+      return !texts.some((t) => wanted.has(t));
+    }
+    if (op === "equals") {
+      const w = txt(cond.value);
+      return texts.some((t) => t === w);
+    }
+    if (op === "not_equals") {
+      const w = txt(cond.value);
+      return !texts.some((t) => t === w);
+    }
+    if (op === "contains") {
+      const needle = txt(cond.value);
+      if (!needle) return true;
+      return texts.some((t) => t.includes(needle));
+    }
+    return true;
+  }
+
+  function isEmptyVal(v) {
+    if (v === null || v === undefined) return true;
+    if (typeof v === "string") return v.trim() === "";
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object") return Object.keys(v).length === 0;
+    return false;
+  }
+
+  /* Whether the coding form shows a field's control. */
+  function fieldHiddenFor(def, obj) {
+    if (!def) return false;
+    const coder = def.coder && typeof def.coder === "object" ? def.coder : {};
+    if (coder.form === "hide") return true;      // machine-owned: never hand-coded
+    if (def.show_if && !condHolds(def.show_if, obj)) {
+      // a value that is already there stays visible for review
+      return isEmptyVal(obj ? obj[def.name] : null);
+    }
+    return false;
+  }
+
+  /* appendChild, but tolerant of a hidden field (fieldRow returns null). */
+  function appendFieldRow(host, def, obj, opts) {
+    const row = fieldRow(def, obj, opts);
+    if (row) host.appendChild(row);
+    return row;
+  }
+
   function fieldRow(def, obj, opts = {}) {
+    if (fieldHiddenFor(def, obj)) return null;
     const row = el("div", "field");
     row.dataset.field = def.name;
     row.dataset.editor = def.editor || "";
@@ -1043,6 +1155,12 @@
       touch();
       if (opts.onChange) opts.onChange(v);
       if (opts.onCommit) opts.onCommit(v);
+      // A value other fields' visibility depends on: re-evaluate the form on
+      // the next frame (never synchronously - the control being edited is
+      // still closing its popup).
+      if (condTargets.has(def.name)) {
+        requestAnimationFrame(() => renderForm());
+      }
     };
     switch (def.editor) {
       case "module-select": {
@@ -1181,12 +1299,17 @@
     const input = el("input");
     input.type = "text";
     input.placeholder = "type and press Enter…";
+    /* the scheme's human display labels for the tokens (vocab_labels); the
+       stored value is what commits, the label is what the coder sees */
+    const labels = (def.vocab_labels && typeof def.vocab_labels === "object") ? def.vocab_labels : {};
+    const labelFor = (v) => labels[String(v)] || String(v);
 
     const paint = () => {
       $$(".chip-token", box).forEach((n) => n.remove());
       arr.forEach((v, i) => {
         const t = el("span", "chip-token");
-        t.appendChild(el("span", null, String(v)));
+        t.title = String(v);
+        t.appendChild(el("span", null, labelFor(v)));
         const b = el("button");
         b.type = "button";
         b.tabIndex = -1;
@@ -1226,14 +1349,16 @@
     wrap.appendChild(box);
     paint();
 
-    const sugg = (def.vocab || []).filter((v) => !arr.includes(v));
+    const sugg = ((def.vocab && def.vocab.length) ? def.vocab : Object.keys(labels))
+      .filter((v) => !arr.includes(v));
     if (sugg.length) {
       const s = el("div", "chip-suggest");
       sugg.slice(0, 24).forEach((v) => {
         const b = el("button", "s");
         b.type = "button";
         b.tabIndex = -1;
-        b.textContent = v;
+        b.title = String(v);
+        b.textContent = labelFor(v);
         b.addEventListener("click", () => addValue(v));
         s.appendChild(b);
       });
@@ -1518,6 +1643,7 @@
     groups.forEach((g) => {
       let fields = state.schema.common_fields.filter((f) => f.group === g);
       if (q) fields = fields.filter((f) => fieldMatches(f, q));
+      fields = fields.filter((f) => !fieldHiddenFor(f, view.obj));
       if (!fields.length) return;
       const subtitle = q
         ? `${fields.length} match${fields.length === 1 ? "" : "es"}`
@@ -1527,7 +1653,7 @@
       if (q) sec.open = true;
       fields.forEach((f) => {
         const def = view.inter && f.name === "Intervention_Type" ? interventionTypeField(f) : f;
-        body.appendChild(fieldRow(def, view.obj, fieldOpts(f)));
+        appendFieldRow(body, def, view.obj, fieldOpts(f));
       });
       form.appendChild(sec);
     });
@@ -1544,13 +1670,14 @@
     const otherModule = Object.keys(view.obj).filter(
       (k) => k !== "DV_Metrics" && k !== "Interventions" && !commonNames.has(k) && !modNames.has(k) && fieldIndex.has(k)
         && fieldMatches(fieldIndex.get(k), q)
+        && !fieldHiddenFor(fieldIndex.get(k), view.obj)
     );
     if (otherModule.length) {
       const { sec, body } = makeSection("Fields from other modules", `${otherModule.length} kept`);
       if (state.missingsOnly && !q) sec.open = false;
       if (q) sec.open = true;
-      otherModule.forEach((k) => body.appendChild(fieldRow(fieldIndex.get(k), view.obj,
-        Object.assign({ showName: true }, fieldOpts(fieldIndex.get(k))))));
+      otherModule.forEach((k) => appendFieldRow(body, fieldIndex.get(k), view.obj,
+        Object.assign({ showName: true }, fieldOpts(fieldIndex.get(k)))));
       form.appendChild(sec);
     }
 
@@ -1595,6 +1722,7 @@
       if (!seen.has(f.name)) { seen.add(f.name); fields.push(f); }
     }));
     if (q) fields = fields.filter((f) => fieldMatches(f, q));
+    fields = fields.filter((f) => !fieldHiddenFor(f, obj));
     if (q && !fields.length) return null;
     const title = mods.length
       ? `Intervention module — ${mods.map((m) => m.label || "").filter(Boolean).join(" + ")}`
@@ -1620,7 +1748,7 @@
         body.appendChild(d);
       }
     });
-    fields.forEach((f) => body.appendChild(fieldRow(f, obj, fieldOpts ? fieldOpts(f) : {})));
+    fields.forEach((f) => appendFieldRow(body, f, obj, fieldOpts ? fieldOpts(f) : {}));
     return sec;
   }
 
@@ -1993,21 +2121,22 @@
     };
 
     if (q && !dvNameMatch) {
-      const fields = allDvFields().filter((f) => fieldMatches(f, q));
+      const fields = allDvFields().filter((f) => fieldMatches(f, q) && !fieldHiddenFor(f, dv));
       if (fields.length) {
         const sub = el("div", "dv-sub");
         sub.appendChild(el("h4", null, "Matching fields"));
-        fields.forEach((f) => sub.appendChild(fieldRow(f, dv, { onChange: fieldOnChange(f) })));
+        fields.forEach((f) => appendFieldRow(sub, f, dv, { onChange: fieldOnChange(f) }));
         body.appendChild(sub);
       }
     } else {
       const fam = statChoice(dv, i);
       const renderGroups = (groups) => groups.forEach((grp) => {
-        const fields = grp.names.map((n) => state.schema.dv_fields.find((f) => f.name === n)).filter(Boolean);
+        const fields = grp.names.map((n) => state.schema.dv_fields.find((f) => f.name === n))
+          .filter(Boolean).filter((f) => !fieldHiddenFor(f, dv));
         if (!fields.length) return;
         const sub = el("div", "dv-sub");
         sub.appendChild(el("h4", null, grp.title));
-        fields.forEach((f) => sub.appendChild(fieldRow(f, dv, { onChange: fieldOnChange(f) })));
+        fields.forEach((f) => appendFieldRow(sub, f, dv, { onChange: fieldOnChange(f) }));
         body.appendChild(sub);
       });
       if (state.coderMode) {
@@ -4507,6 +4636,12 @@
     state.schema = schema;
     schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
     Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
+    condTargets.clear();
+    [schema.common_fields, schema.dv_fields,
+     ...Object.values(schema.modules).map((m) => m.fields)].forEach((list) =>
+      (list || []).forEach((f) => {
+        if (f && f.show_if && f.show_if.field) condTargets.add(f.show_if.field);
+      }));
     renderTabs();
     $("#form").innerHTML = "";
     const ivPanelBoot = $("#interventions-panel");
@@ -5020,9 +5155,37 @@
       e.returnValue = "";
     });
     // Open a paper from another tab (Summary/Coverage) in the coding view.
-    window.addEventListener("cs:open-paper", (e) => {
-      const k = e.detail && e.detail.key;
-      if (k) selectPaper(k);
+    // detail.pdf switches the viewer to the rendered PDF; detail.page (1-based,
+    // e.g. located through /api/pdfsearch by the Harmonization workspace)
+    // scrolls the viewer to that page once the pages have mounted.
+    window.addEventListener("cs:open-paper", async (e) => {
+      const d = (e && e.detail) || {};
+      const k = d.key;
+      if (!k) return;
+      await selectPaper(k);
+      if (d.pdf) {
+        const b = $('#viewer-seg button[data-view="pdf"]');
+        if (b) {
+          state.view = "pdf";
+          $$("#viewer-seg button").forEach((x) => x.classList.toggle("active", x === b));
+          renderViewer();
+        }
+        const want = parseInt(d.page, 10);
+        if (want >= 1) {
+          state.page = want;
+          const pi = $("#page-input");
+          if (pi) pi.value = want;
+          // the pages mount asynchronously (pdfinfo must land first); retry
+          // briefly until the wanted page exists, then scroll to it
+          let tries = 0;
+          const t = setInterval(() => {
+            const img = document.querySelector(`.pdf-page[data-page="${want}"]`);
+            tries += 1;
+            if (img) { scrollPdfToPage(want); clearInterval(t); }
+            else if (tries > 40) clearInterval(t);
+          }, 300);
+        }
+      }
     });
     // Keep the shared top-bar actions in sync with the active view.
     document.addEventListener("cs:view", (e) => {

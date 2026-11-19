@@ -44,31 +44,34 @@
 .cv-kpi-l { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); }
 .cv-kpi-s { font-size: 10.5px; color: var(--faint); }
 
-/* ---------------------------------------------------------- funnel + audit */
-.cv-funnel, .cv-audit {
+/* ---------------------------------------------------------- readiness */
+/* The redesigned headline: "231 studies join a pool today: ... " with the
+   three pool counts spelled out; each item's hover defines its pool. */
+.cv-readiness {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px;
+  padding: 12px 14px; margin: 6px 0 10px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2);
+  font-size: 13px;
+}
+.cv-readiness-main { font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.cv-readiness-main b { font-size: 18px; color: var(--accent-ink); }
+.cv-read-item { color: var(--ink-2); cursor: help; }
+.cv-read-item b { color: var(--ink); font-size: 15px; }
+.cv-read-item.ok b { color: var(--ok); }
+.cv-read-item.warn b { color: var(--warn); }
+.cv-read-item.muted { color: var(--faint); font-size: 11.5px; }
+
+/* ---------------------------------------------------------- audit */
+.cv-audit {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
   padding: 9px 12px; margin-bottom: 10px;
   border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2);
   font-size: 12px;
 }
-.cv-funnel-t, .cv-audit-t {
+.cv-audit-t {
   font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted); margin-right: 4px;
 }
-.cv-step { color: var(--ink-2); }
-.cv-step b { color: var(--accent-ink); font-size: 14px; }
-.cv-step.muted { color: var(--faint); }
-.cv-arrow { color: var(--faint); }
-.cv-grow { flex: 1; }
-
-.cv-audit-chip {
-  padding: 2px 9px; border-radius: 99px; font-weight: 700; font-size: 11px;
-  border: 1px solid var(--line-2); background: var(--panel);
-}
-.cv-audit-chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-soft); }
-.cv-audit-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-soft); }
-.cv-audit-chip.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: var(--danger-soft); }
-
 .cv-findings { width: 100%; margin-top: 4px; }
 .cv-findings > summary { cursor: pointer; font-weight: 700; color: var(--warn); font-size: 11.5px; }
 .cv-findlist { display: grid; gap: 4px; margin-top: 6px; max-height: 240px; overflow: auto; }
@@ -80,6 +83,33 @@
 .cv-finding:hover { border-color: var(--accent); }
 .cv-findchk { font-weight: 700; color: var(--danger); text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
 .cv-finddet { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------ audit sentences */
+.cv-sentence {
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--ink-2);
+  border-radius: 99px; padding: 3px 12px; font-size: 12px; cursor: pointer;
+}
+.cv-sentence b { color: var(--ink); }
+.cv-sentence:hover { border-color: var(--accent); }
+.cv-sentence.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-soft); }
+.cv-sentence.ok b { color: var(--ok); }
+.cv-sentence.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-soft); }
+.cv-sentence.warn b { color: var(--warn); }
+.cv-sentence.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); background: var(--danger-soft); }
+.cv-sentence.bad b { color: var(--danger); }
+.cv-sentence:disabled { cursor: default; opacity: .75; }
+
+/* ------------------------------------------------------ pool pills */
+.cv-pool {
+  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  padding: 2px 8px; border-radius: 99px; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--panel);
+}
+.cv-pool.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.cv-pool.bad { color: var(--danger); background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+.cv-pool.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.cv-pool.na { color: var(--muted); }
+.cv-pool:hover { border-color: var(--accent); }
 
 /* ---------------------------------------------------------- toolbar + table */
 .cv-toolbar {
@@ -94,8 +124,8 @@
 
 .cv-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 62px minmax(0, .8fr) minmax(0, 2.4fr) 74px;
-  gap: 6px; align-items: center; padding: 5px 10px;
+  grid-template-columns: minmax(0, 1.5fr) 52px minmax(0, 1.15fr) minmax(0, 2.7fr) 88px;
+  gap: 8px; align-items: center; padding: 6px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 .cv-row:last-child { border-bottom: 0; }
@@ -130,15 +160,18 @@
 .cv-flag.warn { color: var(--warn); background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
 
 .cv-slots { display: flex; gap: 4px; flex-wrap: wrap; }
-.cv-slothead { width: 34px; text-align: center; color: var(--faint); font-size: 10px; }
+.cv-slothead { min-width: 62px; text-align: center; color: var(--faint); font-size: 9.5px; }
 .cv-slot {
   display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
-  width: 34px; height: 30px; padding: 0; cursor: pointer;
+  min-width: 62px; max-width: 78px; height: 34px; padding: 1px 5px; cursor: pointer;
   border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--panel-2);
-  line-height: 1.05;
+  line-height: 1.12; text-align: center;
 }
 .cv-slot:hover { border-color: var(--accent); }
-.cv-slot-s { font-size: 8.5px; font-weight: 800; color: var(--faint); }
+.cv-slot-s {
+  font-size: 8.5px; font-weight: 700; color: var(--ink-2); letter-spacing: .01em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .cv-slot-c { font-size: 9.5px; font-weight: 700; color: var(--ink-2); }
 .cv-slot.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
 .cv-slot.ok .cv-slot-c { color: var(--ok); }

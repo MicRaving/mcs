@@ -538,14 +538,14 @@
     <div class="cv-head">
       <div class="an-title">
         <h1>Harmonization</h1>
-        <p>Every harmonized study ranked by the poolability-weighted missingness of the 11 essential
-          slots. Click a study or a slot chip to open the assignment workspace at that gap and label
-          the variable with value labels, example rows and codebook context. Machine statuses are
-          filled / missing / ambiguous; <b>n/a</b> and <b>confirmed</b> come from coder assignments.</p>
+        <p>Label what each study's dataset still misses — one plain question at a time,
+          with the paper, the coding and the raw data beside you. The list is ordered by
+          the coverage pipeline's poolability-weighted missingness score: studies with the
+          <b>fewest open gaps</b> (the most pools already unblocked) come first, studies
+          missing everything last, finished studies at the end.</p>
       </div>
     </div>
-    <section class="cv-kpis" id="cv-kpis"></section>
-    <div class="cv-funnel" id="cv-funnel"></div>
+    <div class="cv-readiness" id="cv-funnel"></div>
     <div class="cv-audit" id="cv-audit"></div>
     <div class="cv-toolbar">
       <div class="filters" id="cv-filters"></div>
@@ -774,8 +774,12 @@
               Bayesian priors currently selected at the top of this tab, plus the moderators chosen
               in the <b>Moderator</b> tab. Reliability, publication-bias analyses, the
               statistical-analysis subsection and the PRISMA chart are included automatically when
-              available.</p>
+              available. The PRISMA diagram counts <i>records</i> (master_dataset.xlsx rows),
+              deduplicated <i>reports</i>, and <i>studies included in review</i> (screening verdict
+              “Include”); the number of coded papers is reported beside it — a larger corpus, because
+              studies excluded at full text are still coded.</p>
             <img id="apa-prisma-img" alt="PRISMA flow diagram" hidden>
+            <p class="an-note" id="apa-prisma-counts" hidden></p>
           </div>
         </div>
       </div>

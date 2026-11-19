@@ -197,6 +197,7 @@ def _audit_block():
     parity = next((c for c in checks if c["check"] == "parity"), {"ok": 0, "bad": 0, "n": 0})
     return {"checks": checks, "parity": parity, "findings": findings,
             "conflicts": _count_conflicts(),
+            "conflict_studies": _conflict_studies(),
             "needs_veracity": _count_needs_veracity()}
 
 
@@ -213,6 +214,27 @@ def _count_conflicts():
         except Exception:  # noqa: BLE001
             continue
     return n
+
+
+def _conflict_studies(limit=8):
+    """Studies with the most conflict-stamped assignment rows (click-through)."""
+    out = []
+    for p in glob.glob(os.path.join(S.DATASETS or "", "*",
+                                    "* - variable_assignments.csv")):
+        key = os.path.basename(os.path.dirname(p))
+        try:
+            import pandas as pd
+            df = pd.read_csv(p, encoding="utf-8-sig", low_memory=False)
+            if "status" not in df.columns:
+                continue
+            n = int(df["status"].astype(str).str.strip().str.lower()
+                    .eq("conflict").sum())
+            if n:
+                out.append({"study_key": key, "n": n})
+        except Exception:  # noqa: BLE001
+            continue
+    out.sort(key=lambda d: (-d["n"], d["study_key"].lower()))
+    return out[:limit]
 
 
 def _count_needs_veracity():
@@ -258,12 +280,55 @@ def _study_record(rec, slot_counts, open_by_study, paper_keys):
     opens = list(open_by_study.get(key, []))
     out["open_slots"] = opens
     out["first_open_slot"] = opens[0] if opens else None
+    # redesign additions (additive -- old keys unchanged): the three pool
+    # pills with what still blocks each pool, and the open-gap count
+    out["open_count"] = len(opens)
+    out["pools"] = _pools_block(rec, opens)
     return out
+
+
+def _pools_block(rec, opens):
+    """The three pool pills for one study row (plain labels + what is missing).
+
+    Mirrors gapwalk_lib.pools_for (the workspace payload) so the list and the
+    workspace can never disagree about a study's pools.
+    """
+    from gapwalk_lib import pools_for
+    try:
+        return pools_for(rec, opens)
+    except Exception:  # noqa: BLE001  (never take the tab down)
+        return {"sdt": {"joins": None, "label": "Joins the signal-detection pool",
+                        "define": "", "missing": []},
+                "did": {"joins": None, "label": "Joins the pre-post pool",
+                        "define": "", "missing": []},
+                "excl": {"joins": None, "label": "Author exclusions apply",
+                         "define": "", "missing": []}}
 
 
 # ---------------------------------------------------------------------------
 # endpoints
 # ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
+# plain-language metadata for the redesigned tab (single source: gapwalk_lib)
+# --------------------------------------------------------------------------- #
+try:
+    from gapwalk_lib import SLOT_QUESTIONS as _SLOT_QUESTIONS
+except Exception:  # noqa: BLE001  (the tab degrades to bare codes)
+    _SLOT_QUESTIONS = {}
+
+
+def _slot_meta():
+    """slots[] entries with the plain question/label/hint (old keys kept)."""
+    out = []
+    for s in SLOT_ORDER:
+        q = _SLOT_QUESTIONS.get(s, {})
+        out.append({"code": s, "name": SLOT_NAMES[s], "weight": SLOT_WEIGHT[s],
+                    "question": q.get("question", ""),
+                    "short": q.get("short", SLOT_NAMES[s]),
+                    "hint": q.get("hint", "")})
+    return out
+
+
 @bp.get("/api/coverage")
 def api_coverage():
     d = _derive()
@@ -295,6 +360,17 @@ def api_coverage():
     funnel = {"true_false_cell": len(cell), "with_condition": len(cell & cond),
               "explicit_roles": len(cell & cond & roles),
               "harmonized": len(have), "papers": len(paper_keys)}
+    # redesign addition (additive): the three pool counts spelled out for the
+    # "N studies join a pool today" headline
+    n_ds = sum(1 for s in studies if s.get("has_dataset"))
+    funnel["pools"] = {
+        "sdt": sum(1 for s in studies if s.get("has_dataset") and s.get("blocks_sdt") != 1),
+        "did": sum(1 for s in studies if s.get("has_dataset") and s.get("blocks_did") != 1),
+        "exclusions_on": sum(1 for s in studies if s.get("blocks_exclusions_on") == 1),
+        "any": sum(1 for s in studies if s.get("has_dataset") and
+                   (s.get("blocks_sdt") != 1 or s.get("blocks_did") != 1)),
+        "datasets": n_ds,
+    }
 
     # filters
     flt = (request.args.get("filter") or "all").strip().lower()
@@ -353,8 +429,7 @@ def api_coverage():
 
     return jsonify({
         "generated_at": _iso(_mtime(_path("harmonization_coverage_summary.csv"))),
-        "slots": [{"code": s, "name": SLOT_NAMES[s], "weight": SLOT_WEIGHT[s]}
-                  for s in SLOT_ORDER],
+        "slots": _slot_meta(),
         "funnel": funnel,
         "counts": counts,
         "filter": flt,
@@ -363,7 +438,50 @@ def api_coverage():
         "audit": _audit_block(),
         "studies": studies,
         "filters": list(_FILTERS),
+        "sort_note": ("studies are ranked by the coverage pipeline's "
+                      "poolability-weighted missingness score; ascending = "
+                      "most pools already unblocked"),
     })
+
+
+@bp.get("/api/gapwalk/<path:key>")
+def api_gapwalk(key):
+    """The guided gap queue for one study (redesigned Harmonization tab).
+
+    Read-only: composes the coverage matrix's open gaps with paper quotes
+    from ``Text/<Key>.txt``, pre-fills from the coding tab and the
+    harmonizer's decoded guesses.  The save stays
+    ``POST /api/harmonizer``-owned: ``POST /api/assignments/<key>``.
+    """
+    from gapwalk_lib import build_gapwalk, safe_study_key
+    if not safe_study_key(key):
+        abort(404)
+    folder = os.path.join(S.DATASETS or "", key)
+    if not os.path.isdir(folder):
+        return jsonify({"key": key, "exists": False, "has_dataset": False,
+                        "queue": [], "answered": [], "checklist": [],
+                        "pools": {}, "counts": {"open": 0, "answered": 0},
+                        "paper": {}, "facts": [], "notes": "", "options": {},
+                        "profile": [], "wide_columns": [],
+                        "warning": "no dataset folder for this study"})
+    d = _derive()
+    if d["matrix"] is None:
+        return jsonify({"key": key, "exists": True, "has_dataset": True,
+                        "queue": [], "answered": [], "checklist": [],
+                        "pools": {}, "counts": {"open": 0, "answered": 0},
+                        "paper": {}, "facts": [], "notes": "", "options": {},
+                        "profile": [], "wide_columns": [],
+                        "warning": "harmonization_coverage.csv not found - run "
+                                   "python Scripts/harmonization_coverage.py"})
+    payload = build_gapwalk(key, d)
+    # leftover capability from the previous workspace: unmapped raw columns as
+    # optional extra cards (kind "raw"), kept out of the main gap queue
+    try:
+        payload["raw_targets"] = [t for t in _assignment_targets(key, d)
+                                  if t.get("kind") == "raw"]
+    except Exception:  # noqa: BLE001
+        payload["raw_targets"] = []
+    return jsonify(payload)
 
 
 @bp.get("/api/coverage/study/<path:key>")
