@@ -44,31 +44,56 @@ _FULLTEXT_CACHE = {"mtime": None, "keys": set()}
 _CRITERION_FIELD = "Fulltext_Exclusion_Criterion"
 
 
-def _criterion_field_keys():
-    """Study keys whose canonical coding records a full-text exclusion (C1-C4).
+#: {file name: ((mtime_ns, size), excluded?)} - per-file memo of the scan below.
+_FIELD_MEMO = {}
 
-    Scanned once per process and cached: the pipeline scripts call this once
-    per run, and the app calls it per request but reads only these files.
+
+def _criterion_field_keys():
+    """Study keys whose canonical coding records a full-text exclusion.
+
+    Memoised per file on (mtime_ns, size): only Extraction files that changed
+    since the last call are re-parsed.  ``os.scandir`` returns the stat data
+    with the directory listing, so an unchanged corpus costs one listing.
+
+    (Before 2026-11-23 this re-parsed all ~830 files, 74 MB, on EVERY call;
+    the pipeline calls it once per dataset folder / record, which made
+    ``publication_bias.py`` read ~320 GB and run for hours.)
     """
     keys = set()
+    seen = set()
     try:
-        names = os.listdir(_EXTRACTION_DIR)
+        entries = list(os.scandir(_EXTRACTION_DIR))
     except OSError:
+        _FIELD_MEMO.clear()
         return keys
-    for name in names:
+    for entry in entries:
+        name = entry.name
         if not name.endswith(".json"):
             continue
-        path = os.path.join(_EXTRACTION_DIR, name)
+        seen.add(name)
         try:
-            with open(path, encoding="utf-8") as fh:
-                data = json.load(fh)
-        except Exception:
+            st = entry.stat()
+            sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
             continue
-        recs = data if isinstance(data, list) else [data]
-        for rec in recs:
-            if isinstance(rec, dict) and str(rec.get(_CRITERION_FIELD) or "").strip():
-                keys.add(name[: -len(".json")])
-                break
+        memo = _FIELD_MEMO.get(name)
+        if memo is None or memo[0] != sig:
+            excluded = False
+            try:
+                with open(entry.path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                recs = data if isinstance(data, list) else [data]
+                excluded = any(isinstance(rec, dict)
+                               and str(rec.get(_CRITERION_FIELD) or "").strip()
+                               for rec in recs)
+            except Exception:
+                excluded = False
+            memo = (sig, excluded)
+            _FIELD_MEMO[name] = memo
+        if memo[1]:
+            keys.add(name[: -len(".json")])
+    for gone in set(_FIELD_MEMO) - seen:
+        del _FIELD_MEMO[gone]
     return keys
 
 
