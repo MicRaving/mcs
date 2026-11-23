@@ -97,6 +97,12 @@ hiddenimports += [
     "semhom_rules", "covariate_restriction",
     "analysis_multiverse_meta",                      # via suite_common
     "scheme_instructions",                           # via scheme_legacy
+    # online projects: the routes, the sync engine and the shared protocol
+    "routes_online",
+    "online", "online.client", "online.store", "online.mirror", "online.outbox",
+    "online.syncer", "online.cache", "online.conflicts", "online.keyring_store",
+    "online.errors",
+    "online_shared", "online_shared.protocol", "online_shared.merge",
 ]
 
 # the native-window backend of this platform
