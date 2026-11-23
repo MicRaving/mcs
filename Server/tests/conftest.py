@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -23,6 +24,8 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin-password"
 CODER_USERNAME = "coder"
 CODER_PASSWORD = "coder-password"
+CODER2_USERNAME = "coder2"
+CODER2_PASSWORD = "coder2-password"
 
 
 @pytest.fixture
@@ -94,6 +97,112 @@ def admin_headers(admin_token) -> dict[str, str]:
 @pytest.fixture
 def coder(cfg) -> dict:
     return create_user(cfg, CODER_USERNAME, CODER_PASSWORD)
+
+
+@pytest.fixture
+def coder2(cfg) -> dict:
+    return create_user(cfg, CODER2_USERNAME, CODER2_PASSWORD)
+
+
+# ── sync-test helpers (additive; used by test_sync/test_visibility/…) ──
+
+
+def put_member(
+    client: TestClient,
+    headers: dict[str, str],
+    pid: str,
+    user_id: int,
+    *,
+    role: str = "coder",
+    tags: list[str] | None = None,
+    tasks: list[str] | None = None,
+) -> dict:
+    response = client.put(
+        f"/api/p/{pid}/members/{user_id}",
+        json={
+            "role": role,
+            "tags": list(tags or []),
+            "tasks": list(tasks or []),
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["member"]
+
+
+def join_project(
+    client: TestClient,
+    owner_headers: dict[str, str],
+    pid: str,
+    user: dict,
+    username: str,
+    password: str,
+    *,
+    role: str = "coder",
+    tags: list[str] | None = None,
+    tasks: list[str] | None = None,
+) -> dict[str, str]:
+    """Add *user* as a project member and return its bearer headers."""
+    put_member(
+        client, owner_headers, pid, user["id"], role=role, tags=tags, tasks=tasks
+    )
+    return auth(login(client, username, password))
+
+
+def put_blob(
+    client: TestClient, headers: dict[str, str], pid: str, data: bytes
+) -> str:
+    """Upload *data* as a blob; returns its sha256 (the blob name)."""
+    digest = hashlib.sha256(data).hexdigest()
+    response = client.put(
+        f"/api/p/{pid}/blobs/{digest}", content=data, headers=headers
+    )
+    assert response.status_code == 200, response.text
+    return digest
+
+
+def push_entries(
+    client: TestClient,
+    headers: dict[str, str],
+    pid: str,
+    entries: list[dict],
+    client_id: str = "test-client",
+) -> dict:
+    response = client.post(
+        f"/api/p/{pid}/push",
+        json={"client_id": client_id, "entries": entries},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def push_file(
+    client: TestClient,
+    headers: dict[str, str],
+    pid: str,
+    path: str,
+    data: bytes,
+    base_hash: str | None = None,
+    client_id: str = "test-client",
+) -> dict:
+    """Upload *data* and push it at *path*; returns the single entry result."""
+    digest = put_blob(client, headers, pid, data)
+    body = push_entries(
+        client,
+        headers,
+        pid,
+        [
+            {
+                "path": path,
+                "base_hash": base_hash,
+                "new_hash": digest,
+                "size": len(data),
+            }
+        ],
+        client_id=client_id,
+    )
+    return body["results"][0]
 
 
 @pytest.fixture
