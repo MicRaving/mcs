@@ -36,6 +36,9 @@
     fileq: "",
     expanded: {},
     reportOpen: false,
+    /* online edit lock of the open study (its reproduction files are shared) */
+    lockKey: "",
+    locked: null,
   };
 
   const STATUS = {
@@ -166,6 +169,7 @@
   }
 
   async function startRun(kind) {
+    if (lockedNow()) return;
     const onlyEl = $("#rp-only");
     const only = onlyEl ? onlyEl.value.trim() : "";
     let res;
@@ -373,6 +377,7 @@
       S.reportOpen = false; renderDetail();
     }));
     wireDetail();
+    paintLock();
   }
 
   function rowMeta(r) {
@@ -843,6 +848,7 @@
   async function saveEdits(cid, btn) {
     const payload = editPayload(cid);
     if (!payload) return;
+    if (lockedNow()) return;
     btn.disabled = true;
     let res;
     try {
@@ -885,6 +891,49 @@
     renderDetail();
   }
 
+  // ------------------------------------------------------ online edit lock
+  /* The dossier writes the study's Results/repro_dossier rows and the run writes
+     Datasets/<Key>/ through the reproducer, so an online project holds the
+     study's edit lock while its panel is open.  Local projects: inert. */
+  const LOCK_OFF = "#rp-gen, #rp-harm, #rp-repro";
+  const lockHost = () => $("#rp-detail-body");
+
+  function paintLock() {
+    const C = window.CSOnline;
+    const host = lockHost();
+    if (!host) return;
+    if (!C || !C.active() || !S.locked) {
+      if (C) C.locks.clearNotice(host, LOCK_OFF);
+      return;
+    }
+    C.locks.notice(host, S.study || "", S.locked.holder || {}, LOCK_OFF);
+  }
+
+  async function holdStudyLock(key) {
+    const C = window.CSOnline;
+    if (!C || !C.active() || !key) { S.lockKey = ""; S.locked = null; return; }
+    if (S.lockKey === key) return;
+    if (S.lockKey) C.locks.end(S.lockKey, {});
+    S.lockKey = key;
+    const r = await C.locks.begin(key, { task: "reproduce", host: lockHost(), disable: LOCK_OFF });
+    S.locked = r.ok ? null : r;
+    paintLock();
+  }
+
+  function releaseStudyLock() {
+    const C = window.CSOnline;
+    if (C && S.lockKey) C.locks.end(S.lockKey, { host: lockHost(), disable: LOCK_OFF });
+    S.lockKey = "";
+    S.locked = null;
+  }
+
+  function lockedNow() {
+    if (!S.locked) return false;
+    toast("This study is locked", "err",
+      `Locked by ${S.locked.who || "another coder"} — running or editing is disabled until the lock is released.`);
+    return true;
+  }
+
   async function openStudy(key, quiet) {
     S.study = key;
     S.dtab = "results";
@@ -910,6 +959,7 @@
     S.files = (files && files.files) || dossier.file_inventory || [];
     S.filesKey = key;
     renderDetail();
+    holdStudyLock(key);
     if (!quiet) {
       const el = $("#rp-detail");
       if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -995,7 +1045,10 @@
 
   function boot() {
     wire();
-    document.addEventListener("cs:view", (e) => { if (e.detail === "reproduction") ensureStarted(); });
+    document.addEventListener("cs:view", (e) => {
+      if (e.detail === "reproduction") ensureStarted();
+      else if (S.lockKey) releaseStudyLock();     // leaving the study's edit session
+    });
     let saved = "coding";
     try { saved = localStorage.getItem("cs.view") || "coding"; } catch { /* ignore */ }
     if (saved === "reproduction") ensureStarted();

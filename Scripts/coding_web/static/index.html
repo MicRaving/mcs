@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="/static/schema.css">
 <link rel="stylesheet" href="/static/home.css">
 <link rel="stylesheet" href="/static/settings.css">
+<link rel="stylesheet" href="/static/online.css">
 </head>
 <body>
 
@@ -51,6 +52,7 @@
     <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16v4Z"/><path d="M13 7l4 4"/></symbol>
     <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1Z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></symbol>
   </defs>
 </svg>
 
@@ -145,6 +147,10 @@
       <span class="btn-label">Next</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-next"/></svg>
     </button>
+    <button class="btn" id="finish-btn" title="Finish this paper — save, mark it done for your coder, and open the next one (finishes = done marks, so it also works offline and in a local folder)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-check"/></svg>
+      <span class="btn-label">Finish</span>
+    </button>
     <button class="btn" id="merge-btn" hidden title="Merge your abstract-screening decisions into master_dataset.xlsx">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
       <span class="btn-label">Merge</span>
@@ -154,6 +160,15 @@
       <span class="btn-label">Full analysis</span>
     </button>
     <span class="pill" id="an-gen" title="Analysis results last updated">–</span>
+    <button class="btn cs-online-badge" id="online-badge" hidden data-mode="local" title="Online project status — click for sync, conflicts, locks and cache">
+      <span class="cs-online-dot" aria-hidden="true"></span>
+      <span class="btn-label" id="online-badge-text">Local</span>
+      <span class="cs-online-flag" id="online-badge-flag" hidden></span>
+    </button>
+    <button class="btn ghost" id="online-admin-btn" hidden title="Project admin — members, assignments, blinding, publish and audit (owners)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>
+      <span class="btn-label">Project admin</span>
+    </button>
     <button class="btn ghost icon" id="project-btn" aria-label="Project folder" title="Choose the project folder (Papers/, Text/, Extraction/)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-folder"/></svg>
     </button>
@@ -914,6 +929,11 @@
     <p class="proj-status" id="project-status"></p>
   </div>
   <div class="sheet-foot">
+    <button class="btn ghost" id="project-online" title="Connect to a studio server and open one of its online projects">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-users"/></svg>
+      Open online project…
+    </button>
+    <span style="flex:1"></span>
     <button class="btn ghost" id="project-cancel">Cancel</button>
     <button class="btn primary" id="project-save">Use this folder</button>
   </div>
@@ -944,6 +964,11 @@
 </main>
 
 <div class="toasts" id="toasts"></div>
+
+<!-- Mount point of the online project admin panel (admin_online.js).  Empty on
+     purpose: the admin UI is a separate module that hooks into this container
+     when the header's "Project admin" entry dispatches cs:online-admin-open. -->
+<div id="online-admin-root"></div>
 
 <main class="workspace settings" id="view-settings" hidden>
   <div class="st-page">
@@ -1017,5 +1042,6 @@
 <script src="/static/repro.js"></script>
 <script src="/static/home.js"></script>
 <script src="/static/settings.js"></script>
+<script src="/static/online.js"></script>
 </body>
 </html>

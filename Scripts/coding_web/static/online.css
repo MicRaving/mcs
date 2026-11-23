@@ -1,0 +1,314 @@
+/* ============================================================
+   Coding Studio — online projects
+   One stylesheet for the header badge, the sync panel, the connect
+   dialog, the conflict view and the lock notes.  It only uses the
+   theme variables of styles.css, so light and dark both work.
+   ============================================================ */
+
+/* ------------------------------------------------------------ header badge */
+/* Hidden unless an online project is open: a local folder project keeps the
+   top bar exactly as it was. */
+.cs-online-badge {
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cs-online-badge[hidden] { display: none !important; }
+/* `.btn` sets display:inline-flex, which beats the UA rule for [hidden]: the
+   admin entry must really disappear for a local project / a non-owner. */
+#online-admin-btn[hidden] { display: none !important; }
+
+.cs-online-dot {
+  width: 8px; height: 8px; border-radius: 99px; flex: none;
+  background: var(--faint);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--faint) 18%, transparent);
+}
+.cs-online-badge[data-mode="online"] .cs-online-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent);
+}
+.cs-online-badge[data-mode="syncing"] .cs-online-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  animation: cs-online-pulse 1.2s ease-in-out infinite;
+}
+.cs-online-badge[data-mode="offline"] {
+  color: var(--muted);
+  background: var(--panel-3);
+}
+.cs-online-badge[data-mode="offline"] .cs-online-dot { background: var(--faint); }
+.cs-online-badge[data-mode="error"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: transparent;
+}
+.cs-online-badge[data-mode="error"] .cs-online-dot { background: var(--danger); }
+
+@keyframes cs-online-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .45; }
+}
+
+.cs-online-flag {
+  min-width: 17px; height: 17px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 99px; font-size: 10.5px; font-weight: 700;
+  background: var(--danger); color: #fff;
+}
+.cs-online-flag[data-kind="pending"] { background: var(--warn); color: #1b1b1b; }
+.cs-online-flag[hidden] { display: none; }
+
+/* ------------------------------------------------------------ finish button */
+/* Only the coding view has papers to finish. */
+#finish-btn { display: none !important; }
+body:not(.view-home):not(.view-summary):not(.view-screening):not(.view-agreement):not(.view-coverage):not(.view-analysis):not(.view-reproduction):not(.view-scheme):not(.view-settings) #finish-btn {
+  display: inline-flex !important;
+}
+#finish-btn.done-pulse {
+  background: var(--ok-soft);
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+  color: var(--ok);
+}
+
+/* ------------------------------------------------------------ paper list marks */
+.s-badge.done {
+  background: var(--ok-soft);
+  color: var(--ok);
+  gap: 3px;
+}
+.s-badge.locked {
+  background: color-mix(in srgb, var(--violet) 13%, transparent);
+  color: var(--violet);
+  gap: 3px;
+}
+.paper-item .dot.done {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.paper-item .dot.done.dirty {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+/* ------------------------------------------------------------ coder tags */
+/* Online: the free coder field becomes a fixed list of the member's tags. */
+.coder-pick.online-tags #coder-input { display: none; }
+.coder-pick.online-tags .coder-caret { display: none; }
+.coder-pick.online-tags .coder-menu { display: none !important; }
+.online-coder {
+  min-width: 96px;
+  height: 28px;
+  padding: 0 26px 0 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------ dialogs */
+dialog.online-sheet { width: min(720px, calc(100vw - 40px)); }
+dialog.online-sheet.wide { width: min(860px, calc(100vw - 40px)); }
+dialog.online-sync { width: min(920px, calc(100vw - 40px)); }
+dialog.online-sync .sheet-body,
+dialog.online-sheet .sheet-body {
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+dialog.online-sheet .online-card,
+dialog.online-sheet .online-grid { min-width: 0; }
+dialog.online-sheet h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+dialog.online-sheet h5 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.online-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 14px;
+}
+.online-head h3 { margin: 0; }
+.online-sub { margin: 2px 0 0; }
+.online-grow { flex: 1; }
+.online-muted { color: var(--muted); font-size: 12px; }
+.online-warn {
+  margin: 8px 0 0; padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--warn-soft); color: var(--warn);
+  font-size: 12px;
+}
+
+.online-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (max-width: 720px) { .online-grid { grid-template-columns: 1fr; } }
+
+.online-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel-2);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.online-card:last-child { margin-bottom: 0; }
+
+.online-kv {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.online-kv span { color: var(--muted); }
+.online-kv b { font-weight: 600; overflow-wrap: anywhere; }
+
+.online-actions {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin-top: 10px;
+}
+
+.online-bar {
+  height: 7px; margin: 10px 0 8px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.online-bar i {
+  display: block; height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+}
+
+.online-field { display: flex; flex-direction: column; gap: 5px; margin: 8px 0; }
+.online-field > span { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.online-field.inline { flex-direction: row; align-items: center; gap: 9px; }
+.online-field.inline > span { min-width: 88px; }
+.online-form { margin-top: 12px; }
+.online-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 640px) { .online-row { grid-template-columns: 1fr; } }
+
+.online-range { flex: 1; accent-color: var(--accent); }
+.online-num { width: 92px; }
+.online-check { accent-color: var(--accent); width: 15px; height: 15px; }
+.online-check-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 2px; font-size: 12px; color: var(--ink-2);
+  cursor: pointer;
+}
+.online-check-row:hover { color: var(--ink); }
+
+.online-status { min-height: 16px; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.online-status.err { color: var(--danger); }
+
+.online-projects { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.online-project-row {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.online-project-name { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.online-project-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.online-role {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted);
+  background: var(--panel-3); border-radius: 99px; padding: 2px 7px;
+}
+
+.online-list { display: flex; flex-direction: column; gap: 2px; }
+.online-scroll { max-height: 190px; overflow: auto; }
+.online-row-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--ink);
+  font: inherit; font-size: 12px; text-align: left;
+  cursor: pointer;
+}
+.online-row-item:hover { background: var(--panel-3); }
+.online-row-item.static { cursor: default; }
+.online-row-item.static:hover { background: transparent; }
+.online-row-item svg { color: var(--muted); flex: none; }
+.online-row-item b { font-weight: 600; }
+
+.online-dot-sm {
+  width: 7px; height: 7px; border-radius: 99px;
+  background: var(--ok); flex: none;
+}
+
+.online-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.online-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 99px;
+  padding: 1px 4px 1px 9px;
+  font-size: 11px;
+}
+.online-chip-x {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 13px; line-height: 1; cursor: pointer;
+  padding: 2px 5px; border-radius: 99px;
+}
+.online-chip-x:hover { background: var(--danger-soft); color: var(--danger); }
+
+.online-current .online-card { background: var(--panel); }
+
+/* `.btn` sets display:inline-flex, which beats the UA rule for [hidden]: every
+   hidden control inside an online dialog must really disappear. */
+dialog.online-sheet [hidden] { display: none !important; }
+
+/* ------------------------------------------------------------ conflicts */
+.online-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+@media (max-width: 720px) { .online-compare { grid-template-columns: 1fr; } }
+.online-pane {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  padding: 8px 10px;
+  min-width: 0;
+}
+.online-pre {
+  margin: 0;
+  max-height: 46vh;
+  overflow: auto;
+  font: 500 11px/1.55 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.online-merged .online-field { margin: 0; }
+.online-merge-text {
+  width: 100%;
+  min-height: 220px;
+  font: 500 11px/1.55 var(--mono);
+  white-space: pre;
+}
+
+/* ------------------------------------------------------------ lock notes */
+/* Shown at the top of an editor whose study another member holds: the editor
+   stays readable, its save controls are disabled. */
+.cs-lock-note {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--violet) 12%, transparent);
+  color: var(--violet);
+  font-size: 12px; font-weight: 600;
+}
+.cs-lock-note svg { flex: none; }

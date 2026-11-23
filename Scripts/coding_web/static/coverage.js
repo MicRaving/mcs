@@ -383,6 +383,8 @@
       const on = e.detail === "coverage";
       view.hidden = !on;
       document.body.classList.toggle("view-coverage", on);
+      // the open study's online edit lock is held only while this tab is on
+      if (window.CSAssign && window.CSAssign.onView) window.CSAssign.onView(on);
       if (on) load();
     });
     // own tab click (analysis.js's showView fires cs:view which shows us)

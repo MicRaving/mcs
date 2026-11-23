@@ -75,6 +75,9 @@
     session: {}, pending: {}, applied: [],
     context: null, contextLoading: false, decode: null,
     open: false, busy: false, startedAt: 0,
+    /* online edit lock of the open study (its assignments/harmonized files are
+       shared): held while the workspace is open, renewed by online.js */
+    lockKey: "", locked: null,
   };
 
   // --------------------------------------------------------------- coder
@@ -586,6 +589,7 @@
     }
     host.hidden = false;
     host.innerHTML = workspacePanel();
+    paintLock();
   }
 
   function rerenderQueue() {
@@ -612,7 +616,7 @@
     const n = stagedRows().length;
     const btn = host.querySelector("#assign-save-all");
     if (btn) {
-      btn.disabled = n === 0 || state.busy;
+      btn.disabled = n === 0 || state.busy || !!state.locked;
       btn.textContent = n ? `Save & apply (${n})` : "Save & apply";
     }
     const dirty = host.querySelector("#assign-dirty");
@@ -699,11 +703,13 @@
     if (token !== state.token) return;    // a newer open() superseded this one
     renderHost();
     fetchContext();
+    holdStudyLock(key);
     try { state.host.scrollIntoView({ block: "nearest" }); } catch { /* ignore */ }
   }
 
   function close() {
     if (stagedRows().length && !window.confirm("Discard unsaved answers?")) return;
+    releaseStudyLock();
     state.token++;
     state.open = false;
     state.data = null;
@@ -1010,10 +1016,59 @@
     setStatus("Staged the split — press “Save & apply” to write it.", "ok");
   }
 
+  // ------------------------------------------------------------- online lock
+  /* The workspace writes the study's shared files (Datasets/<Key>/…), so an
+     online project holds an edit lock while it is open.  Local projects have no
+     lock layer and every helper below returns at once.  The note has to survive
+     renderHost()'s innerHTML rewrite, so paintLock() re-inserts it after each
+     render. */
+  const LOCK_OFF = "#assign-save-all";
+  function lockHost() { return state.host && state.host.querySelector("#assign-ws"); }
+
+  function paintLock() {
+    const C = window.CSOnline;
+    const host = lockHost();
+    if (!host) return;
+    if (!C || !C.active() || !state.locked) {
+      if (C) C.locks.clearNotice(host, LOCK_OFF);
+      return;
+    }
+    C.locks.notice(host, state.key || "", state.locked.holder || {}, LOCK_OFF);
+    const btn = host.querySelector("#assign-save-all");
+    if (btn) btn.disabled = true;
+  }
+
+  async function holdStudyLock(key) {
+    const C = window.CSOnline;
+    if (!C || !C.active() || !key) { state.lockKey = ""; state.locked = null; return; }
+    if (state.lockKey === key) return;
+    if (state.lockKey) C.locks.end(state.lockKey, {});
+    state.lockKey = key;
+    const r = await C.locks.begin(key, { task: "harmonize", host: lockHost(), disable: LOCK_OFF });
+    state.locked = r.ok ? null : r;
+    paintLock();
+    updateHeader();
+  }
+
+  function releaseStudyLock() {
+    const C = window.CSOnline;
+    if (C && state.lockKey) C.locks.end(state.lockKey, { host: lockHost(), disable: LOCK_OFF });
+    state.lockKey = "";
+    state.locked = null;
+  }
+
+  function lockedNow() {
+    if (!state.locked) return false;
+    toast("This study is locked", "err",
+      `Locked by ${state.locked.who || "another coder"} — answers cannot be saved until the lock is released.`);
+    return true;
+  }
+
   // ------------------------------------------------------------- save
   async function saveAll() {
     const rows = stagedRows();
     if (!rows.length) { toast("Nothing staged to save", "ok"); return; }
+    if (lockedNow()) return;
     state.busy = true;
     updateHeader();
     setStatus("Saving…");
@@ -1243,5 +1298,12 @@
     attachHost();
   }
 
-  window.CSAssign = { open, close, mount };
+  // The Harmonization tab owns the workspace's lifetime: it tells the workspace
+  // when it is on screen, so the study's edit lock is held only while it is.
+  function onView(on) {
+    if (!on) { releaseStudyLock(); return; }
+    if (state.open && state.key) holdStudyLock(state.key).then(() => renderHost());
+  }
+
+  window.CSAssign = { open, close, mount, onView };
 })();

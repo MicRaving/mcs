@@ -67,6 +67,15 @@
     coderTarget: null,    // {kind:"dv",index} | {kind:"field",name} for source marking
     markWarnTimer: null,
     fulltext: { criteria: [], mine: null, agreed: null, agreeMin: 2 },
+    /* finished marks ("Finish paper"): done(key, stage="coding", tag=current
+       coder).  Read from /api/online/done, which answers for a local folder
+       project too (<root>/.studio/done.json); emptied when the route is absent. */
+    done: new Set(),
+    doneTag: "",
+    doneAt: 0,
+    assigned: new Set(),    // keys assigned to this coder for stage "coding"
+    assignedTag: "",
+    assignedAt: 0,
   };
 
   const FACET_DIMS = ["module", "type", "age", "setting", "design", "availability"];
@@ -663,6 +672,82 @@
     return (paper.codings || []).some((c) => c.coder.toLowerCase() === coder.toLowerCase());
   }
 
+  /* ------------------------------------------------- finished marks ("Finish") */
+  /* A paper is FINISHED when a done mark exists for (key, "coding", coder).
+     Saving only writes the coding file, so "saved" and "finished" are two
+     different things: the queue behind Finish — and, in an online project, the
+     assigned-first queue behind Next — advance over *unfinished* papers.
+     The route answers for local folder projects too (`.studio/done.json`). */
+  function finishedBy(p) {
+    return !!(p && state.done.has(p.key));
+  }
+
+  async function refreshDone({ force = false } = {}) {
+    const tag = (state.coder || "").trim();
+    if (!tag) { state.done = new Set(); state.doneTag = ""; state.doneAt = 0; return state.done; }
+    if (!force && state.doneTag === tag && state.doneAt && Date.now() - state.doneAt < 4000) return state.done;
+    try {
+      const r = await fetch(`/api/online/done?stage=coding&tag=${encodeURIComponent(tag)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const rows = (d && Array.isArray(d.done)) ? d.done : [];
+      state.done = new Set(rows.filter((x) => x && x.key).map((x) => x.key));
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+    } catch {
+      // route absent (a project without the online layer): no marks, no noise
+      state.done = new Set();
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+    }
+    return state.done;
+  }
+
+  async function markDone(key) {
+    const tag = (state.coder || "").trim();
+    if (!key || !tag) return false;
+    try {
+      const r = await fetch("/api/online/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, stage: "coding", tag }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || (d && d.ok === false)) throw new Error((d && (d.error || d.message)) || `HTTP ${r.status}`);
+      state.done.add(key);
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+      return true;
+    } catch (err) {
+      toast("Could not mark the paper finished", "err", String(err.message || err));
+      return false;
+    }
+  }
+
+  /* The coder's own assignment queue (GET /api/online/assignments?stage=coding);
+     a local project has none, so the fallback pool is the whole view. */
+  async function refreshAssigned({ force = false } = {}) {
+    const tag = (state.coder || "").trim();
+    if (!tag) { state.assigned = new Set(); state.assignedTag = ""; return state.assigned; }
+    if (!force && state.assignedTag === tag && state.assignedAt && Date.now() - state.assignedAt < 15000) return state.assigned;
+    try {
+      const r = await fetch("/api/online/assignments?stage=coding");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const rows = (d && Array.isArray(d.assignments)) ? d.assignments : [];
+      const mine = rows.filter((x) => x && x.key
+        && (!x.tag || String(x.tag).toLowerCase() === tag.toLowerCase()));
+      state.assigned = new Set(mine.map((x) => x.key));
+      state.assignedTag = tag;
+      state.assignedAt = Date.now();
+    } catch {
+      state.assigned = new Set();
+      state.assignedTag = tag;
+      state.assignedAt = Date.now();
+    }
+    return state.assigned;
+  }
+
   function facetValueLabel(dim, value) {
     if (dim === "module") return moduleLabel(value);
     const fname = FACET_FIELD[dim];
@@ -855,7 +940,9 @@
       const btn = el("button", "paper-item screen-item" + (p.key === state.key ? " active" : "")
         + (p.fulltext_excluded ? " excluded" : ""));
       btn.type = "button";
-      const dot = el("span", "dot" + (codedBy(p, state.coder) ? " coded" : "") + (p.key === state.key && state.dirty ? " dirty" : ""));
+      const dot = el("span", "dot" + (codedBy(p, state.coder) ? " coded" : "")
+        + (finishedBy(p) ? " done" : "")
+        + (p.key === state.key && state.dirty ? " dirty" : ""));
       const meta = el("div", "meta");
       const krow = el("div", "k");
       krow.appendChild(el("span", null, p.name || p.key));
@@ -886,6 +973,26 @@
         badges.appendChild(el("span", "s-badge warn", p.fulltext_criterion));
       } else if (p.missing_metrics > 0) {
         badges.appendChild(el("span", "s-badge warn", `${p.missing_metrics} missing`));
+      }
+      if (finishedBy(p)) {
+        const fin = el("span", "s-badge done");
+        fin.title = `Finished by ${state.coder || "you"} — the Finish button marked this paper done`;
+        fin.appendChild(icon("i-check", 9));
+        fin.appendChild(el("span", null, "done"));
+        badges.appendChild(fin);
+      }
+      // In an online project another coder may hold the study's edit lock: show
+      // who, so nobody wonders why the shared editors are read-only.
+      const lockHolder = window.CSOnline && window.CSOnline.locks
+        ? window.CSOnline.locks.holderFor(p.key) : null;
+      if (lockHolder) {
+        const lk = el("span", "s-badge locked");
+        const who = lockHolder.display_name || lockHolder.user || "another coder";
+        const until = lockHolder.expires ? ` until ${String(lockHolder.expires).replace("T", " ").slice(0, 16)}` : "";
+        lk.title = `Locked by ${who}${until}`;
+        lk.appendChild(icon("i-lock", 9));
+        lk.appendChild(el("span", null, String(who).split(" ")[0]));
+        badges.appendChild(lk);
       }
       meta.appendChild(badges);
       btn.appendChild(dot);
@@ -2713,10 +2820,13 @@
       state.pageSize = d.size || null;
       /* no page count (e.g. Lite build without PyMuPDF) -> embedded viewer */
       state.pdfFailed = !state.pages;
-    } catch {
+    } catch (err) {
       state.pages = null;
       state.pageSize = null;
       state.pdfFailed = true;
+      // An online project answers 503 for a PDF the cache does not hold yet:
+      // say that instead of leaving a broken viewer.
+      if (window.CSOnline && window.CSOnline.offlineNotice) window.CSOnline.offlineNotice(err);
     }
     renderControls();
     if (state.view === "pdf") renderViewer();
@@ -2748,6 +2858,9 @@
           state.textCache[key] = d.text || "(no extracted text)";
           pre.textContent = state.textCache[key];
           if (state.coderMode) coderRelocateSoon(60);
+        }).catch((err) => {
+          pre.textContent = "(the text could not be loaded)";
+          if (window.CSOnline && window.CSOnline.offlineNotice) window.CSOnline.offlineNotice(err);
         });
       }
       renderControls();
@@ -4226,6 +4339,8 @@
     loadFulltext(key);
     coderRelocateSoon(500);
     updateDirty();
+    // presence (online.js) follows the paper that is open
+    window.dispatchEvent(new CustomEvent("cs:paper", { detail: key }));
   }
 
   /* ================================================================ dirty */
@@ -4326,34 +4441,105 @@
     }
   }
 
+  /* ---------------------------------------------------------- advance (Next / Finish) */
+  /* One advance rule behind Next and Finish: with shuffle on, a recency-aware
+     random pick among the pool's unfinished papers (pickUncoded / shuffleRecent);
+     with shuffle off, the next paper in list order that is not finished yet.
+     `isDone` says what "unfinished" means — a saved coding file for Next, a
+     finished (done) mark for Finish. */
+  async function advanceNext({ pool, isDone, empty, quiet = false }) {
+    const list = pool || [];
+    if (!list.length) {
+      if (!quiet) toast("No papers in the current view", "err", "Clear the search.");
+      return false;
+    }
+    const here = state.key;
+    if (state.shuffleOn) {
+      const cand = list.filter((p) => p.key !== here && !isDone(p));
+      if (cand.length) {
+        const pick = pickUncoded(cand);
+        await selectPaper(pick.key, { force: true });
+        toast("Random uncoded study", "ok", coderCountSub(pick));
+        return true;
+      }
+      if (!quiet) toast(empty.title, "ok", empty.sub);
+      return false;
+    }
+    const at = list.findIndex((p) => p.key === here);
+    const idx = at < 0 ? 0 : at;
+    for (let step = 1; step <= list.length; step += 1) {
+      const cand = list[(idx + step) % list.length];
+      if (cand.key === here) continue;
+      if (!isDone(cand)) {
+        await selectPaper(cand.key, { force: true });
+        return true;
+      }
+    }
+    if (!quiet) toast(empty.title, "ok", empty.sub);
+    return false;
+  }
+
+  function onlineActive() {
+    return !!(window.CSOnline && window.CSOnline.active && window.CSOnline.active());
+  }
+
   async function goNext() {
     if (state.dirty && !isOriginalSource()) {
       const ok = await save({ quiet: true });
       if (!ok) return;
     }
-    const list = visiblePapers();
-    if (!list.length) { toast("No papers in the current view", "err", "Clear the search."); return; }
-    if (state.shuffleOn) {
-      const pool = list.filter((p) => p.key !== state.key && !codedBy(p, state.coder));
-      if (pool.length) {
-        const pick = pickUncoded(pool);
-        await selectPaper(pick.key, { force: true });
-        toast("Random uncoded study", "ok", coderCountSub(pick));
-        return;
-      }
-      toast("Nothing left to code", "ok", `Every paper is coded by ${state.coder || "you"}.`);
+    await refreshDone();
+    /* In an online project the queue is the coder's own assignment first, and a
+       paper counts as done when it carries a finished mark — a saved coding file
+       alone no longer takes it out of the queue.  A local project has no
+       assignments and keeps the coded-file rule. */
+    const online = onlineActive();
+    const isDone = online
+      ? (p) => finishedBy(p) || codedBy(p, state.coder)
+      : (p) => codedBy(p, state.coder);
+    const empty = { title: `Every paper is coded by ${state.coder || "you"}`, sub: "Nice work." };
+    if (online) {
+      const assigned = await refreshAssigned();
+      const pool = state.papers.filter((p) => assigned.has(p.key));
+      if (pool.length && await advanceNext({ pool, isDone, empty, quiet: true })) return;
+    }
+    await advanceNext({ pool: visiblePapers(), isDone, empty });
+  }
+
+  /* Finish paper: save → mark done(key, "coding", coder) → move on exactly like
+     Next (shuffle rule included), from the coder's assigned papers first.  It
+     works in a local folder project too: the done mark is recorded in the
+     project's `.studio/done.json` by the same route. */
+  async function finishPaper() {
+    if (state.busy) return;
+    const coder = (state.coder || "").trim();
+    if (!coder) { toast("Enter your coder name before finishing", "err"); $("#coder-input").focus(); return; }
+    if (isOriginalSource()) {
+      toast("Original is read-only", "err",
+        "Pick your own coder initials to finish a paper — the original extraction is never overwritten.");
+      $("#coder-input").focus();
       return;
     }
-    const idx = list.findIndex((p) => p.key === state.key);
-    for (let step = 1; step <= list.length; step += 1) {
-      const cand = list[(idx + step) % list.length];
-      if (cand.key === state.key) continue;
-      if (!codedBy(cand, state.coder)) {
-        await selectPaper(cand.key, { force: true });
-        return;
-      }
+    if (!state.key) { toast("Select a paper first", "err"); return; }
+    const key = state.key;
+    if (!(await save({ quiet: true }))) return;
+    if (!(await markDone(key))) return;
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+    toast("Paper finished", "ok", `${coder} · ${key}`);
+    const online = onlineActive();
+    const isDone = (p) => finishedBy(p) || (online && codedBy(p, state.coder));
+    const empty = {
+      title: "Nothing left to finish",
+      sub: online ? "Your assigned papers are all finished." : "Every paper is finished for you.",
+    };
+    if (online) {
+      const assigned = await refreshAssigned();
+      const pool = state.papers.filter((p) => assigned.has(p.key) && p.key !== key);
+      if (pool.length && await advanceNext({ pool, isDone, empty, quiet: true })) return;
     }
-    toast("Every paper is coded by " + (state.coder || "you"), "ok", "Nice work.");
+    await advanceNext({ pool: visiblePapers(), isDone, empty });
   }
 
   async function clearCoding() {
@@ -4497,6 +4683,48 @@
     }
   }
 
+  /* Re-point every root-dependent piece of the UI after the app's root changed
+     (/api/root, or an online project that was just opened).  The paper list,
+     working copy, caches and the scheme editor all belong to one project, so
+     they are reset here and nowhere else. */
+  async function applyRootSwitch(r) {
+    const fresh = await api("/api/papers");
+    state.papers = fresh.papers;
+    state.byKey = {};
+    state.papers.forEach((p) => { state.byKey[p.key] = p; });
+    state.key = null;
+    state.records = [];
+    // a paper load still in flight belongs to the old project: drop it
+    state.loadSeq = (state.loadSeq || 0) + 1;
+    state.loadingKey = null;
+    state.compare = null;
+    state.compareCoder = "";
+    state.current = 0;
+    state.selIntervention = -1;
+    state.openDv = new Set();
+    state.textCache = {};
+    state.notesCache = {};
+    state.dirty = false;
+    // finished/assigned marks are per project and per coder
+    state.done = new Set(); state.doneTag = ""; state.doneAt = 0;
+    state.assigned = new Set(); state.assignedTag = ""; state.assignedAt = 0;
+    renderPaperList();
+    renderCoderOptions();
+    renderTabs();
+    $("#form").innerHTML = "";
+    const ivPanel = $("#interventions-panel");
+    if (ivPanel) ivPanel.innerHTML = "";
+    $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", `${state.papers.length} papers in ${r.root}`));
+    renderViewer();
+    updateDirty();
+    toast("Project folder set", "ok", `${state.papers.length} papers · ${r.root}`);
+    // the scheme editor (schema.js) reloads the new project's scheme
+    window.dispatchEvent(new CustomEvent("cs:root", { detail: r.root }));
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+  }
+
   async function saveProjectRoot() {
     const path = $("#project-input").value.trim();
     if (!path) return;
@@ -4519,35 +4747,7 @@
         return;
       }
       $("#project-dialog").close();
-      const fresh = await api("/api/papers");
-      state.papers = fresh.papers;
-      state.byKey = {};
-      state.papers.forEach((p) => { state.byKey[p.key] = p; });
-      state.key = null;
-      state.records = [];
-      // a paper load still in flight belongs to the old project: drop it
-      state.loadSeq = (state.loadSeq || 0) + 1;
-      state.loadingKey = null;
-      state.compare = null;
-      state.compareCoder = "";
-      state.current = 0;
-      state.selIntervention = -1;
-      state.openDv = new Set();
-      state.textCache = {};
-      state.notesCache = {};
-      state.dirty = false;
-      renderPaperList();
-      renderCoderOptions();
-      renderTabs();
-      $("#form").innerHTML = "";
-      const ivPanel = $("#interventions-panel");
-      if (ivPanel) ivPanel.innerHTML = "";
-      $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", `${state.papers.length} papers in ${r.root}`));
-      renderViewer();
-      updateDirty();
-      toast("Project folder set", "ok", `${r.papers} papers · ${r.root}`);
-      // the scheme editor (schema.js) reloads the new project's scheme
-      window.dispatchEvent(new CustomEvent("cs:root", { detail: r.root }));
+      await applyRootSwitch(r);
     } catch (err) {
       $("#project-status").textContent = String(err.message || err);
     }
@@ -4556,6 +4756,31 @@
   /* The app's confirm sheet is shared with the other views (the Settings page
      asks before it replaces a file or restarts into a new version). */
   window.CS.confirmDialog = confirmDialog;
+
+  /* The online layer (static/online.js) drives the header badge, the project
+     dialog entry, the locks and the sync panel.  It reads the coding app
+     through this small surface instead of reaching into the IIFE's state. */
+  window.CS.app = {
+    state: () => ({
+      key: state.key,
+      coder: state.coder,
+      papers: state.papers,
+      view: (window.CS.currentView ? window.CS.currentView() : "coding"),
+      done: state.done,
+      assigned: state.assigned,
+      dirty: state.dirty,
+    }),
+    setCoder: (name) => commitCoder(name),
+    selectPaper: (key, opts) => selectPaper(key, opts),
+    save: (opts) => save(opts),
+    finishPaper,
+    goNext,
+    applyRootSwitch,
+    renderPaperList,
+    refreshDone,
+    refreshAssigned,
+    markDone,
+  };
 
   /* ================================================================ boot */
   /* The start-up screen of a big project: the papers index is built on the
@@ -4661,6 +4886,12 @@
     $("#form").innerHTML = "";
     $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", "Search or pick a study from the left. Existing codings load for correction; Blind mode hides them."));
 
+    // finished marks + the coder's assignment queue: both routes answer for a
+    // local folder too (done marks), and are no-ops when absent
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+
     applyBlind();
     updateFacetBadge();
     syncWideLayout();
@@ -4717,6 +4948,16 @@
     });
     $("#merge-btn")?.addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-merge"));
+    });
+    /* Finish = save + done mark + advance; see finishPaper(). */
+    $("#finish-btn")?.addEventListener("click", () => { finishPaper(); });
+    /* Done marks and assignments belong to the coder: refresh them when the
+       coder changes, and draw the list again so the "done" badges follow.
+       (app.js dispatches cs:coder on window, not on document.) */
+    window.addEventListener("cs:coder", async () => {
+      await refreshDone({ force: true });
+      await refreshAssigned({ force: true });
+      renderPaperList();
     });
     /* ---- the coder picker ---- */
     const coderInp = $("#coder-input");

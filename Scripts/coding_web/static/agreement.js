@@ -27,7 +27,9 @@
               studies: [], study: "", viewer: "pdf",
               exclude: new Set(), fast: false, activeKey: null, viewerStudy: null,
               pages: null, pageSize: null, page: 1, fit: true, zoom: 1, spans: {},
-              showSettled: false };
+              showSettled: false,
+              /* online edit lock of the study under settlement (see holdStudyLock) */
+              lockKey: "", locked: null };
 
   const acClass = (v) => v === null || v === undefined ? "ac-na"
     : v >= 0.8 ? "ac-good" : v >= 0.6 ? "ac-mid" : "ac-low";
@@ -161,6 +163,53 @@
   }
 
   // ---------------------------------------------------------------- conflicts
+  /* Settling writes the shared canonical Extraction/<Key>.json, so the study
+     under settlement is held with an online edit lock while its conflict panel
+     is open (INTERFACES §4, §7 of the plan).  A local folder project has no lock
+     layer: every call below returns at once and nothing is disabled. */
+  const LOCK_OFF = "#ag-bulk-majority, #ag-study-done";
+
+  function lockHost() {
+    const list = $("#ag-conflist");
+    return list ? list.parentElement : null;
+  }
+
+  async function holdStudyLock() {
+    const C = window.CSOnline;
+    const host = lockHost();
+    if (!C || !C.active()) {
+      if (C && host) C.locks.clearNotice(host, LOCK_OFF);
+      S.lockKey = "";
+      S.locked = null;
+      return;
+    }
+    if (S.lockKey && S.lockKey !== S.study) {
+      C.locks.end(S.lockKey, { host, disable: LOCK_OFF });
+      S.lockKey = "";
+      S.locked = null;
+    }
+    if (!S.study) return;
+    if (S.lockKey === S.study) return;          // already held (renew runs on a timer)
+    S.lockKey = S.study;
+    const r = await C.locks.begin(S.study, { task: "settle", host, disable: LOCK_OFF });
+    S.locked = r.ok ? null : r;
+  }
+
+  function releaseStudyLock() {
+    const C = window.CSOnline;
+    if (C && S.lockKey) C.locks.end(S.lockKey, { host: lockHost(), disable: LOCK_OFF });
+    S.lockKey = "";
+    S.locked = null;
+  }
+
+  /* True when somebody else holds the study: says so and refuses the write. */
+  function lockedNow() {
+    if (!S.locked) return false;
+    toast("This study is locked", "err",
+      `Locked by ${S.locked.who || "another coder"} — settling is disabled until the lock is released.`);
+    return true;
+  }
+
   async function loadConflicts({ append = false } = {}) {
     if (!append) S.shown = 0;
     const q = new URLSearchParams({ master: S.master, status: S.status,
@@ -184,6 +233,7 @@
       S.study = S.studies.length ? S.studies[0].key : "";
       if (S.study) return loadConflicts();
     }
+    if (!append) await holdStudyLock();
     if (!append) { renderStudyList(); renderFieldList(d); syncConflictToolbar(d); }
     const html = conflictCardsHtml(d.rows || []);
     const host = $("#ag-conflist");
@@ -889,6 +939,7 @@
 
   async function resolveCard(card, value) {
     if (S.busy) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
     const prevIdx = Math.max(0, agCards().indexOf(card));
@@ -925,6 +976,7 @@
 
   async function settleBulk(mode) {
     if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
     S.busy = true;
@@ -945,6 +997,7 @@
 
   async function toggleStudyComplete() {
     if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     const btn = $("#ag-study-done");
     const status = (btn && btn.dataset.complete === "1") ? "open" : "complete";
@@ -1131,7 +1184,10 @@
     }
   }
 
-  document.addEventListener("cs:view", (e) => { if (e.detail === "agreement") ensureStarted(); });
+  document.addEventListener("cs:view", (e) => {
+    if (e.detail === "agreement") ensureStarted();
+    else if (S.lockKey) releaseStudyLock();      // leaving the study's edit session
+  });
   function boot2() {
     let saved = "coding";
     try { saved = localStorage.getItem("cs.view") || "coding"; } catch { /* ignore */ }
