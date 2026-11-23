@@ -1,0 +1,5 @@
+# Production (runtime) dependencies of the studio server, used by Server/Dockerfile.
+# keep in sync with requirements.txt (runtime deps only)
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+argon2-cffi>=23.1,<26

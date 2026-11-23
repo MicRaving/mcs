@@ -1,0 +1,48 @@
+# ---------------------------------------------------------------------------
+# meta.home.mfendt.de: paste into the EXISTING Caddyfile on CT 110 (alpine-caddy,
+# 192.168.178.10). Do not add a site block with its own certificate: the existing
+# wildcard certificate for *.home.mfendt.de already covers this name.
+#
+# Place the handler inside the existing *.home.mfendt.de block, before any catch-all
+# handler. If that block already uses `handle` blocks, put this inside the same
+# arrangement so the directive order stays right. Keep the LAN restriction exactly as
+# the other hosts have it.
+#
+# The server (CT 112) trusts X-Forwarded-For only because STUDIO_TRUST_PROXY=1 and
+# this proxy is the only client allowed through the firewall on 8770.
+# ---------------------------------------------------------------------------
+
+	@meta host meta.home.mfendt.de
+	@meta_public {
+		host meta.home.mfendt.de
+		not remote_ip private_ranges
+	}
+	# fail closed: connections from outside the private ranges get no response
+	abort @meta_public
+
+	handle @meta {
+		# uploads of up to 200 MB (plus margin); the app enforces its own limits too
+		request_body {
+			max_size 250MB
+		}
+		reverse_proxy 192.168.178.12:8770
+	}
+
+# ---------------------------------------------------------------------------
+# GO-LIVE (later, NOT active): public name, no LAN restriction. Needs a port forward
+# on the router and the app-side rate limit keyed on X-Forwarded-For (see README).
+#
+# meta.mfendt.de {
+# 	encode zstd gzip
+# 	request_body {
+# 		max_size 250MB
+# 	}
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+# 		X-Content-Type-Options "nosniff"
+# 		Referrer-Policy "no-referrer"
+# 		-Server
+# 	}
+# 	reverse_proxy 192.168.178.12:8770
+# }
+# ---------------------------------------------------------------------------

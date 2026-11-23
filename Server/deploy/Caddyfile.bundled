@@ -1,0 +1,23 @@
+# Bundled reverse proxy (compose profile "caddy"). Only for installs without an
+# existing proxy. The production LAN setup uses the proxy on CT 110 instead
+# (see caddy-snippet.txt).
+#
+# STUDIO_DOMAIN: public name for a Let's Encrypt certificate. The default
+# "localhost" makes Caddy use its internal CA.
+{$STUDIO_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# uploads up to 200 MB (plus margin); the app enforces its own limits too
+	request_body {
+		max_size 250MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	reverse_proxy studio:8770
+}

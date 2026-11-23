@@ -1,0 +1,58 @@
+# Studio server stack. Run from Server/ (the build context is the repo root, one level up).
+#   docker compose up -d --build              # studio only (external proxy, e.g. Caddy on CT 110)
+#   docker compose --profile caddy up -d      # plus the bundled Caddy (no external proxy)
+name: studio
+
+services:
+  studio:
+    build:
+      context: ../
+      dockerfile: Server/Dockerfile
+    image: studio-server:local
+    restart: unless-stopped
+    environment:
+      STUDIO_DATA_DIR: /data
+      # the server trusts X-Forwarded-For only because a proxy sits in front of it
+      STUDIO_TRUST_PROXY: "1"
+    volumes:
+      - /srv/studio/data:/data              # SQLite DB, uploads metadata (rootfs)
+      - /data/blobs:/data/blobs             # content-addressed blob store (extHDD mount point in the CT)
+    ports:
+      # LAN only: firewall 8770 so that only the proxy host can reach it
+      - "8770:8770"
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    profiles: ["caddy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - studio
+    environment:
+      STUDIO_DOMAIN: ${STUDIO_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile.bundled:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy-data:
+  caddy-config:
