@@ -35,6 +35,11 @@ DISK="${DISK:-16G}"
 STORAGE="${STORAGE:-local-lvm}"
 BLOB_STORAGE="${BLOB_STORAGE:-extHDD}"
 BLOB_SIZE="${BLOB_SIZE:-200G}"
+# BLOB_BIND: host directory bind-mounted at /data/blobs instead of a volume on
+# BLOB_STORAGE (use it when that storage does not allow container volumes,
+# e.g. a "dir" storage whose content is only "images").  Owned on the host by
+# 110001 = the unprivileged CT's uid 10001 (the server container's user).
+BLOB_BIND="${BLOB_BIND:-}"
 BRIDGE="${BRIDGE:-vmbr0}"
 IP="${IP:-192.168.178.12/24}"
 GW="${GW:-192.168.178.1}"
@@ -122,11 +127,18 @@ fi
 log "creating CT $CTID ($CT_HOSTNAME): ${CORES} cores, ${RAM_MB} MB RAM, ${SWAP_MB} MB swap, ${DISK} rootfs on $STORAGE, ${BLOB_SIZE} blob store on $BLOB_STORAGE"
 # nesting + keyctl: Docker inside an unprivileged LXC. The blob volume is excluded from vzdump
 # (backup=0): blobs are protected by BLOB_BACKUP_DIR and/or RCLONE_REMOTE, see restore.md.
+if [ -n "$BLOB_BIND" ]; then
+  MP0="${BLOB_BIND},mp=/data/blobs,backup=0"
+  run mkdir -p "$BLOB_BIND"
+  run chown 110001:110001 "$BLOB_BIND"
+else
+  MP0="${BLOB_STORAGE}:${BLOB_GB},mp=/data/blobs,backup=0"
+fi
 run pct create "$CTID" "$TEMPLATE" \
   --hostname "$CT_HOSTNAME" --ostype debian \
   --cores "$CORES" --memory "$RAM_MB" --swap "$SWAP_MB" \
   --rootfs "${STORAGE}:${DISK_GB}" \
-  --mp0 "${BLOB_STORAGE}:${BLOB_GB},mp=/data/blobs,backup=0" \
+  --mp0 "$MP0" \
   --net0 "name=eth0,bridge=${BRIDGE},ip=${IP},gw=${GW}" \
   --features "nesting=1,keyctl=1" \
   --unprivileged 1 --onboot 1 --start 0
@@ -173,6 +185,12 @@ rm -rf /opt/studio
 fail_hint() { echo "checkout failed. For a private repo pass REPO_TOKEN (fine-grained PAT, Contents: read)." >&2; exit 1; }
 
 case "$REPO_SOURCE" in
+  /*)
+    # a tarball on the Proxmox host, pushed into the CT as /root/studio-src.tar
+    mkdir -p /opt/studio
+    tar -x -f /root/studio-src.tar -C /opt/studio
+    rm -f /root/studio-src.tar
+    ;;
   *.tar.gz|*.tgz|*.tar.xz)
     mkdir -p /opt/studio
     if [ -n "$hdr" ]; then
@@ -194,6 +212,10 @@ esac
 echo "checkout ready: /opt/studio"
 EOS
 run pct push "$CTID" "$WORK/ct-bootstrap.sh" /root/ct-bootstrap.sh --perms 700
+case "$REPO_SOURCE" in
+  /*) [ "$DRY_RUN" = "1" ] || [ -f "$REPO_SOURCE" ] || die "REPO_SOURCE file $REPO_SOURCE not found"
+      run pct push "$CTID" "$REPO_SOURCE" /root/studio-src.tar ;;
+esac
 
 log "installing base packages and checking out the repo (this takes a few minutes)"
 run pct exec "$CTID" -- env "REPO_SOURCE=$REPO_SOURCE" "REPO_REF=$REPO_REF" bash /root/ct-bootstrap.sh
