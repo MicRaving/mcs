@@ -248,7 +248,7 @@ def _validation_summary():
 
 
 def _read_report(key):
-    p = _report_path(key)
+    p = S.ensure_local(_report_path(key))
     if not os.path.isfile(p):
         return "", ""
     try:
@@ -261,6 +261,15 @@ def _read_report(key):
 def _newest_file(key):
     """(mtime, relpath) of the newest file in Datasets/<key>/ (for staleness)."""
     folder = os.path.join(_datasets_dir(), key)
+    if S.online and S.store is not None:
+        newest, name = None, ""
+        for e in S.listdir(folder, recursive=True):
+            if e.get("is_dir") or e.get("mtime_ns") is None:
+                continue
+            if newest is None or e["mtime_ns"] > newest:
+                newest = e["mtime_ns"] / 1e9
+                name = e["path"]
+        return newest, name
     if not os.path.isdir(folder):
         return None, ""
     newest, name = None, ""
@@ -348,6 +357,24 @@ def _role_of(fn, key):
 def _scan_inventory(key):
     """Filesystem file inventory (fallback when no dossier snapshot exists)."""
     folder = os.path.join(_datasets_dir(), key)
+    if S.online and S.store is not None:
+        entries = [e for e in S.listdir(folder, recursive=True) if not e.get("is_dir")]
+        scripts = []
+        for e in entries:
+            if e["path"].lower().endswith(".py") and e.get("local"):
+                try:
+                    with open(e["path"], encoding="utf-8", errors="replace") as fh:
+                        scripts.append((e["name"], fh.read()))
+                except OSError:
+                    pass
+        prov = "SOURCE.md" if any(e["name"].lower() == "source.md" for e in entries) else ""
+        out = []
+        for e in entries:
+            read_by = [s for s, txt in scripts if e["name"] in txt]
+            out.append({"file": e["path"][len("Datasets/" + key + "/"):] if e["path"].startswith("Datasets/" + key + "/") else e["name"],
+                        "role": _role_of(e["name"], key), "size_bytes": e.get("size"),
+                        "provenance": prov, "read_by": "; ".join(read_by)})
+        return out
     if not os.path.isdir(folder):
         return []
     scripts = []
@@ -685,7 +712,18 @@ def _study_keys():
     shows its reproduction verdict)."""
     keys = set()
     ds = _datasets_dir()
-    if os.path.isdir(ds):
+    for name in (S.listdir(ds) if S.online and S.store is not None else []):
+        if not name.get("is_dir") or name["name"].startswith(".") \
+                or name["name"] in ("temp", "_meta_analyses"):
+            continue
+        files = {e["name"] for e in S.listdir(os.path.join(ds, name["name"]))
+                 if not e.get("is_dir")}
+        n = name["name"]
+        if ("harmonizer.py" in files or n + " - reproduction.py" in files
+                or n + " - harmonized.csv" in files
+                or n + " - harmonized_variables.csv" in files):
+            keys.add(n)
+    if not (S.online and S.store is not None) and os.path.isdir(ds):
         for name in os.listdir(ds):
             folder = os.path.join(ds, name)
             if (not os.path.isdir(folder) or name.startswith(".")
@@ -711,13 +749,13 @@ def _study_keys():
 def _study_flags(key, ds):
     folder = os.path.join(ds, key)
     return {
-        "has_harmonizer": os.path.isfile(os.path.join(folder, "harmonizer.py")),
-        "has_harmonized": os.path.isfile(os.path.join(folder, key + " - harmonized.csv")),
-        "has_sidecar": os.path.isfile(
+        "has_harmonizer": S.has_file(os.path.join(folder, "harmonizer.py")),
+        "has_harmonized": S.has_file(os.path.join(folder, key + " - harmonized.csv")),
+        "has_sidecar": S.has_file(
             os.path.join(folder, key + " - harmonized_variables.csv")),
-        "has_reproducer": os.path.isfile(
+        "has_reproducer": S.has_file(
             os.path.join(folder, key + " - reproduction.py")),
-        "has_report": os.path.isfile(os.path.join(S.ROOT, "Reproduction", key + ".md")),
+        "has_report": S.has_file(os.path.join(S.ROOT, "Reproduction", key + ".md")),
         "has_extraction": os.path.isfile(os.path.join(S.EXTRACTION, key + ".json")),
     }
 
@@ -735,7 +773,7 @@ _FACTS_CACHE = {}
 
 def _facts_row(key, ds):
     """One study's reproduction facts, shaped like a workbook row (or None)."""
-    path = os.path.join(ds, key, key + " - repro_facts.json")
+    path = S.ensure_local(os.path.join(ds, key, key + " - repro_facts.json"))
     try:
         mtime = os.path.getmtime(path)
     except OSError:
@@ -926,7 +964,7 @@ def api_repro_overview():
 # ---------------------------------------------------------------------------
 def _read_exclusions(key, ds):
     """Rows of ``Datasets/<Key>/<Key> - exclusions.csv`` + presence flags."""
-    path = os.path.join(ds, key, key + " - exclusions.csv")
+    path = S.ensure_local(os.path.join(ds, key, key + " - exclusions.csv"))
     if not os.path.isfile(path):
         return [], False, False
     rows = _read_csv_rows(path)
@@ -1410,6 +1448,13 @@ def _repro_worker(kind, only):
         state["finished"] = datetime.now().isoformat(timespec="seconds")
 
     if kind == "generate":
+        if only and S.online:
+            failed = S.ensure_study_local(only)
+            if failed:
+                emit(f"! {len(failed)} file(s) of {only} could not be downloaded; "
+                     "generation needs the study's dataset folder\n")
+                done(False, "dataset not fully downloaded")
+                return
         mod = _generator_module()
         if mod is not None:
             rc = _run_generator_inprocess(mod, only, emit)
@@ -1431,6 +1476,18 @@ def _repro_worker(kind, only):
         emit("! " + err + "\n")
         done(False, err)
         return
+
+    # An online project's mirror holds only the core slice of a dataset: a
+    # harmonizer/reproducer reads every file of Datasets/<Key>/, so fetch that
+    # whole folder before the subprocess starts (audit §8).
+    if S.online and only and kind in ("harmonizers", "reproducers"):
+        emit(f"fetching the dataset of {only}...\n")
+        failed = S.ensure_study_local(only)
+        if failed:
+            emit(f"! {len(failed)} file(s) could not be downloaded: "
+                 + ", ".join(failed[:5]) + (" ..." if len(failed) > 5 else "") + "\n")
+            done(False, "dataset not fully downloaded")
+            return
 
     cmd = [exe, "-X", "utf8"] + args
     shown = " ".join([os.path.basename(cmd[0])] + [os.path.basename(a) if i == 0 else a

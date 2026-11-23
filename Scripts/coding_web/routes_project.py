@@ -406,7 +406,17 @@ def api_project_new():
 # --------------------------------------------------------------------------- #
 
 def _files_in(folder, *suffixes):
-    """The file names in ``folder`` that end with one of ``suffixes``."""
+    """The file names in ``folder`` that end with one of ``suffixes``.
+
+    In an online project the folder's manifest supplies the names, so a file
+    that is not downloaded yet is still counted (audit §2 listings).
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [e["name"] for e in S.listdir(rel)
+                    if not e.get("is_dir")
+                    and any(e["name"].lower().endswith(s) for s in suffixes)]
     out = []
     try:
         with os.scandir(folder) as it:
@@ -435,15 +445,9 @@ def _coder_names(names):
 def _harmonized_datasets(folder):
     """Datasets that hold a ``<Key> - harmonized.csv`` (cheap: names only)."""
     count = 0
-    try:
-        with os.scandir(folder) as it:
-            for entry in it:
-                if not entry.is_dir():
-                    continue
-                if _files_in(entry.path, "- harmonized.csv"):
-                    count += 1
-    except OSError:
-        return 0
+    for name in _dataset_dirs(folder):
+        if _files_in(os.path.join(folder, name), "- harmonized.csv"):
+            count += 1
     return count
 
 
@@ -535,6 +539,12 @@ def api_project_summary():
 def _dataset_dirs(folder):
     """The per-study folders in Datasets/ (``temp`` and ``_``-prefixed
     bookkeeping folders are not studies)."""
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [e["name"] for e in S.listdir(rel)
+                    if e.get("is_dir") and e["name"].lower() != "temp"
+                    and not e["name"].startswith("_")]
     try:
         with os.scandir(folder) as it:
             return [e.name for e in it

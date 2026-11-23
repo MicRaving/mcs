@@ -19,7 +19,7 @@ import webbrowser
 
 from flask import Flask
 
-from studio_state import S, FROZEN, configure, log, refresh_keys
+from studio_state import S, FROZEN, configure, log, refresh_keys, run_analysis_locally
 from studio_lib import APP_VERSION
 
 app = Flask(__name__, static_folder=None)
@@ -50,11 +50,12 @@ from routes_apa import bp as apa_bp              # noqa: E402
 from routes_fulltext import bp as fulltext_bp    # noqa: E402
 from routes_repro import bp as repro_bp          # noqa: E402
 from routes_settings import bp as settings_bp      # noqa: E402
+from routes_online import bp as online_bp          # noqa: E402
 
 for _bp in (core_bp, scheme_bp, criteria_bp, project_bp, harmonizer_bp,
             coverage_bp, summary_bp, screening_bp, agreement_bp,
             harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, repro_bp,
-            settings_bp):
+            settings_bp, online_bp):
     app.register_blueprint(_bp)
 
 # The corpus-wide GETs are answered from a file-stamp cache: they are pure
@@ -111,14 +112,18 @@ def serve(host, port):
     app.logger.disabled = True
     # Warm the analysis caches (moderator scan, spec tables, figure index) and
     # regenerate any stale tables in the background while the first page loads,
-    # so the Analysis tab is ready when the user opens it.
-    try:
-        from analysis_lib import _prewarm_analysis, autorun_if_stale
+    # so the Analysis tab is ready when the user opens it.  An online project
+    # runs its analysis on the server: the pipeline needs every dataset, which a
+    # mirror does not hold, so the start-up autorun is skipped there unless the
+    # "run analysis locally" switch is on (audit risk 7).
+    if not (S.online and not run_analysis_locally()):
+        try:
+            from analysis_lib import _prewarm_analysis, autorun_if_stale
 
-        _prewarm_analysis()
-        autorun_if_stale()
-    except Exception:  # noqa: BLE001
-        pass
+            _prewarm_analysis()
+            autorun_if_stale()
+        except Exception:  # noqa: BLE001
+            pass
     # ``Flask.run`` prints a startup banner to stderr, which crashes in a
     # windowed build; ``make_server`` serves quietly instead.
     try:

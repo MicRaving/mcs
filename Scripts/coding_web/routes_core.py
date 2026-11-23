@@ -116,6 +116,11 @@ def api_papers_progress():
 def api_papers():
     from fulltext_lib import load_agreed
     from studio_cache import papers_index
+    # In an online project a paper can enter the manifest mid-session (a sync
+    # tick, a done mark that reveals another coder's file): the key list is
+    # refreshed here so /api/papers and the routes that check S.KEYS agree.
+    if S.online:
+        refresh_keys()
     agreed = load_agreed()
     # The summaries are cached against the files: a study is re-read only when
     # one of its own files changed (on disk or in the app).
@@ -310,7 +315,7 @@ def api_text(key):
         text = extract_pdf_text(pdf)
         if text:
             return jsonify({"key": key, "text": text, "source": "pdf"})
-    path = os.path.join(S.TEXT, key + ".txt")
+    path = S.ensure_local(os.path.join(S.TEXT, key + ".txt"))
     if os.path.exists(path):
         with open(path, encoding="utf-8", errors="replace") as fh:
             return jsonify({"key": key, "text": clean_text(fh.read()), "source": "txt"})
@@ -338,6 +343,9 @@ def resolve_pdf(key, supp=None):
                 return _supp_path(sp)
         return None
     path = os.path.join(S.PAPERS, key + ".pdf")
+    # An online project holds Papers/ in the cache tier: fetch the PDF the
+    # moment a route needs it (audit §2, R9-R14; R6).
+    path = S.ensure_local(path)
     return path if os.path.exists(path) else None
 
 @bp.get("/supplement/<path:key>/<path:name>")
@@ -347,7 +355,7 @@ def supplement_file(key, name):
         abort(404)
     for sp in supplements(key):
         if sp["file"] == name:
-            path = _supp_path(sp)
+            path = S.ensure_local(_supp_path(sp))
             if os.path.exists(path):
                 is_pdf = sp.get("kind") == "pdf"
                 return send_file(path,

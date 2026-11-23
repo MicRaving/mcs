@@ -17,7 +17,7 @@ import threading
 import time
 from statslib import BAYES_MU_SD, BAYES_MU_SD_PRESETS, BAYES_TAU_PRESETS, BAYES_TAU_SD, _bayes_pool, _wls
 from studio_lib import _is_continuous, _is_object_field, _norm, _schema, _summary_field_lists, _values, atomic_replace, load_extraction
-from studio_state import FROZEN, S, log, paper_keys
+from studio_state import FROZEN, S, log, paper_keys, run_analysis_locally
 
 # Per-intervention model (Scripts/PER_INTERVENTION_MODEL.md): route every coding
 # read through suite_common's record_interventions / effective_record so
@@ -2633,6 +2633,19 @@ def start_background_run(kind="essential", force=False, include_fully_within=Non
     """
     include = _include_fully_within(include_fully_within)
     wanted = ANALYSIS_RUN_KINDS.get(kind, [])
+    # An online project runs its analysis on the studio server (INTERFACES §4):
+    # the pipeline needs every Extraction/ and Datasets/*/- harmonized file and
+    # a mirror only holds the core slice.  The "run analysis locally" switch
+    # (or CODING_STUDIO_RUN_ANALYSIS=1) opts back in for a full offline copy.
+    if S.online and not run_analysis_locally():
+        now = datetime.now().isoformat(timespec="seconds")
+        message = ("this is an online project: its analysis runs on the studio server "
+                   "(enable 'run analysis locally' to run the pipeline here)")
+        _analysis_run.update(running=False, kind=kind, ok=False, error=message,
+                             log="! " + message + "\n", cached=False,
+                             started=now, finished=now)
+        log("analysis run disabled (online project)")
+        return "disabled"
     with _analysis_lock:
         if _analysis_run["running"]:
             return "running"

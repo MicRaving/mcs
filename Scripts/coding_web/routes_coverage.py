@@ -521,6 +521,7 @@ def _assignment_targets(key, derived):
     # 2) unmapped raw columns from the study's variables.csv
     folder = os.path.join(S.DATASETS or "", key)
     var_path = os.path.join(folder, f"{key} - variables.csv")
+    var_path = S.ensure_local(var_path)
     orig_seen = set()
     if os.path.isfile(var_path):
         try:
@@ -551,6 +552,7 @@ def _assignment_targets(key, derived):
 
     # 3) raw headers not present in variables.csv
     for p in sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv"))):
+        p = S.ensure_local(p)
         try:
             with open(p, encoding="utf-8-sig", newline="") as fh:
                 hdr = [str(c).strip().lstrip("\ufeff") for c in next(csv.reader(fh))]

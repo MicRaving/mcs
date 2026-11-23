@@ -35,7 +35,26 @@ _INDEX = {"root": None, "stamps": None, "papers": None}
 
 
 def _listing(folder, suffix):
-    """``{file name: [size, mtime_ns]}`` for one folder, in one pass."""
+    """``{file name: [size, mtime_ns]}`` for one folder, in one pass.
+
+    In an online project the folder's **manifest** is the authority: a file
+    that is known but not downloaded still appears (audit §2, §9).  Its size
+    comes from the manifest; its mtime is the local one when the file is here
+    and ``0`` when it is not, so a download invalidates the stamp once.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            out = {}
+            for e in S.listdir(rel):
+                if e.get("is_dir"):
+                    continue
+                if suffix and not e["name"].lower().endswith(suffix):
+                    continue
+                size = e.get("size")
+                out[e["name"]] = [int(size) if size is not None else -1,
+                                  int(e.get("mtime_ns") or 0)]
+            return out
     out = {}
     try:
         with os.scandir(folder) as it:
@@ -55,7 +74,32 @@ def _listing(folder, suffix):
 
 
 def _dir_listing(folder):
-    """``{folder name: [mtime_ns]}`` for the sub-folders of one folder."""
+    """``{folder name: stamp}`` for the sub-folders of one folder.
+
+    For ``Datasets/`` in an online project the stamp is the study folder's
+    file list (``[name, size, hash]``) from the manifest: the folder mtime of
+    an online project means nothing, because a study's dataset lives in the
+    manifest before it is downloaded.  One recursive listing covers every
+    study, so the cache stamp stays a single pass.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel == "Datasets":
+            grouped = {}
+            try:
+                entries = S.store.listdir("Datasets", recursive=True)
+            except Exception:  # noqa: BLE001 - offline: no dataset stamps
+                return {}
+            for e in entries:
+                if e.get("is_dir"):
+                    continue
+                rest = e["path"][len("Datasets/"):]
+                name, sep, sub = rest.partition("/")
+                if not sep:
+                    continue
+                grouped.setdefault(name, []).append(
+                    [sub, int(e.get("size") or 0), e.get("hash") or ""])
+            return {name: [sorted(rows)] for name, rows in grouped.items()}
     out = {}
     try:
         with os.scandir(folder) as it:
@@ -69,6 +113,7 @@ def _dir_listing(folder):
     except OSError:
         return {}
     return out
+
 
 
 def _prefixed(mapping, key):

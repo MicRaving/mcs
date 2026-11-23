@@ -153,9 +153,17 @@ def supplements(key):
     found = {}
     for folder in (S.SUPPLEMENTS, S.PAPERS):
         if not folder or not os.path.isdir(folder):
-            continue
-        for f in glob.glob(os.path.join(glob.escape(folder), glob.escape(key) + "*")):
-            base = os.path.basename(f)
+            if not (S.online and S.store is not None):
+                continue
+        if S.online and S.store is not None:
+            rel = S.relpath(folder)
+            names = [e["name"] for e in S.listdir(rel) if not e.get("is_dir")] if rel is not None else []
+        else:
+            names = [os.path.basename(f) for f in
+                     glob.glob(os.path.join(glob.escape(folder), glob.escape(key) + "*"))]
+        for base in names:
+            if not base.startswith(key):
+                continue
             rest = base[len(key):]
             if not _SUPP.search(rest):
                 continue
@@ -170,6 +178,7 @@ def supplements(key):
     return [found[k] for k in sorted(found, key=lambda k: (found[k]["n"], found[k]["file"]))]
 
 def pdf_pages(path):
+    path = S.ensure_local(path)
     if not path or not os.path.exists(path):
         return None
     stamp = (path, os.path.getmtime(path))
@@ -192,6 +201,7 @@ PAGE_SCALE = 2.0
 
 def pdf_page_size(path):
     """First-page size in PDF points, used to size the rendered page images."""
+    path = S.ensure_local(path)
     if not path or not os.path.exists(path):
         return None
     stamp = (path, os.path.getmtime(path))
@@ -212,6 +222,7 @@ def pdf_page_size(path):
 
 def render_page(path, page_no, scale=PAGE_SCALE):
     """Render one PDF page to a cached PNG under ``temp/pdfimg`` and return its path."""
+    path = S.ensure_local(path)
     if not path or not os.path.exists(path):
         return None
     stamp = f"{os.path.basename(path)}|{os.path.getmtime(path):.0f}|{page_no}|{scale}"
@@ -258,6 +269,7 @@ def search_pdf(path, query):
     client can position highlights over the server-rendered page images at any
     zoom.  ``None`` when the file cannot be read.
     """
+    path = S.ensure_local(path)
     if not path or not os.path.exists(path):
         return None
     q = str(query or "").strip()
@@ -306,6 +318,7 @@ def pdf_page_spans(path, page_no, max_spans=4000):
     can lay invisible-but-selectable spans over the server-rendered page image
     at any zoom.  ``None`` when the file cannot be read.
     """
+    path = S.ensure_local(path)
     if not path or not os.path.exists(path):
         return None
     stamp = (os.path.basename(path), int(os.path.getmtime(path)), int(page_no))
@@ -537,11 +550,11 @@ def summarise(key):
         "needs_reason": needs_reason,
         "facets": {k: sorted(v, key=lambda x: str(x).lower()) for k, v in facets.items()},
         "has_extraction": bool(records),
-        "has_pdf": os.path.exists(os.path.join(S.PAPERS, key + ".pdf")),
-        "has_text": os.path.exists(os.path.join(S.TEXT, key + ".txt")),
+        "has_pdf": S.exists(os.path.join(S.PAPERS, key + ".pdf")),
+        "has_text": S.exists(os.path.join(S.TEXT, key + ".txt")),
         "has_notes": os.path.exists(os.path.join(S.EXTRACTION, key + ".md")),
-        "has_harmonized": os.path.isfile(os.path.join(S.DATASETS or "", key,
-                                                      key + " - harmonized_variables.csv")),
+        "has_harmonized": S.has_file(os.path.join(S.DATASETS or "", key,
+                                                  key + " - harmonized_variables.csv")),
         "has_harmonizer": bool(glob.glob(os.path.join(S.CODINGS,
                                                       glob.escape(key) + " - harmonizer - *.json"))),
         # Fully-within (single-arm, no-control) studies: excluded from pooled

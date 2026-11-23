@@ -340,6 +340,11 @@ class OnlineStore:
         client, mirror, _s = self._require()
         return client.assignments(mirror.state["project_id"], stage=stage, tag=tag)
 
+    def done_list(self, stage: str | None = None, tag: str | None = None) -> list[dict]:
+        """The member's (or a tag's) done marks from the server."""
+        client, mirror, _s = self._require()
+        return client.done_list(mirror.state["project_id"], tag=tag, stage=stage)
+
     def refresh_assignments(self) -> set[str]:
         """Pin the keys assigned to any of my tags (cache tier "pinned")."""
         client, mirror, syncer = self._require()

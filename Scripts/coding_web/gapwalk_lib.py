@@ -241,7 +241,7 @@ _TEXT_CACHE_MAX = 16
 
 
 def _paper_text(key):
-    path = os.path.join(S.TEXT or "", key + ".txt")
+    path = S.ensure_local(os.path.join(S.TEXT or "", key + ".txt"))
     try:
         mt = os.path.getmtime(path)
     except OSError:
@@ -404,10 +404,11 @@ def profile_columns(key, folder):
     for p in sorted(_glob(folder, key + " - prepared*.csv")):
         cands.append((p, "prepared", _artifact_of(os.path.basename(p), key)))
     harm = os.path.join(folder, f"{key} - harmonized.csv")
-    if os.path.isfile(harm):
+    if S.has_file(harm):
         cands.append((harm, "harmonized", "*"))
     best = None
     for path, label, artifact in cands:
+        path = S.ensure_local(path)
         try:
             mt = os.path.getmtime(path)
         except OSError:
@@ -437,6 +438,12 @@ def profile_columns(key, folder):
 
 
 def _glob(folder, pattern):
+    import fnmatch
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [os.path.join(folder, e["name"]) for e in S.listdir(rel)
+                    if not e.get("is_dir") and fnmatch.fnmatchcase(e["name"], pattern)]
     import glob as _g
     return _g.glob(os.path.join(folder, pattern))
 
@@ -453,6 +460,7 @@ def _profile_from_spss_headers(folder):
     except Exception:  # noqa: BLE001
         return None
     for p in sorted(list(_glob(folder, "*.sav")) + list(_glob(folder, "*.dta"))):
+        p = S.ensure_local(p)
         reader = pyreadstat.read_dta if p.lower().endswith(".dta") else pyreadstat.read_sav
         try:
             _df, meta = reader(p, metadataonly=True)
@@ -734,6 +742,7 @@ def harmonizer_guess(slot, uv, orig, notes, domain=""):
 def load_sidecar(key):
     folder = os.path.join(S.DATASETS or "", key)
     path = os.path.join(folder, f"{key} - harmonized_variables.csv")
+    path = S.ensure_local(path)
     if not os.path.isfile(path):
         return []
     rows = []
@@ -763,6 +772,7 @@ def load_sidecar(key):
 def load_wide_columns(key):
     folder = os.path.join(S.DATASETS or "", key)
     path = os.path.join(folder, f"{key} - harmonized.csv")
+    path = S.ensure_local(path)
     try:
         with open(path, encoding="utf-8-sig", newline="", errors="replace") as fh:
             for row in csv.reader(fh):
@@ -946,8 +956,8 @@ def build_gapwalk(key, derived):
         "exists": os.path.isdir(folder),
         "has_dataset": os.path.isdir(folder),
         "paper": {
-            "has_text": os.path.isfile(os.path.join(S.TEXT or "", key + ".txt")),
-            "has_pdf": os.path.isfile(os.path.join(S.PAPERS or "", key + ".pdf")),
+            "has_text": S.exists(os.path.join(S.TEXT or "", key + ".txt")),
+            "has_pdf": S.exists(os.path.join(S.PAPERS or "", key + ".pdf")),
         },
         "notes": notes,
         "facts": facts,
@@ -1109,6 +1119,7 @@ def _load_conditions(key):
     """``<Key> - conditions.csv`` rows as {code, arm, role} dicts."""
     folder = os.path.join(S.DATASETS or "", key)
     path = os.path.join(folder, f"{key} - conditions.csv")
+    path = S.ensure_local(path)
     if not os.path.isfile(path):
         return []
     out = []

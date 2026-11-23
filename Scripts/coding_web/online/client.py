@@ -243,6 +243,24 @@ class ServerClient:
             headers["Content-Encoding"] = "gzip"
         self._call("PUT", self._p(pid, f"/blobs/{digest}"), body=body, headers=headers)
 
+    def put_blob_file(self, pid: str, digest: str, path: str, compress: bool = True,
+                      small_bytes: int = 8 * 1024 * 1024) -> None:
+        """Upload the file at *path* as blob *digest* without loading it whole.
+
+        Small files take the ordinary :meth:`put_blob` path (gzip).  A large
+        file is streamed straight from disk (no compression: CPU and disk beat
+        a second read) so a 1 GB source never lands in RAM.
+        """
+        size = os.path.getsize(path)
+        if size <= small_bytes or not isinstance(self.transport, UrllibTransport):
+            with open(path, "rb") as fh:
+                data = fh.read()
+            self.put_blob(pid, digest, data, compress=compress and size <= small_bytes)
+            return
+        headers = {"Content-Type": "application/octet-stream"}
+        with open(path, "rb") as fh:
+            self._call("PUT", self._p(pid, f"/blobs/{digest}"), body=fh, headers=headers)
+
     def get_blob(self, pid: str, digest: str, dest_path: str) -> str:
         """Download blob *digest* to *dest_path* (via a temp file next to it).
 
@@ -331,3 +349,51 @@ class ServerClient:
     def assignments(self, pid: str, stage: str | None = None, tag: str | None = None) -> list[dict]:
         data = self._json("GET", self._p(pid, "/assignments"), query={"stage": stage, "tag": tag})
         return data.get("assignments", []) if isinstance(data, dict) else list(data or [])
+
+    # -- admin passthrough (§3.4, §3.9) -------------------------------------
+    # These only exist so ``routes_online`` can offer the owner the server's
+    # own endpoints; nothing in the sync engine depends on them.
+
+    def members(self, pid: str) -> list[dict]:
+        data = self._json("GET", self._p(pid, "/members"))
+        return data.get("members", []) if isinstance(data, dict) else list(data or [])
+
+    def put_member(self, pid: str, user_id, payload: dict) -> dict:
+        return self._json("PUT", self._p(pid, f"/members/{int(user_id)}"), payload=payload) or {}
+
+    def delete_member(self, pid: str, user_id) -> None:
+        self._call("DELETE", self._p(pid, f"/members/{int(user_id)}"))
+
+    def update_settings(self, pid: str, patch: dict) -> dict:
+        data = self._json("PATCH", self._p(pid, "/settings"), payload=patch) or {}
+        return data.get("settings", data) if isinstance(data, dict) else data
+
+    def audit(self, pid: str, limit: int = 100) -> list[dict]:
+        data = self._json("GET", self._p(pid, "/audit"), query={"limit": int(limit)})
+        return data.get("audit", []) if isinstance(data, dict) else list(data or [])
+
+    def assignment_preview(self, pid: str, payload: dict) -> dict:
+        return self._json("POST", self._p(pid, "/assignments/preview"), payload=payload) or {}
+
+    def assignment_commit(self, pid: str, payload: dict) -> dict:
+        return self._json("POST", self._p(pid, "/assignments/commit"), payload=payload) or {}
+
+    def assignment_manual(self, pid: str, payload: dict) -> dict:
+        return self._json("POST", self._p(pid, "/assignments/manual"), payload=payload) or {}
+
+    def assignment_runs(self, pid: str) -> list[dict]:
+        data = self._json("GET", self._p(pid, "/assignments/runs"))
+        return data.get("runs", []) if isinstance(data, dict) else list(data or [])
+
+    def assignment_run_delete(self, pid: str, run_id: str) -> None:
+        self._call("DELETE", self._p(pid, f"/assignments/runs/{self._q(str(run_id))}"))
+
+    def admin_users(self) -> list[dict]:
+        data = self._json("GET", "/api/admin/users")
+        return data.get("users", []) if isinstance(data, dict) else list(data or [])
+
+    def admin_create_user(self, payload: dict) -> dict:
+        return self._json("POST", "/api/admin/users", payload=payload) or {}
+
+    def admin_patch_user(self, user_id, payload: dict) -> dict:
+        return self._json("PATCH", f"/api/admin/users/{int(user_id)}", payload=payload) or {}
