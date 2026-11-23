@@ -109,6 +109,16 @@ def _probit(p, n=None):
     return float(SC._probit(p, n=n))
 
 
+def _map_unique(s, fn):
+    """``s.map(fn)`` with ``fn`` evaluated once per distinct value.
+
+    The result goes through the same ``Series.map(callable)`` path (a dict
+    lookup as the callable), so dtype inference is identical to ``s.map(fn)``.
+    """
+    table = {v: fn(v) for v in pd.unique(s)}
+    return s.map(table.__getitem__)
+
+
 def dprime(hr, cr, n=None, n_fa=None):
     """SDT discrimination ``d' = z(HR) - z(FAR)`` from a hit rate and a
     correct-rejection (true-negative) rate, where ``FAR = 1 - cr``.
@@ -476,8 +486,9 @@ def _component_stats(tv, fv):
         out["fake_var"] = float(fv.var(ddof=1) / len(fv)) if len(fv) > 1 else np.nan
     n = min(len(tv), len(fv))
     if n:
-        cs = np.array([-0.5 * (_probit(float(tv[i])) + _probit(1.0 - float(fv[i])))
-                       for i in range(n)], float)
+        # element-wise over the paired units (same clip + ndtri per element as
+        # the former per-unit scalar loop, so bit-identical)
+        cs = np.asarray(-0.5 * (SC._probit(tv[:n]) + SC._probit(1.0 - fv[:n])), float)
         cs = cs[np.isfinite(cs)]
         if len(cs):
             out["criterion_score"] = float(cs.mean())
@@ -515,8 +526,12 @@ def _cell_dprime(g):
             nf = fv.groupby("pid").size()
             common = tm.index.intersection(fm.index)
             if len(common) >= 2:
-                dps = np.array([dprime(tm[p], fm[p], n=int(nt.get(p, 1)),
-                                       n_fa=int(nf.get(p, 1))) for p in common], float)
+                # vectorised over participants (element-wise identical to the
+                # former per-pid loop; nt/nf come from the same frames as tm/fm)
+                dps = np.asarray(dprime(tm.loc[common].to_numpy(float),
+                                        fm.loc[common].to_numpy(float),
+                                        n=nt.loc[common].to_numpy(float),
+                                        n_fa=nf.loc[common].to_numpy(float)), float)
                 dps = dps[np.isfinite(dps)]
                 if len(dps) >= 2:
                     dd = float(np.mean(dps))
@@ -524,9 +539,8 @@ def _cell_dprime(g):
                     n_pid = len(dps)
                 # Paired participant-level components (more precise than the
                 # aggregate when participants are identified).
-                comp = _component_stats(
-                    np.array([tm[p] for p in common], float),
-                    np.array([fm[p] for p in common], float))
+                comp = _component_stats(tm.loc[common].to_numpy(float),
+                                        fm.loc[common].to_numpy(float))
     if dd is None:
         hr, cr = float(t.mean()), float(fa.mean())
         dd = dprime(hr, cr, n=len(t), n_fa=len(fa))
@@ -625,16 +639,19 @@ def collect_datasets(no_excl, write_catalog=True):
         if "artifact" not in long.columns:
             long["artifact"] = ""          # the groupby below always needs the key
         long["dv"] = long["dv_01"].str[:-3]
-        long["dv_domain"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[0])
-        long["veracity"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[1])
-        long["timepoint"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[2])
-        long["polarity"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[3])
+        # Per-DV attributes depend only on the DV name (a few hundred distinct
+        # values over ~10^6 melted rows): evaluate once per name, then map.
+        long["dv_domain"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[0])
+        long["veracity"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[1])
+        long["timepoint"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[2])
+        long["polarity"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[3])
         # Difference/change-score DVs must not carry a veracity (contract.dv_veracity);
         # if a sidecar tags one anyway, drop it so it is never pair-split as a hit /
         # false-alarm component and pooled as an outcome (see _DROP_MISLABELED_DIFF).
         if _DROP_MISLABELED_DIFF:
             _ver_tf = long["veracity"].astype(str).str.strip().str.lower().isin(["true", "false"])
-            _diff = long["dv"].astype(str).map(lambda v: bool(_DIFF_SCORE_RE.search(v)))
+            _diff = _map_unique(long["dv"].astype(str),
+                                lambda v: bool(_DIFF_SCORE_RE.search(v)))
             if (_ver_tf & _diff).any():
                 long = long[~(_ver_tf & _diff)]
                 if not len(long):
@@ -662,7 +679,7 @@ def collect_datasets(no_excl, write_catalog=True):
             # treat them as the rule intends (false endorsement -> higher_is_worse).
             try:
                 import dv_polarity as _dvp
-                _is_comp = long["dv"].astype(str).map(_dvp.is_composite)
+                _is_comp = _map_unique(long["dv"].astype(str), _dvp.is_composite)
             except Exception:
                 _is_comp = pd.Series(False, index=long.index)
             _blank_pol = long["polarity"].astype(str).str.strip().str.lower().isin(

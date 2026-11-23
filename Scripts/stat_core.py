@@ -24,8 +24,10 @@ import numpy as np
 
 try:
     from scipy import stats as _st
+    from scipy.special import ndtri as _ndtri
 except Exception:  # pragma: no cover - scipy present in this environment
     _st = None
+    _ndtri = None
 
 import contract as CT  # stdlib-only canonical contracts
 
@@ -61,9 +63,13 @@ def probit(x, n=None):
         nn = np.asarray(n, float)
         arr = (arr * nn + 0.5) / (nn + 1.0)
     arr = np.clip(arr, _PROBIT_EPS, 1.0 - _PROBIT_EPS)
-    if _st is None:
+    if _ndtri is None:
         return np.full(arr.shape, np.nan)
-    return _st.norm.ppf(arr)
+    # scipy.special.ndtri is the kernel norm.ppf itself calls; on the clipped
+    # domain (and NaN) the two are bit-identical, but ndtri skips ppf's
+    # per-call argument machinery (~0.2 ms), which dominated the SDT melt
+    # (~675k scalar calls per collect_datasets pass).
+    return _ndtri(arr)
 
 
 def dprime(hits, false_alarms, n=None):
