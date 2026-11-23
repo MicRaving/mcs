@@ -28,6 +28,14 @@ SERVER_URL = "http://studio.test:8770"
 PID = "proj-1"
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "e2e: drives the real studio server and two real app instances "
+        "(skipped unless STUDIO_E2E=1)",
+    )
+
+
 class Crash(BaseException):
     """Simulated process death (not an Exception, so no handler swallows it)."""
 

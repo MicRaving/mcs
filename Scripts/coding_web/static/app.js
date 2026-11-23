@@ -982,10 +982,12 @@
         badges.appendChild(fin);
       }
       // In an online project another coder may hold the study's edit lock: show
-      // who, so nobody wonders why the shared editors are read-only.
+      // who, so nobody wonders why the shared editors are read-only.  The lock
+      // list marks our own locks (`mine`, computed by the server against the
+      // username), so a matching display name never hides a foreign lock.
       const lockHolder = window.CSOnline && window.CSOnline.locks
         ? window.CSOnline.locks.holderFor(p.key) : null;
-      if (lockHolder) {
+      if (lockHolder && lockHolder.mine !== true) {
         const lk = el("span", "s-badge locked");
         const who = lockHolder.display_name || lockHolder.user || "another coder";
         const until = lockHolder.expires ? ` until ${String(lockHolder.expires).replace("T", " ").slice(0, 16)}` : "";

@@ -730,7 +730,12 @@
         const d = await api(`${API}/assignments/runs`);
         const rows = listOf(d, "runs").map((r) => {
           const id = r.run_id ?? r.id;
+          const params = (r && r.params) || {};
           const undone = !!(r.undone || r.status === "undone");
+          // /api/online/admin/assignments/runs puts mode and n_keys at the top
+          // level; the server's own shape keeps them in `params`.
+          const mode = r.mode || params.mode || "";
+          const nKeys = r.n_keys ?? params.n_keys ?? params.keys ?? r.papers ?? r.count ?? "";
           const undo = el("button", { class: "btn danger", type: "button", text: "Undo" });
           undo.addEventListener("click", () => {
             if (!window.confirm(`Undo run ${id}? Its assignments are removed from the project.`)) return;
@@ -740,9 +745,9 @@
             }, `Run ${id} undone`)();
           });
           return el("tr", null,
-            td(id), td(r.stage || ""), td(r.mode || ""),
-            td(r.n_keys ?? r.papers ?? r.count ?? "", "oa-num"),
-            td(fmtTime(r.created ?? r.created_at ?? r.ts)),
+            td(id), td(r.stage || ""), td(mode),
+            td(nKeys, "oa-num"),
+            td(fmtTime(r.ts ?? r.created ?? r.created_at)),
             el("td", null, undone ? badge("undone") : badge("active", "ok")),
             el("td", { class: "oa-actions" }, undone ? null : undo));
         });
@@ -781,7 +786,7 @@
       });
       return el("tr", null,
         td(key),
-        td(l.display_name || l.user || ""),
+        td(`${l.display_name || l.user || ""}${l.mine === true ? " (you)" : ""}`),
         td(l.client_id ? String(l.client_id).slice(0, 12) : ""),
         td(fmtTime(l.acquired)),
         td(fmtTime(l.expires)),
@@ -800,21 +805,24 @@
 
   VIEWS.audit = async function () {
     const d = await api(`${API}/audit?limit=200`);
+    // The server answers {audit: [{id, ts, user_id, username, action, detail}]}
+    // (detail is the JSON object the action wrote); older shapes may carry
+    // `entries`, `user`/`actor`, `details`.
     const entries = listOf(d, "entries").length ? listOf(d, "entries") : listOf(d, "audit");
-    const KNOWN = new Set(["ts", "time", "created_at", "user", "display_name", "actor",
-      "action", "target", "key", "path", "details"]);
+    const KNOWN = new Set(["id", "ts", "time", "created_at", "user", "user_id", "username",
+      "display_name", "actor", "action", "target", "key", "path", "detail", "details"]);
     const rows = entries.slice(0, 200).map((e) => {
       const rest = {};
       for (const [k, v] of Object.entries(e)) if (!KNOWN.has(k)) rest[k] = v;
-      const detail = e.details !== undefined ? e.details : rest;
-      let text = "";
+      const detail = e.detail !== undefined ? e.detail
+        : (e.details !== undefined ? e.details : rest);      let text = "";
       if (detail !== undefined && detail !== null) {
         text = typeof detail === "string" ? detail : JSON.stringify(detail);
-        if (text === "{}") text = "";
+        if (text === "{}" || text === "null") text = "";
       }
       return el("tr", null,
         td(fmtTime(e.ts ?? e.time ?? e.created_at)),
-        td(e.user ?? e.display_name ?? e.actor ?? ""),
+        td(e.username ?? e.user ?? e.display_name ?? e.actor ?? ""),
         td(e.action ?? ""),
         td(e.target ?? e.key ?? e.path ?? ""),
         el("td", { class: "oa-clip", title: text, text }));
@@ -847,12 +855,13 @@
 
     let wasRunning = false;
 
-    // Shape assumed for GET /api/online/admin/publish: { state|status, running?,
-    // done, total, bytes, errors: [..] | n }.
+    // Shape of GET /api/online/admin/publish: {state, running, done, total,
+    // bytes, errors: [..], pushed, skipped, ...}.  `state` is derived by
+    // routes_online; the counters are the fallback for an older route.
     function renderProgress(p) {
       const st = String((p && (p.state ?? p.status)) || "idle");
       const running = p && typeof p.running === "boolean" ? p.running : !DONE_STATES.includes(st);
-      const done = Number(p && p.done) || 0;
+      const done = Number(p && (p.done ?? p.hashed)) || 0;
       const total = Number(p && p.total) || 0;
       const bytes = Number(p && p.bytes) || 0;
       const errList = p && Array.isArray(p.errors) ? p.errors : [];

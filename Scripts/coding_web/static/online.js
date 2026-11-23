@@ -345,15 +345,21 @@
     if (S.lockPollTimer) { clearInterval(S.lockPollTimer); S.lockPollTimer = null; }
   }
 
-  /* A lock held by somebody else, unexpired, on this key. */
+  /* A lock held by somebody else, unexpired, on this key.
+     Identity comes from the server: `GET /api/online/locks` adds `mine`
+     (computed against the logged-in username / user_id), because a display
+     name is not an identity - two members can share one. */
   function holderFor(key) {
     if (!key || !S.active) return null;
     if (S.held.has(key)) return null;            // ours: never shown as foreign
-    const mine = String((S.status && S.status.user) || "");
     const row = (S.locks || []).find((l) => l && l.key === key && !l.expired);
     if (!row) return null;
-    if (row.user && mine && String(row.user) === mine) return null;
-    if (row.display_name && mine && row.display_name === mine) return null;
+    if (row.mine === true) return null;
+    if (typeof row.mine !== "boolean") {
+      // an older route without `mine`: the username is the lock identity
+      const mine = String((S.status && S.status.user) || "");
+      if (row.user && mine && String(row.user) === mine) return null;
+    }
     return row;
   }
 
@@ -922,12 +928,13 @@
     const list = h("div", { class: "online-list" });
     rows.forEach((l) => {
       const who = l.display_name || l.user || "?";
+      const mine = l.mine === true;
       const until = l.expires ? String(l.expires).replace("T", " ").slice(0, 16) : "";
       const row = h("div", { class: "online-row-item static" },
         icon("i-lock", 13),
         h("span", { class: "online-grow" },
           h("b", { text: l.key }),
-          h("span", { class: "online-muted", text: ` · ${who}` }),
+          h("span", { class: "online-muted", text: ` · ${who}${mine ? " (you)" : ""}` }),
           h("span", { class: "online-muted", text: until ? ` · until ${until}` : "" }),
           h("span", { class: "online-muted", text: l.offline ? " · offline lease" : "" }),
           h("span", { class: "online-muted", text: l.expired ? " · expired" : "" })),

@@ -5,6 +5,8 @@
 * otherwise ``<mirror>/.studio/token`` (JSON ``{server, username, token}``),
   ``chmod 600`` on POSIX; on Windows inheritance is removed and only the
   current user is granted access via ``icacls`` (best effort).
+* ``CODINGSTUDIO_NO_KEYRING=1`` disables the keyring path entirely (token file
+  only), for a portable checkout or an automated run.
 
 Tokens are never logged or put in exception messages by this module.
 """
@@ -20,6 +22,11 @@ SERVICE = "CodingStudio-online"
 try:                                   # pragma: no cover - depends on the machine
     import keyring as _keyring         # type: ignore
 except Exception:                      # ImportError or a broken backend import
+    _keyring = None
+
+#: ``CODINGSTUDIO_NO_KEYRING=1`` keeps the token out of the OS keyring (a
+#: portable checkout, a shared machine, an automated end-to-end run).
+if (os.environ.get("CODINGSTUDIO_NO_KEYRING") or "").strip().lower() in ("1", "true", "yes"):
     _keyring = None
 
 

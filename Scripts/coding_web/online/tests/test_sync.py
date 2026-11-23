@@ -419,6 +419,78 @@ def test_done_mark_changes_epoch_and_reveals_hidden_file(server, make_node):
     assert a.read_json("Codings/K1 - B.json") == {"by": "B"}
 
 
+# --- 7b. "Finish paper" while offline ---------------------------------------------------------------
+
+def test_done_mark_offline_is_durable_and_sent_before_the_pull(server, make_node):
+    server.put_file(PID, "Codings/K1 - B.json", jbytes({"by": "B"}))
+    a = make_node("a")
+    assert a.tick()
+    assert not a.exists("Codings/K1 - B.json")
+
+    a.transport.offline = True
+    res = a.store.mark_done("K1", "coding")
+    assert res.get("ok") is True, res
+    st = a.store.status()
+    assert st["mode"] in ("online", "offline") and st["done_pending"] == 1 and st["pending"] == 1
+    # the mark is on disk (state.json), not only in memory
+    state = json.load(open(os.path.join(a.root, ".studio", "state.json"), encoding="utf-8"))
+    assert state["done_pending"] == [{"key": "K1", "stage": "coding", "tag": "A"}]
+    assert ("A", "K1", "coding") not in server.projects[PID]["done"]
+
+    # done_list answers from the queue while the server is away
+    rows = a.store.done_list(stage="coding", tag="A")
+    assert any(r["key"] == "K1" and r.get("pending") for r in rows)
+
+    # a round while still offline reports offline and keeps the mark
+    assert a.tick() is False
+    assert a.store.status()["mode"] == "offline" and a.store.status()["done_pending"] == 1
+
+    a.transport.offline = False
+    epoch = a.mirror.state["visibility_epoch"]
+    # ONE round: the mark goes out first, so the epoch change (and B's hidden
+    # file) is part of the same round's pull
+    assert a.tick()
+    assert ("A", "K1", "coding") in server.projects[PID]["done"]
+    assert a.mirror.state["visibility_epoch"] != epoch
+    assert a.read_json("Codings/K1 - B.json") == {"by": "B"}
+    st = a.store.status()
+    assert st["done_pending"] == 0 and st["pending"] == 0
+    assert a.store.done_list(stage="coding", tag="A")[0].get("pending") is None
+
+    # idempotent: a re-send (crash between call and state write) changes nothing
+    a.syncer.queue_done("K1", "coding", "A")
+    assert a.tick()
+    assert list(server.projects[PID]["done"]) == [("A", "K1", "coding")]
+    assert a.store.status()["done_pending"] == 0
+
+
+def test_queued_done_mark_survives_a_restart(server, make_node):
+    a = make_node("a")
+    assert a.tick()
+    a.transport.offline = True
+    a.store.mark_done("K1", "coding")
+    assert a.store.status()["done_pending"] == 1
+
+    a.transport.offline = False
+    a.restart()                                   # crash + reopen from disk
+    assert a.store.status()["done_pending"] == 1
+    assert a.tick()
+    assert ("A", "K1", "coding") in server.projects[PID]["done"]
+    assert a.store.status()["done_pending"] == 0 and a.store.status()["pending"] == 0
+
+
+def test_done_mark_the_server_refuses_is_dropped_not_retried(server, make_node):
+    a = make_node("a")
+    assert a.tick()
+    # a stale queue entry (e.g. the tag was removed while the client was away)
+    a.syncer.queue_done("K1", "coding", "ZZZ")
+    assert a.tick()
+    status = a.store.status()
+    assert status["done_pending"] == 0 and status["mode"] == "online"
+    assert "done mark dropped" in (status["last_error"] or "")
+    assert not any(tag == "ZZZ" for (tag, _key, _stage) in server.projects[PID]["done"])
+
+
 # --- 8. merged result while the user edited again --------------------------------------------------
 
 def test_merged_while_user_edited_again_requeues_on_merged_hash(server, make_node):

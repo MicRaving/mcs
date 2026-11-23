@@ -170,6 +170,40 @@ def test_done_works_for_an_online_project(client, make_node, server):
     assert any(r["key"] == "K1" and r["tag"] == "A" and r["stage"] == "coding" for r in rows)
 
 
+def test_done_offline_answers_ok_lists_the_mark_and_sends_it_on_reconnect(client, make_node, server):
+    """Finish paper works offline: 200, the mark is listed, and it lands later."""
+    node = make_node("a")
+    _open(client, node)
+    assert client.post("/api/online/sync").status_code == 200
+
+    node.transport.offline = True
+    resp = client.post("/api/online/done", json={"key": "K1", "stage": "coding", "tag": "A"})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["ok"] is True
+    assert ("A", "K1", "coding") not in server.projects[PID]["done"]
+
+    status = client.get("/api/online/status").get_json()
+    assert status["mode"] == "offline"
+    assert status["pending"] == 1 and status["done_pending"] == 1
+
+    # the done list answers from the queue, not with a 503
+    resp = client.get("/api/online/done", query_string={"stage": "coding", "tag": "A"})
+    assert resp.status_code == 200, resp.get_json()
+    rows = resp.get_json()["done"]
+    assert [(r["key"], r["tag"]) for r in rows if r.get("pending")] == [("K1", "A")]
+
+    # a sync round that cannot reach the server keeps the mark
+    assert client.post("/api/online/sync").status_code == 200
+    assert client.get("/api/online/status").get_json()["done_pending"] == 1
+
+    node.transport.offline = False
+    assert client.post("/api/online/sync").status_code == 200
+    assert ("A", "K1", "coding") in server.projects[PID]["done"]
+    status = client.get("/api/online/status").get_json()
+    assert status["mode"] == "online"
+    assert status["pending"] == 0 and status["done_pending"] == 0
+
+
 # ---------------------------------------------------------------------------
 # locks
 # ---------------------------------------------------------------------------
@@ -192,6 +226,25 @@ def test_lock_held_by_another_member_maps_to_409(client, make_node):
     # the holder may release it
     _open(client, node_a)
     assert client.delete("/api/online/locks/K1").status_code == 200
+
+
+def test_locks_pass_the_server_identity_through_and_flag_mine(client, make_node):
+    """`mine` is decided server-side from the username, never from a name."""
+    node_a = make_node("a")
+    _open(client, node_a)
+    lock = client.post("/api/online/locks/K1", json={}).get_json()["lock"]
+    assert lock["mine"] is True
+    assert lock["user"] == "a" and lock["display_name"] == "A"
+    assert lock["client_id"] == node_a.mirror.state["client_id"]
+
+    node_b = make_node("b")
+    _open(client, node_b)
+    rows = client.get("/api/online/locks").get_json()["locks"]
+    row = next(r for r in rows if r["key"] == "K1")
+    assert row["mine"] is False
+    assert row["user"] == "a" and row["display_name"] == "A"
+    assert row["client_id"] == node_a.mirror.state["client_id"]
+    assert "expires" in row and "offline" in row and "expired" in row
 
 
 # ---------------------------------------------------------------------------

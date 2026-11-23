@@ -24,6 +24,13 @@ Crash safety - the invariants every step keeps:
   been handled (downloaded, deliberately skipped, or parked in ``stale``).
 * A conflict's local bytes are written under ``.studio/conflicts/`` before
   the outbox entry is dropped and before the server version is restored.
+* A "Finish paper" mark made while offline lives in ``state.done_pending``
+  (written atomically with the rest of ``state.json``) and is sent at the start
+  of the next round that reaches the server - **before** the manifest pull, so
+  the caller sees the ``visibility_epoch`` change the mark causes in the same
+  round.  The server's ``POST /done`` is an upsert per (project, tag, key,
+  stage), so a re-send after a crash between the call and the state write is
+  harmless.
 """
 
 from __future__ import annotations
@@ -37,7 +44,16 @@ from online_shared import protocol
 
 from .cache import Cache
 from .conflicts import ConflictStore
-from .errors import AuthError, OfflineError, OnlineError, ProtocolMismatch
+from .errors import (
+    AuthError,
+    BadRequestError,
+    ForbiddenError,
+    LockedError,
+    NotFoundError,
+    OfflineError,
+    OnlineError,
+    ProtocolMismatch,
+)
 from .mirror import Mirror, Permissions, atomic_write_bytes
 from .outbox import Outbox
 
@@ -76,6 +92,8 @@ class Syncer:
         self.backoff = 0.0
         self.next_retry: float | None = None
         self._initial_pull_done = False
+        self.last_round = {"ok": False, "pushed": 0, "pulled": 0, "done_sent": 0}
+        self.dropped_done: list[str] = []
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -136,9 +154,14 @@ class Syncer:
         with self.mirror.lock:
             local_only = len(st.get("local_only") or {})
             seq = st.get("seq")
+            done_pending = len(st.get("done_pending") or [])
         return {
             "mode": self.mode,
-            "pending": len(self.outbox),
+            # a queued "Finish paper" mark is a pending change too
+            "pending": len(self.outbox) + done_pending,
+            "done_pending": done_pending,
+            "pushed": int(self.last_round.get("pushed") or 0),
+            "pulled": int(self.last_round.get("pulled") or 0),
             "conflicts": self.conflicts.open_count(),
             "last_sync": _iso(self.last_sync),
             "server": st.get("server"),
@@ -167,14 +190,19 @@ class Syncer:
                 self.last_error = f"scan failed: {exc}"
             prev = self.mode
             self.mode = "syncing"
+            self.last_round = {"ok": False, "pushed": 0, "pulled": 0, "done_sent": 0}
             try:
                 if not self._initial_pull_done or self.outbox.unconfirmed():
                     # start-up, or an earlier push whose outcome is unknown:
                     # learn what the server already has before pushing again
                     self.pull()
                     self._initial_pull_done = True
-                self.push(force=force)
-                self.pull()
+                # queued "Finish paper" marks go first: they change the caller's
+                # visibility_epoch, which the pull below then sees
+                self.last_round["done_sent"] = len(self.flush_done())
+                self.last_round["pushed"] = len(self.push(force=force) or [])
+                pulled = self.pull()
+                self.last_round["pulled"] = len((pulled or {}).get("written") or [])
             except OfflineError as exc:
                 self.mode = "offline"
                 self.last_error = str(exc)
@@ -194,9 +222,12 @@ class Syncer:
                 raise
             self.mode = "online"
             self.last_error = None
+            if self.dropped_done:
+                self.last_error = "; ".join(self.dropped_done[:3])
             self.backoff = 0.0
             self.next_retry = None
             self.last_sync = self.clock()
+            self.last_round["ok"] = True
             return True
 
     # -- scan / enqueue --------------------------------------------------------------------------
@@ -208,6 +239,59 @@ class Syncer:
         if res.state_changed or res.changes:
             self.mirror.save()
         return res
+
+    # -- done marks queued for the next round -----------------------------------------------
+
+    def done_pending(self) -> list[dict]:
+        """The "Finish paper" marks that have not reached the server yet."""
+        with self.mirror.lock:
+            return [dict(row) for row in (self.mirror.state.get("done_pending") or [])]
+
+    def queue_done(self, key: str, stage: str, tag: str) -> None:
+        """Persist one done mark in ``state.done_pending`` (atomically).
+
+        Called *before* the server call, so a crash can lose neither the mark
+        nor the fact that it was requested.
+        """
+        row = {"key": str(key), "stage": str(stage), "tag": str(tag)}
+        with self.mirror.lock:
+            pending = self.mirror.state.setdefault("done_pending", [])
+            if row not in pending:
+                pending.append(row)
+                self.mirror.save()
+
+    def drop_done(self, key: str, stage: str, tag: str) -> None:
+        row = {"key": str(key), "stage": str(stage), "tag": str(tag)}
+        with self.mirror.lock:
+            pending = list(self.mirror.state.get("done_pending") or [])
+            kept = [r for r in pending if r != row]
+            if len(kept) != len(pending):
+                self.mirror.state["done_pending"] = kept
+                self.mirror.save()
+
+    def flush_done(self) -> list[dict]:
+        """Send every queued mark.  An unreachable server leaves them queued.
+
+        A mark the server refuses outright (a tag that is no longer the
+        member's, a bad stage) can never succeed, so it is dropped instead of
+        blocking the queue forever; the reason is kept in ``dropped_done``
+        (and therefore in the next ``status().last_error``) instead of
+        vanishing with the round.
+        """
+        sent: list[dict] = []
+        self.dropped_done = []
+        for row in self.done_pending():
+            try:
+                self.client.mark_done(self.pid, row["key"], row["stage"], row["tag"])
+            except OfflineError:
+                raise
+            except (ForbiddenError, LockedError, BadRequestError, NotFoundError) as exc:
+                self.dropped_done.append(f"done mark dropped ({row['key']}): {exc}")
+                self.drop_done(row["key"], row["stage"], row["tag"])
+                continue
+            self.drop_done(row["key"], row["stage"], row["tag"])
+            sent.append(row)
+        return sent
 
     # -- push ----------------------------------------------------------------------------------------
 
@@ -683,6 +767,17 @@ class Syncer:
     def kick(self) -> None:
         """Run the next round now (scan + push + pull)."""
         self._wake.set()
+
+    def note_offline(self, exc: BaseException) -> None:
+        """Record an unreachable server outside a round (a queued done mark).
+
+        Same state :meth:`tick` sets on ``OfflineError``: the badge flips to
+        offline at once instead of waiting for the next scheduled round.
+        """
+        self.mode = "offline"
+        self.last_error = str(exc)
+        self.backoff = BACKOFF_MIN if self.backoff <= 0 else min(self.backoff * 2, BACKOFF_MAX)
+        self.next_retry = self.clock() + self.backoff
 
     def _next_wait(self, ok: bool) -> float:
         if not ok and self.mode == "offline":

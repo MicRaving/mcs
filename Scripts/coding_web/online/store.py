@@ -137,7 +137,8 @@ class OnlineStore:
             st = mirror.state
             if st.get("username") and st["username"] != self.username and st.get("project_id"):
                 outbox_path = os.path.join(mirror.studio, "outbox.jsonl")
-                if os.path.exists(outbox_path) and os.path.getsize(outbox_path) > 0:
+                queued = bool(st.get("done_pending"))
+                if queued or (os.path.exists(outbox_path) and os.path.getsize(outbox_path) > 0):
                     raise OnlineError(
                         f"this mirror holds unpushed changes of {st['username']!r}; "
                         "log in as that user to push them first")
@@ -322,13 +323,34 @@ class OnlineStore:
         return client.locks(mirror.state["project_id"])
 
     def mark_done(self, key: str, stage: str, tag: str | None = None) -> dict:
+        """Mark a paper finished - online, or queued when the server is away.
+
+        The mark is written to ``state.done_pending`` (atomic) *before* the
+        server call, so it survives a crash and an offline period; the next
+        successful round sends it before the manifest pull (see
+        :meth:`Syncer.flush_done`).  ``POST /done`` is an upsert per
+        (tag, key, stage), so a re-send is harmless.
+        """
         client, mirror, syncer = self._require()
         if tag is None:
             tags = list((mirror.state.get("me") or {}).get("tags") or [])
             if len(tags) != 1:
                 raise ValueError("tag is required when the member has several tags")
             tag = tags[0]
-        res = client.mark_done(mirror.state["project_id"], key, stage, tag)
+        pid = mirror.state["project_id"]
+        syncer.queue_done(key, stage, tag)
+        try:
+            res = client.mark_done(pid, key, stage, tag)
+        except OfflineError as exc:
+            # queued: the badge shows the paper as finished now, the server
+            # learns about it on the next successful round
+            syncer.note_offline(exc)
+            return {"ok": True, "queued": True, "key": key, "stage": stage,
+                    "tag": tag, "mode": "offline"}
+        except OnlineError:
+            syncer.drop_done(key, stage, tag)      # refused: it will never land
+            raise
+        syncer.drop_done(key, stage, tag)
         syncer.kick()               # the visibility epoch changed: full manifest next round
         return res
 
@@ -341,9 +363,31 @@ class OnlineStore:
         return client.assignments(mirror.state["project_id"], stage=stage, tag=tag)
 
     def done_list(self, stage: str | None = None, tag: str | None = None) -> list[dict]:
-        """The member's (or a tag's) done marks from the server."""
-        client, mirror, _s = self._require()
-        return client.done_list(mirror.state["project_id"], tag=tag, stage=stage)
+        """Done marks of the project: the server's plus the ones still queued.
+
+        A queued mark is part of the answer immediately (the Finish button must
+        show the paper as finished offline); it carries ``pending: True`` until
+        the next successful round confirms it.  When the server cannot be
+        reached the queued marks are the whole answer instead of an error.
+        """
+        client, mirror, _syncer = self._require()
+        pid = mirror.state["project_id"]
+        try:
+            rows = list(client.done_list(pid, tag=tag, stage=stage))
+        except OfflineError:
+            rows = []
+        seen = {(r.get("key"), r.get("stage"), r.get("tag")) for r in rows}
+        with mirror.lock:
+            pending = [dict(r) for r in (mirror.state.get("done_pending") or [])]
+        for row in pending:
+            if stage and row.get("stage") != stage:
+                continue
+            if tag and row.get("tag") != tag:
+                continue
+            if (row.get("key"), row.get("stage"), row.get("tag")) in seen:
+                continue
+            rows.append({**row, "pending": True})
+        return rows
 
     def refresh_assignments(self) -> set[str]:
         """Pin the keys assigned to any of my tags (cache tier "pinned")."""

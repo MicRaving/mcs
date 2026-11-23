@@ -411,10 +411,37 @@ def api_presence():
 # locks
 # ---------------------------------------------------------------------------
 
+def _username(store) -> str:
+    """The logged-in username of the open project (the server's lock identity)."""
+    name = getattr(store, "username", None)
+    if name:
+        return str(name)
+    mirror = getattr(store, "mirror", None)
+    if mirror is not None:
+        with mirror.lock:
+            return str(mirror.state.get("username") or "")
+    return ""
+
+
+def _lock_row(store, lock):
+    """One server lock plus ``mine``, decided against the logged-in username.
+
+    The server identifies a holder by ``user`` (username) and ``user_id``; the
+    UI must not guess identity from a display name (two members can share one).
+    ``user``, ``user_id``, ``display_name`` and ``client_id`` pass through as
+    the server sent them.
+    """
+    row = dict(lock or {})
+    if not isinstance(row.get("mine"), bool):
+        who = _username(store)
+        row["mine"] = bool(who) and str(row.get("user") or "") == who
+    return row
+
+
 @bp.get("/api/online/locks")
 @online_route
 def api_locks(store):
-    return jsonify({"locks": store.locks()})
+    return jsonify({"locks": [_lock_row(store, lock) for lock in store.locks()]})
 
 
 @bp.post("/api/online/locks/<path:key>")
@@ -426,7 +453,7 @@ def api_lock_acquire(store, key):
         hours = float(hours) if hours not in (None, "") else None
     except (TypeError, ValueError):
         return _err("bad_request", "offline_hours must be a number", 400)
-    return jsonify({"lock": store.acquire_lock(key, hours)})
+    return jsonify({"lock": _lock_row(store, store.acquire_lock(key, hours))})
 
 
 @bp.delete("/api/online/locks/<path:key>")
@@ -781,13 +808,33 @@ def api_admin_assignments(store, action):
     return _err("not_found", f"unknown assignment action {action!r}", 404)
 
 
+def _run_row(run):
+    """One assignment run in the shape the admin panel renders.
+
+    The server sends ``{run_id, stage, params, created_by, ts, undone}`` and
+    keeps the mode and the paper count inside ``params``; the panel needs both
+    at the top level, so they are derived here (the originals stay untouched).
+    """
+    row = dict(run or {})
+    params = row.get("params") if isinstance(row.get("params"), dict) else {}
+    if not row.get("mode"):
+        row["mode"] = str(params.get("mode") or "")
+    n = params.get("n_keys")
+    if n is None and isinstance(params.get("keys"), int):
+        n = params["keys"]
+    if row.get("n_keys") is None and n is not None:
+        row["n_keys"] = int(n)
+    return row
+
+
 @bp.get("/api/online/admin/assignments/runs")
 @online_route
 def api_admin_assignment_runs(store):
     denied = _owner_denied(store)
     if denied:
         return denied
-    return jsonify({"runs": store.client.assignment_runs(store.pid)})
+    runs = [_run_row(run) for run in store.client.assignment_runs(store.pid)]
+    return jsonify({"runs": runs})
 
 
 @bp.delete("/api/online/admin/assignments/runs/<run_id>")
@@ -856,7 +903,7 @@ _PUBLISH_LOCK = threading.Lock()
 _PUBLISH = {
     "running": False, "ok": None, "source_root": None, "started": None,
     "finished": None, "total": 0, "hashed": 0, "uploaded": 0, "pushed": 0,
-    "skipped": 0, "conflicts": 0, "errors": [], "message": "",
+    "skipped": 0, "conflicts": 0, "bytes": 0, "errors": [], "message": "",
 }
 
 
@@ -866,11 +913,32 @@ def _publish_state(**changes):
         return dict(_PUBLISH)
 
 
+def _publish_phase(snap):
+    if snap.get("running"):
+        return "running"
+    if snap.get("ok") is True:
+        return "published"
+    if snap.get("ok") is False:
+        return "failed"
+    if snap.get("finished"):
+        return "cancelled"
+    return "idle"
+
+
 def _publish_snapshot():
+    """The progress object ``admin_online.js`` renders.
+
+    Beyond the worker's counters it carries ``state`` (running|published|
+    failed|cancelled|idle), ``done`` (files processed) and ``bytes``, so the
+    panel needs no guesswork about which counter means progress.
+    """
     with _PUBLISH_LOCK:
         out = dict(_PUBLISH)
         out["errors"] = list(_PUBLISH["errors"])
-        return out
+    out["state"] = _publish_phase(out)
+    out["done"] = int(out.get("hashed") or 0)
+    out["bytes"] = int(out.get("bytes") or 0)
+    return out
 
 
 def _now_iso():
@@ -900,7 +968,7 @@ def _publish_worker(store, source_root):
     try:
         files = _publish_files(source_root)
         _publish_state(total=len(files), hashed=0, uploaded=0, pushed=0,
-                       skipped=0, conflicts=0, errors=[], ok=None,
+                       skipped=0, conflicts=0, bytes=0, errors=[], ok=None,
                        message=f"hashing {len(files)} files")
         by_hash = {}
         entries = []
@@ -925,10 +993,12 @@ def _publish_worker(store, source_root):
                 with _PUBLISH_LOCK:
                     _PUBLISH["skipped"] += 1
                     _PUBLISH["hashed"] += 1
+                    _PUBLISH["bytes"] += size
                 continue
             entries.append({"path": rel, "base_hash": head, "new_hash": digest, "size": size})
             with _PUBLISH_LOCK:
                 _PUBLISH["hashed"] += 1
+                _PUBLISH["bytes"] += size
         _publish_state(message=f"uploading blobs for {len(entries)} files")
         client, mirror, _syncer = store._require()
         pid = store.pid
@@ -991,7 +1061,7 @@ def api_admin_publish(store):
             return _err("conflict", "a publish is already running", 409)
         _PUBLISH.update(running=True, ok=None, source_root=source, started=_now_iso(),
                         finished=None, total=0, hashed=0, uploaded=0, pushed=0,
-                        skipped=0, conflicts=0, errors=[], message="starting")
+                        skipped=0, conflicts=0, bytes=0, errors=[], message="starting")
     worker = threading.Thread(target=_publish_worker, args=(store, source),
                               name="online-publish", daemon=True)
     worker.start()

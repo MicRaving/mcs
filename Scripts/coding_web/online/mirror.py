@@ -21,6 +21,7 @@ Layout::
     restore:    {path: {hash, conflict}}             server version to restore after a
                                                      conflict/rejection (download pending)
     me:         {role, tags, tasks}                  permissions mirrored from GET /api/p/{pid}
+    done_pending: [{key, stage, tag}]                "Finish paper" marks not yet sent
 
 ``heads[path]`` is the *server version the local file was last synced to*
 together with the stat of the local file at that moment; it is the base of
@@ -57,7 +58,16 @@ _CHUNK = 1024 * 1024
 # --- locations ----------------------------------------------------------------
 
 def default_base_dir() -> str:
-    """``%LOCALAPPDATA%/CodingStudio/online`` (or the XDG/macOS equivalent)."""
+    """``%LOCALAPPDATA%/CodingStudio/online`` (or the XDG/macOS equivalent).
+
+    ``CODINGSTUDIO_ONLINE_DIR`` overrides the whole base (a portable checkout, a
+    test run, or one machine that runs two independent clients: the mirrors are
+    otherwise keyed by server + project only, so two accounts on one machine
+    would share one working copy).
+    """
+    override = (os.environ.get("CODINGSTUDIO_ONLINE_DIR") or "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
     if os.name == "nt":
         root = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
     elif sys.platform == "darwin":
@@ -236,7 +246,7 @@ class Mirror:
             "client_id": uuid.uuid4().hex,
             "seq": 0, "visibility_epoch": None,
             "heads": {}, "remote": {}, "local_only": {}, "stale": [], "restore": {},
-            "pinned": [], "cache": {}, "me": {},
+            "pinned": [], "cache": {}, "me": {}, "done_pending": [],
         }
 
     def _load(self) -> dict:
