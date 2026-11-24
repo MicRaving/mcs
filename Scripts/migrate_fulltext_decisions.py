@@ -102,17 +102,22 @@ def extract(master_path):
             return SL._cell(row, i) if i is not None else ""
 
         stamp = _saved_at(master_path)
-        seen = {}
         decisions = {}
         verdicts = Counter()
         effective = Counter()
-        for rownum, row in enumerate(it, start=header_row + 2):
-            if not any(v not in (None, "") for v in row):
+        stage_only = Counter()
+        for rownum, row, uid in SL.row_uids(it, header_row, cols):
+            if uid is None:
                 continue
             verdict = str(cell(row, VERDICT_COLUMN) or "").strip()
             if not verdict:
+                # No per-row verdict: the record's stage (``Not retrieved / not
+                # assessed``, ``Unscreened``, a curated ``Include``/``Exclude``)
+                # is not a decision - it stays in ``Project/master_base.xlsx``.
+                stage = str(cell(row, EFFECTIVE_COLUMN) or "").strip()
+                if stage:
+                    stage_only[stage] += 1
                 continue
-            uid = SL.screening_row_uid(row, rownum, seen, cols)
             label = str(cell(row, CRITERION_COLUMN) or "").strip()
             note = str(cell(row, NOTE_COLUMN) or "")
             stage = str(cell(row, EFFECTIVE_COLUMN) or "").strip()
@@ -130,7 +135,8 @@ def extract(master_path):
     finally:
         wb.close()
     return decisions, {"sheet": ws.title, "verdicts": dict(verdicts),
-                       "effective": dict(effective), "saved_at": stamp}
+                       "effective": dict(effective), "stage_only": dict(stage_only),
+                       "saved_at": stamp}
 
 
 def plan(root, master=None, out_dir=None, tag=OWNER_TAG):
@@ -193,6 +199,10 @@ def main(argv=None):
     print(f"target      : {summary['target']}")
     print(f"records     : {summary['records']}  {summary['verdicts']}  "
           f"effective={summary['effective']}")
+    print(f"stage-only  : {sum(summary['stage_only'].values())} record(s) carry a stage "
+          f"without a per-row verdict {summary['stage_only']}")
+    print("              (not decisions: they stay in Project/master_base.xlsx and are "
+          "reproduced by the compile)")
     print(f"saved_at    : {summary['saved_at']}  (the workbook's mtime; older than any new save)")
     sample = list(decisions.items())[:2]
     for key, value in sample:

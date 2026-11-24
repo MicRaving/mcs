@@ -323,6 +323,14 @@ def reset_root_caches(temp_dir=None):
     _clear_mapping("screening_lib", "_SCREEN_INDEX",
                    {"stamp": None, "rows": None, "by_id": None, "info": None})
     _clear_mapping("screening_lib", "_DECISIONS_CACHE")
+    # the text side file belongs to the old root's temp folder: release it so
+    # the new root opens its own (and Windows can delete the old one)
+    _screening = sys.modules.get("screening_lib")
+    if _screening is not None:
+        try:
+            _screening._close_text_db()
+        except Exception:  # noqa: BLE001 - a re-root may never fail over a cache
+            pass
     _clear_mapping("fulltext_lib", "_MAP_CACHE", {"mtime": None, "map": None, "info": None})
     _clear_mapping("routes_harmonizer", "_HARM_MISSING_CACHE", {"mtime": None, "data": None})
     _clear_mapping("routes_apa", "_APA_PRISMA_CACHE", {"mtime": None, "data": None})
@@ -473,6 +481,12 @@ class State:
         rel = self.relpath(raw)
         if rel is None:
             return False
+        knows = getattr(self.store, "knows_file", None)
+        if knows is not None:
+            try:
+                return bool(knows(rel))
+            except Exception:  # noqa: BLE001 - fall back to the listing below
+                pass
         parent, _, name = rel.rpartition("/")
         try:
             return any(e["name"] == name and not e["is_dir"]

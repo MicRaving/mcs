@@ -5,7 +5,7 @@ from flask import Blueprint, jsonify, request
 import os
 import threading
 from screening_lib import (ScreeningFileError, _SCREEN_MERGE, _SCREEN_MERGE_LOCK,
-                           _scheme_criteria, _screen_merge_worker, ai_for_criteria, decision_for,
+                           _scheme_criteria, _screen_merge_worker, abstract_record, decision_for,
                            ai_screen_decision, human_screen_decision, load_screening_decisions,
                            record_screening_decision, screening_criteria, screening_index,
                            screening_master_path)
@@ -86,10 +86,11 @@ def api_screening_abstract(uid):
     coder = (request.args.get("coder") or "").strip()
     decisions = load_screening_decisions(coder)
     crits = _scheme_criteria()
-    # the AI verdicts keyed exactly like the criteria (the workbook's column
-    # prefix may differ in case: "c1_verdict" still feeds criterion "C1")
-    record = dict(rec)
-    record["ai"] = ai_for_criteria(rec.get("ai"), crits)
+    # the record's own dict is lean (no abstract / long AI text in memory): the
+    # text comes from the side file for this one record, and the AI verdicts are
+    # keyed exactly like the criteria (the workbook's column prefix may differ in
+    # case: "c1_verdict" still feeds criterion "C1")
+    record = abstract_record(rec, crits)
     return jsonify({"record": record, "human": decision_for(decisions, rec),
                     "ai_decision": ai_screen_decision(rec, crits)})
 

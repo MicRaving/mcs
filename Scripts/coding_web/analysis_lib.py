@@ -829,7 +829,7 @@ def _prewarm_analysis():
     threading.Thread(target=work, daemon=True).start()
 
 def _study_has_data(key):
-    return os.path.isfile(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv"))
+    return S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv"))
 
 def _common_cat_fields():
     return _summary_field_lists()[0]
@@ -2646,6 +2646,14 @@ def start_background_run(kind="essential", force=False, include_fully_within=Non
                              started=now, finished=now)
         log("analysis run disabled (online project)")
         return "disabled"
+    if S.online and run_analysis_locally() and S.store is not None:
+        # The Datasets products are on-demand in the core tier (INTERFACES 4):
+        # the pipeline reads every harmonized.csv, so the switch fetches them
+        # before the scripts start rather than letting the globs miss them.
+        try:
+            S.store.prefetch_analysis(blocking=True)
+        except Exception as exc:  # noqa: BLE001 - offline: the run reports its own gaps
+            log(f"analysis prefetch incomplete: {exc!r}")
     with _analysis_lock:
         if _analysis_run["running"]:
             return "running"

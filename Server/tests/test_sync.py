@@ -408,6 +408,111 @@ def test_abstract_stage_hidden_until_setting_visible(client, project, cfg, admin
     assert after["visibility_epoch"] != before["visibility_epoch"]
 
 
+# --- derived consensus files under blinding (INTERFACES 3.5, 2026-11-24) ----
+
+BLINDED_DERIVED = (
+    "master_dataset.xlsx",
+    "Codings/_settlements.json",
+    "Screening/fulltext_agreed.json",
+    "Results/sb_coding_agreement.csv",
+    "Results/coder_disagreement_tiers.csv",
+    "Results/HUMAN_MASTER_BRIEFING.md",
+)
+
+
+def _derived_setup(client, admin_headers, pid):
+    digests = {}
+    for index, path in enumerate(BLINDED_DERIVED):
+        _, result, _ = push_one(client, admin_headers, pid, path,
+                                f"derived {index}\n".encode())
+        assert result["status"] == "accepted", (path, result)
+        digests[path] = result["hash"]
+    return digests
+
+
+def test_manifest_hides_blinded_derived_files_from_a_coder(
+    client, project, cfg, admin_headers, coder
+):
+    pid = project["id"]
+    digests = _derived_setup(client, admin_headers, pid)
+    anna = join_project(
+        client, admin_headers, pid, coder, CODER_USERNAME, CODER_PASSWORD,
+        tags=["Anna"], tasks=["coding"],
+    )
+
+    owner_manifest = manifest(client, admin_headers, pid)
+    assert set(BLINDED_DERIVED) <= set(paths(owner_manifest))
+    coder_manifest = manifest(client, anna, pid)
+    assert coder_manifest["files"] == []
+    before_epoch = coder_manifest["visibility_epoch"]
+
+    # the blob of a hidden derived file is not readable either
+    for path in BLINDED_DERIVED:
+        response = client.get(f"/api/p/{pid}/blobs/{digests[path]}", headers=anna)
+        assert response.status_code == 403, (path, response.status_code)
+
+    # the owner reads every blob
+    for path in BLINDED_DERIVED:
+        response = client.get(f"/api/p/{pid}/blobs/{digests[path]}", headers=admin_headers)
+        assert response.status_code == 200, (path, response.status_code)
+
+    # blinding=visible for every stage opens them for the coder, and the epoch
+    # moves so the client re-requests with since=0
+    patched = client.patch(
+        f"/api/p/{pid}/settings",
+        json={"blinding": {"abstract": "visible", "fulltext": "visible",
+                           "coding": "visible"}},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    after = manifest(client, anna, pid)
+    assert set(BLINDED_DERIVED) <= set(paths(after))
+    assert after["visibility_epoch"] != before_epoch
+    for path in BLINDED_DERIVED:
+        response = client.get(f"/api/p/{pid}/blobs/{digests[path]}", headers=anna)
+        assert response.status_code == 200, (path, response.status_code)
+
+
+def test_each_derived_file_is_governed_by_its_own_stage(
+    client, project, cfg, admin_headers, coder
+):
+    pid = project["id"]
+    _derived_setup(client, admin_headers, pid)
+    anna = join_project(
+        client, admin_headers, pid, coder, CODER_USERNAME, CODER_PASSWORD,
+        tags=["Anna"], tasks=["coding"],
+    )
+    # screening visible, coding blinded: the workbook and the agreed full text
+    # become readable, the coding agreement products stay hidden
+    patched = client.patch(
+        f"/api/p/{pid}/settings",
+        json={"blinding": {"abstract": "visible", "fulltext": "visible"}},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    visible = set(paths(manifest(client, anna, pid)))
+    assert {"master_dataset.xlsx", "Screening/fulltext_agreed.json",
+            "Codings/_settlements.json"} <= visible
+    assert not ({"Results/sb_coding_agreement.csv",
+                 "Results/coder_disagreement_tiers.csv",
+                 "Results/HUMAN_MASTER_BRIEFING.md"} & visible)
+
+    # and the reverse: coding visible, screening blinded
+    patched = client.patch(
+        f"/api/p/{pid}/settings",
+        json={"blinding": {"abstract": "blinded", "fulltext": "blinded",
+                           "coding": "visible"}},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    visible = set(paths(manifest(client, anna, pid)))
+    assert {"Results/sb_coding_agreement.csv",
+            "Results/coder_disagreement_tiers.csv",
+            "Results/HUMAN_MASTER_BRIEFING.md"} <= visible
+    assert not ({"master_dataset.xlsx", "Screening/fulltext_agreed.json",
+                 "Codings/_settlements.json"} & visible)
+
+
 def test_ai_tag_follows_the_same_blinding_rule(client, project, cfg, admin_headers, coder2):
     pid = project["id"]
     sb = join_project(

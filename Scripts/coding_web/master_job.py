@@ -68,6 +68,25 @@ def _may_compile():
         return False
 
 
+def _denial():
+    """A readable reason this mirror must not compile the master (None = it may).
+
+    ``master_dataset.xlsx`` is a derived consensus file: it carries the AI's and
+    every coder's screening/full-text verdicts, so it is not in a blinded
+    coder's manifest at all (protocol ``blind_stages``) and the mirror holds
+    only that member's own decision files.  Compiling there would silently
+    compute wrong counts, so the job reports *why* it skipped instead of
+    failing on a missing workbook or writing a partial one.
+    """
+    if _may_compile():
+        return None
+    if not S.online:
+        return None
+    return ("the master workbook is a derived consensus file compiled by the "
+            "project owner: in an online project a coder's mirror does not hold "
+            "the other coders' decision files (blinding), so it is not compiled here")
+
+
 def enabled(root=None):
     """Whether this project builds its master from decision files."""
     try:
@@ -83,6 +102,7 @@ def status():
     with _LOCK:
         payload = dict(_STATUS)
     payload["enabled"] = enabled()
+    payload["blocked"] = _denial()
     payload["debounce_secs"] = DEBOUNCE_SECS
     payload["path"] = compiled_path() if S.ROOT else None
     return payload
@@ -122,6 +142,12 @@ def run_once():
     """Compile now, updating the status; never raises."""
     import compile_master
 
+    denial = _denial()
+    if denial:
+        with _LOCK:
+            _STATUS.update(ok=False, error=denial)
+        log(f"master compile skipped: {denial}")
+        return {"ok": False, "skipped": True, "error": denial}
     acquired = _COMPILE_LOCK.acquire(blocking=False)
     if not acquired:
         return {"ok": False, "busy": True}
@@ -155,6 +181,12 @@ def run_once():
 
 def compile_now():
     """Compile immediately (blocking) and return the result."""
+    denial = _denial()
+    if denial:
+        with _LOCK:
+            _STATUS.update(ok=False, error=denial)
+        log(f"master compile skipped: {denial}")
+        return {"ok": False, "skipped": True, "error": denial}
     if not enabled():
         return {"ok": False, "error": "this project does not use a derived master"}
     return run_once()

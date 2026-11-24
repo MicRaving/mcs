@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, jsonify, request
 import csv
+import fnmatch
 import glob
 import os
 import re
@@ -34,6 +35,21 @@ import re
 from studio_state import S
 
 bp = Blueprint("coverage", __name__)
+
+
+def _dataset_paths(folder, pattern):
+    """Dataset paths matching *pattern*; manifest-aware in an online project.
+
+    The CSV products of a dataset are on demand (INTERFACES 4), so a glob over
+    the mirror would miss one that is not downloaded: the manifest lists it and
+    the caller's ``S.ensure_local`` fetches the file it reads.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [os.path.join(folder, e["name"]) for e in S.listdir(rel)
+                    if not e.get("is_dir") and fnmatch.fnmatchcase(e["name"], pattern)]
+    return sorted(glob.glob(os.path.join(folder, pattern)))
 
 # --- slot vocabulary (mirrors Scripts/harmonization_coverage.py; interface §6 is frozen) ----
 # S10 (covariates) was retired 2026-11-19 (owner decision): its only coding
@@ -551,7 +567,7 @@ def _assignment_targets(key, derived):
             pass
 
     # 3) raw headers not present in variables.csv
-    for p in sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv"))):
+    for p in _dataset_paths(folder, glob.escape(key) + " - prepared*.csv"):
         p = S.ensure_local(p)
         try:
             with open(p, encoding="utf-8-sig", newline="") as fh:

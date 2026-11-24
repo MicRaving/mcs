@@ -55,6 +55,23 @@ CORE_PREFIXES = (
 
 CORE_ROOT_FILES = ("master_dataset.xlsx",)
 
+#: ``Datasets/<Key>/<Key> - <tail>`` CSV products that stay in the core tier.
+#: They are the small metadata sidecars the listing/summary code reads without
+#: opening a study (``variables.csv`` and ``harmonized_variables.csv`` are
+#: walked for every study); every *other* dataset CSV product - ``harmonized``,
+#: ``prepared``, the raw copies and the ``- SB`` twins - is fetched on demand
+#: (INTERFACES 4).  ``.json``/``.md``/``.py`` dataset files are unchanged
+#: (11.5 / 0.6 / 35 MB in the real project).
+DATASET_CORE_CSVS = (
+    "variable_assignments.csv",   # shared-exclusive: the coder's assignment file
+    "variables.csv",              # provenance map (coverage, harmonizer context)
+    "harmonized_variables.csv",   # sidecar: roles/polarity of every DV
+    "dv_direction.csv",           # polarity sidecar (repro)
+    "exclusions.csv",             # author exclusion/attention-check rules
+    "conditions.csv",             # arm roles used by the SDT split
+    "repro_results.csv",          # per-study reproduction rows
+)
+
 
 @dataclass(frozen=True)
 class FileClass:
@@ -65,10 +82,19 @@ class FileClass:
     tag: str | None = None    # coder tag (owned files)
     stage: str | None = None  # abstract|fulltext|coding (owned files)
     task: str | None = None   # task needed to write a shared file
+    #: Stages whose ``blinded`` setting hides this file (see ``visibility.can_read``).
+    #: Empty for everything whose content is not another member's verdict.  A derived
+    #: consensus file (the master workbook, settlements, the agreed full text) names
+    #: every stage whose verdicts it encodes; it is hidden while *any* of them is
+    #: blinded.
+    blind_stages: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
             raise ValueError(f"unknown file kind: {self.kind!r}")
+        for stage in self.blind_stages:
+            if stage not in STAGES:
+                raise ValueError(f"unknown blind stage: {stage!r}")
 
 
 # --- rule table -----------------------------------------------------------
@@ -96,6 +122,12 @@ _SCREENING_FT = re.compile(r"^Screening/fulltext - (?P<tag>[^/]+)\.json$")
 _SCREENING = re.compile(r"^Screening/(?P<tag>[^/]+)\.json$")
 _FULLTEXT = re.compile(r"^Fulltext/(?P<tag>[^/]+)\.json$")
 
+# Rule 3b: the Master's settlement store (and its legacy forms) holds the
+# abstract *and* full-text decisions on coder disagreements.
+_SETTLEMENTS = re.compile(r"^Codings/_settlements\.json$")
+_SETTLED_LOG = re.compile(r"^Codings/_settled\.jsonl$")
+_RESOLUTIONS = re.compile(r"^Codings/_resolutions/")
+
 # Rule 6-11: the settled artefacts and the datasets.
 _EXTRACTION = re.compile(r"^Extraction/(?P<key>[^/]+)\.(json|md)$")
 _REPRODUCTION = re.compile(r"^Reproduction/(?P<key>[^/]+)\.md$")
@@ -114,9 +146,18 @@ _IMMUTABLE = re.compile(r"^(?:Papers|Text|Supplements)/")
 _SUPPLEMENT_SUFFIX = re.compile(r"(?i)\s+supplement\s+\d+$")
 _LAST_EXT = re.compile(r"\.[^./]*$")
 
-# Rule 13: analysis products.
+# Rule 13: analysis products.  The ones that compute *across* coders (agreement,
+# disagreement, IRR, the coder reconciliation/queue files, the harvest routes and
+# the Master briefings) encode every route's verdicts and are handled like a
+# foreign-tag file (see ``blind_stages`` and ``visibility.can_read``).
 _DERIVED = re.compile(r"^Results/")
 _MASTER = re.compile(r"^master_dataset\.xlsx$")
+_RESULTS_BLIND = re.compile(
+    r"agreement|disagreement|irr|coder_|master_briefing|human_master_briefing"
+    r"|master_agent_flags|polarity_divergence|polarity_reconciliation"
+    r"|(?:^|/)sb_|(?:^|/)mm_|settle",
+    re.IGNORECASE,
+)
 
 #: Rule 14: everything else is administrative.
 #: (``Project/`` is admin, ``Screening/`` non-JSON is admin, unknown paths are admin.)
@@ -152,6 +193,8 @@ def classify(path: str) -> FileClass:
        ``.exe``/``.pyc``, ``~$*``, ``*.tmp``
     2  ``Codings/<key> - <tag>.(json|md)`` (tag not starting ``_``)        owned
     3  ``Codings/<...> - _<tag>.(json|md)`` (e.g. ``_settlements``)        admin
+    3b ``Codings/_settlements.json``, ``_settled.jsonl``,                 admin + blinded
+       ``_resolutions/*`` (abstract + fulltext decisions)
     4  ``Screening/<tag>.json``                                            owned
     5  ``Fulltext/<tag>.json``                                             owned
     6  ``Extraction/<key>.(json|md)``                                      shared (settle)
@@ -167,7 +210,9 @@ def classify(path: str) -> FileClass:
 
     ``key`` is the study key (``Surname et al. (Year)``) where the path names a
     study; ``tag`` is the coder tag of an owned file; ``stage`` is the stage an
-    owned file belongs to; ``task`` is the task needed to write a shared file.
+    owned file belongs to; ``task`` is the task needed to write a shared file;
+    ``blind_stages`` names the stages whose ``blinded`` setting hides the file
+    (rule 3b, rule 4a, rule 13 - see ``visibility.can_read`` in 3.5).
     """
     p = normalize_path(path)
 
@@ -187,14 +232,19 @@ def classify(path: str) -> FileClass:
     if m is not None and not m.group("tag").startswith("_"):
         return FileClass("owned", key=m.group("key"), tag=m.group("tag"), stage="coding")
 
-    # 3 — administrative coding file (settlements, notes, ...)
+    # 3 - administrative coding file (settlements, notes, ...)
     if _CODING_ADMIN.match(p) is not None:
         return FileClass("admin")
 
-    # 4a — the agreed full-text verdicts are recomputed from every coder's file
+    # 3b - the settlement store: it holds every Master decision on a coder
+    #      disagreement, for both screening stages
+    if _SETTLEMENTS.match(p) or _SETTLED_LOG.match(p) or _RESOLUTIONS.match(p):
+        return FileClass("admin", blind_stages=("abstract", "fulltext"))
+
+    # 4a - the agreed full-text verdicts are recomputed from every coder's file
     #      (audit W8): derived, written by the owner's client only.
     if _FULLTEXT_AGREED.match(p) is not None:
-        return FileClass("derived")
+        return FileClass("derived", blind_stages=("fulltext",))
     # 4b — the app's real full-text decision files: "Screening/fulltext - <Tag>.json" (audit W7)
     m = _SCREENING_FT.match(p)
     if m is not None:
@@ -242,9 +292,14 @@ def classify(path: str) -> FileClass:
     if _IMMUTABLE.match(p) is not None:
         return FileClass("immutable", key=_immutable_key(p))
 
-    # 13 — analysis products; pulled separately, never pushed by a coder
-    if _DERIVED.match(p) is not None or _MASTER.match(p) is not None:
-        return FileClass("derived")
+    # 13 - analysis products; pulled separately, never pushed by a coder
+    if _MASTER.match(p) is not None:
+        # the master workbook carries the AI's and every coder's screening and
+        # full-text verdicts
+        return FileClass("derived", blind_stages=("abstract", "fulltext"))
+    if _DERIVED.match(p) is not None:
+        blind = ("coding",) if _RESULTS_BLIND.search(p[len("Results/"):]) else ()
+        return FileClass("derived", blind_stages=blind)
 
     # 14 — Project/, non-JSON Screening/, everything else
     return FileClass("admin")
@@ -254,11 +309,15 @@ def is_core(path: str, fc: FileClass | None = None) -> bool:
     """True when *path* must always be mirrored into the client's working copy.
 
     Core means: anything under :data:`CORE_PREFIXES`, ``master_dataset.xlsx``,
-    and every ``owned``/``shared`` file (which covers shared files under
-    ``Datasets/``).  Immutable sources (``Papers/``, ``Supplements/``, raw
-    ``Datasets/`` data) and ``derived`` ``Results/`` are **not** core — they
-    are fetched on demand / pulled separately.  Excluded paths are never core,
-    even when they sit under a core prefix (e.g. ``Codings/__pycache__/x.pyc``).
+    and every ``owned``/``shared`` file - **except** a dataset CSV product that
+    is not one of the small metadata sidecars in :data:`DATASET_CORE_CSVS`
+    (``Datasets/<Key>/<Key> - harmonized.csv``, ``- prepared*.csv``, the raw
+    copies ...): those are fetched on demand (``ensure_local``), because they
+    are 2.2 GB of the real project's 2.65 GB core tier.  Immutable sources
+    (``Papers/``, ``Supplements/``, raw ``Datasets/`` data) and ``derived``
+    ``Results/`` are **not** core - they are fetched on demand / pulled
+    separately.  Excluded paths are never core, even when they sit under a core
+    prefix (e.g. ``Codings/__pycache__/x.pyc``).
     """
     p = normalize_path(path)
     if fc is None:
@@ -268,12 +327,28 @@ def is_core(path: str, fc: FileClass | None = None) -> bool:
         return False
     if p in CORE_ROOT_FILES:
         return True
+    if fc.kind == "shared" and p.startswith("Datasets/"):
+        return _dataset_product_is_core(p)
     if fc.kind in ("owned", "shared"):
         return True
     if fc.kind == "derived" and p.startswith("Results/"):
         return False   # Results snapshots are pulled separately; other derived
                        # files under a core prefix (fulltext_agreed.json) are core
     return any(p.startswith(prefix) for prefix in CORE_PREFIXES)
+
+
+def _dataset_product_is_core(p: str) -> bool:
+    """Whether the shared ``Datasets/<Key>/<Key> - <tail>`` file at *p* is core.
+
+    Only the ``.csv`` products can leave the core tier; every sidecar the app
+    reads across all studies without opening one (:data:`DATASET_CORE_CSVS`)
+    stays.  Code, notes and JSON products (small) are unaffected.
+    """
+    m = _DATASET_PRODUCT.match(p)
+    if m is None or not p.lower().endswith(".csv"):
+        return True
+    prefix = "Datasets/" + m.group("key") + "/" + m.group("key") + " - "
+    return p[len(prefix):] in DATASET_CORE_CSVS
 
 
 # --- hashing --------------------------------------------------------------

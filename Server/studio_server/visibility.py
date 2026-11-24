@@ -3,11 +3,15 @@
 Two pure predicates over the ``FileClass`` answer from
 ``online_shared.protocol.classify``:
 
-* :func:`can_read` — may this member *see* this path?  The owner sees
+* :func:`can_read` - may this member *see* this path?  The owner sees
   everything except ``excluded``; a coder sees its own tag's files; another
   tag's file is hidden while the stage is blinded, except a coding file whose
   key the member has marked ``done(key, "coding")`` for one of its tags.
-  Shared/admin/derived/immutable files are readable by every member
+  A **derived consensus file** (``FileClass.blind_stages``: the master workbook,
+  the settlement store, the agreed full text, the ``Results/`` agreement / IRR
+  products) is hidden while *any* stage it encodes is blinded, because it
+  carries other coders' and the AI's verdicts.
+  Shared/admin/derived/immutable files are otherwise readable by every member
   (viewers included).
 * :func:`can_write` — may this member *change* it?  Excluded is never
   writable, derived/admin/immutable are owner-only, an owned file needs its
@@ -203,6 +207,14 @@ def can_read(
         return False
     if is_owner(member):
         return True
+
+    # A derived consensus file (master workbook, settlement store, agreed full
+    # text, Results/ agreement+IRR products) encodes other coders' and the AI's
+    # verdicts: it is as hidden as a foreign-tag file while any stage it covers
+    # is blinded, and readable by everyone when that stage is "visible".
+    for blind_stage in getattr(fc, "blind_stages", ()) or ():
+        if is_blinded(settings, blind_stage):
+            return False
 
     if kind == OWNED:
         tag = getattr(fc, "tag", None)

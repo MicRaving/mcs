@@ -3,6 +3,7 @@
 from datetime import datetime
 from flask import Blueprint, abort, jsonify, request
 import csv
+import fnmatch
 import glob
 import json
 import os
@@ -50,6 +51,20 @@ def harmonized_paths(key):
     folder = os.path.join(S.DATASETS or "", key)
     return (os.path.join(folder, key + " - harmonized_variables.csv"),
             os.path.join(folder, key + " - harmonized.csv"))
+
+def _dataset_paths(folder, pattern):
+    """Dataset file paths matching *pattern* (manifest-aware in an online project).
+
+    The CSV products of a dataset are on demand (INTERFACES 4), so globbing the
+    mirror would miss a study that is not downloaded: the manifest supplies the
+    names and the caller's ``S.ensure_local`` fetches the one it opens.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [os.path.join(folder, e["name"]) for e in S.listdir(rel)
+                    if not e.get("is_dir") and fnmatch.fnmatchcase(e["name"], pattern)]
+    return sorted(glob.glob(os.path.join(folder, pattern)))
 
 def harmonizer_bundle(name):
     base = _HARM_IDX.sub("", str(name))
@@ -741,10 +756,10 @@ def _dataset_preview(key, folder, var, uniform, artifact):
     any prepared CSV, then the harmonized wide table, then the raw source.
     Returns ``None`` when nothing is readable — the UI degrades gracefully."""
     cands = []
-    csvs = sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv")))
+    csvs = _dataset_paths(folder, glob.escape(key) + " - prepared*.csv")
     if artifact:
         preferred = os.path.join(folder, f"{key} - prepared {artifact}.csv")
-        if os.path.isfile(preferred):
+        if os.path.isfile(S.ensure_local(preferred)):
             cands.append((preferred, "prepared"))
     for c in csvs:
         if all(c != p for p, _ in cands):
@@ -892,7 +907,7 @@ def api_rawvar(key):
     names = [n for n in (var, uniform) if n]
     series = None
     # 1) prepared CSVs (prefer the requested artifact)
-    csvs = sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv")))
+    csvs = _dataset_paths(folder, glob.escape(key) + " - prepared*.csv")
     ordered = []
     if artifact:
         for c in csvs:
@@ -1021,10 +1036,9 @@ def api_rawvar(key):
 
     # codebook / paper snippets
     try:
-        out["codebook_files"] = [os.path.basename(f) for f in sorted(glob.glob(
-            os.path.join(folder, "*")))
-            if re.search(r"codebook|survey|questionnaire|instrument|readme",
-                         os.path.basename(f), re.I)]
+        out["codebook_files"] = [os.path.basename(f) for f in _dataset_paths(folder, "*")
+                                 if re.search(r"codebook|survey|questionnaire|instrument|readme",
+                                              os.path.basename(f), re.I)]
         out["snippets"] = _snippets(key, [var, out.get("uniform_variable", "")])
     except Exception as e:  # noqa: BLE001
         out["degraded"].append(f"snippets failed: {e!r}")

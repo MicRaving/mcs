@@ -85,6 +85,16 @@ _APA_PRISMA_CACHE = {"mtime": None, "data": None}
 # re-counts instead of returning the stale shape.
 _PRISMA_COUNTS_VERSION = 3
 
+# The counts are a pure function of the master workbook, the full-text agreed
+# file and the coded corpus, and they cost ~100 s + a 340 MB pandas peak on the
+# real corpus (plan §6.3.2).  The in-memory cache only covers the life of one
+# process, so every browser-worker restart paid for the pass again.  The result
+# is therefore also kept in temp/prisma_counts.json, keyed by the exact input
+# stamps; a changed master/agreement file/Extraction record changes the key.
+_PRISMA_DISK_VERSION = 1
+_PRISMA_DISK_NAME = "prisma_counts.json"
+
+
 def _short_ft_reason(reason):
     """Shorten the long master-workbook full-text criterion labels for the diagram."""
     r = str(reason or "").strip()
@@ -107,6 +117,113 @@ def _short_ft_reason(reason):
 def _prisma_ft_group(reason):
     """Map a master-workbook full-text criterion to its diagram label."""
     return _short_ft_reason(reason)
+
+
+def _file_stamp(path):
+    """``[size, mtime_ns]`` of one input file, ``None`` when it is absent."""
+    try:
+        st = os.stat(path)
+    except (OSError, TypeError):
+        return None
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _prisma_inputs():
+    """The files the PRISMA count is derived from.
+
+    The canonical counter (``prisma_report``) resolves its paths at import
+    time, and the track split reads ``S.ROOT``'s master explicitly; both are
+    inputs, so both are stamped.  Mirrors make them different files.
+    """
+    report_master = getattr(_PR_REPORT, "MASTER", None) if "_PR_REPORT" in globals() else None
+    report_agreed = (getattr(_PR_REPORT, "AGREED_FULLTEXT", None)
+                     if "_PR_REPORT" in globals() else None)
+    report_extraction = (getattr(_PR_REPORT, "EXTRACTION", None)
+                         if "_PR_REPORT" in globals() else None)
+    return {
+        "root": S.ROOT,
+        "masters": [report_master, os.path.join(S.ROOT, "master_dataset.xlsx")],
+        "agreed": [report_agreed,
+                   os.path.join(S.SCREENING or os.path.join(S.ROOT, "Screening"),
+                                "fulltext_agreed.json")],
+        "extraction": [report_extraction, S.EXTRACTION],
+    }
+
+
+def _prisma_cache_key():
+    """The identity of one PRISMA count: every input's stamp + the code version."""
+    inputs = _prisma_inputs()
+    masters = sorted({p for p in inputs["masters"] if p})
+    agreed = sorted({p for p in inputs["agreed"] if p})
+    folders = sorted({p for p in inputs["extraction"] if p})
+    extraction = []
+    for folder in folders:
+        listing = []
+        try:
+            with os.scandir(folder) as it:
+                for entry in it:
+                    if not entry.name.lower().endswith(".json"):
+                        continue
+                    try:
+                        st = entry.stat()
+                    except OSError:
+                        continue
+                    listing.append([entry.name, st.st_size, st.st_mtime_ns])
+        except OSError:
+            pass
+        extraction.append([folder, sorted(listing)])
+    return [inputs["root"], _PRISMA_COUNTS_VERSION, _PRISMA_DISK_VERSION,
+            [[p, _file_stamp(p)] for p in masters],
+            [[p, _file_stamp(p)] for p in agreed],
+            extraction]
+
+
+def _prisma_disk_path():
+    """The cache file, or ``None`` before the app has a temp folder."""
+    if not S.TEMP:
+        return None
+    return os.path.join(S.TEMP, _PRISMA_DISK_NAME)
+
+
+def _load_prisma_counts(key):
+    """The stored count for *key*, or ``None`` (a missing/broken cache is a miss)."""
+    path = _prisma_disk_path()
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return None
+    if (isinstance(blob, dict) and blob.get("key") == key
+            and isinstance(blob.get("data"), dict)):
+        return blob["data"]
+    return None
+
+
+def _save_prisma_counts(key, data):
+    path = _prisma_disk_path()
+    if not path:
+        return
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"key": key, "data": data}, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError) as exc:  # noqa: BLE001
+        try:
+            from studio_state import log as _log
+
+            _log(f"prisma counts not cached: {exc!r}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
 
 def _crit_label(reason):
     """Map a canonical abstract-exclusion reason to the review criterion label."""
@@ -169,15 +286,31 @@ def _prisma_counts():
     path = os.path.join(S.ROOT, "master_dataset.xlsx")
     if not os.path.isfile(path):
         return None
-    try:
-        mtime = int(os.path.getmtime(path))
-    except OSError:
-        mtime = 0
+    cache_key = _prisma_cache_key()
     if (_APA_PRISMA_CACHE["data"] is not None
-            and _APA_PRISMA_CACHE["mtime"] == (mtime, _PRISMA_COUNTS_VERSION)):
+            and _APA_PRISMA_CACHE["mtime"] == cache_key):
         return _APA_PRISMA_CACHE["data"]
+    stored = _load_prisma_counts(cache_key)
+    if stored is not None:
+        _APA_PRISMA_CACHE.update(mtime=cache_key, data=stored)
+        return stored
+    # ONE read of the workbook for both the canonical flow and the track split:
+    # the pandas parse costs ~36 s of the ~85 s cold count, and the route used
+    # to read it twice.  Reading S.ROOT's master (not the counter module's
+    # import-time path) is also what a browser worker needs: it only holds its
+    # own mirror.
+    master_df = None
     try:
-        flow = _PRISMA.flow()
+        import prisma_report as _PR_MASTER
+    except Exception:  # noqa: BLE001
+        _PR_MASTER = None
+    if _PR_MASTER is not None:
+        try:
+            master_df = _PR_MASTER.load_master(path)
+        except Exception:  # noqa: BLE001 - fall back to the counter's own path
+            master_df = None
+    try:
+        flow = _PRISMA.flow(master_df) if master_df is not None else _PRISMA.flow()
     except Exception:
         return None
     if not flow:
@@ -228,7 +361,7 @@ def _prisma_counts():
              "include": 0, "exclude": 0, "ft_groups": collections.Counter()}
     try:
         import prisma_report as _PR
-        df = _PR.load_master(path)
+        df = master_df if master_df is not None else _PR.load_master(path)
         roots = _PR.report_ids(df)
         stages = _PR.report_stages(df, roots)
         members = collections.defaultdict(list)
@@ -372,7 +505,8 @@ def _prisma_counts():
                       "distinct_coded_papers": coded,
                       "coded_fulltext_excluded": coded_excl},
     }
-    _APA_PRISMA_CACHE.update(mtime=(mtime, _PRISMA_COUNTS_VERSION), data=data)
+    _APA_PRISMA_CACHE.update(mtime=cache_key, data=data)
+    _save_prisma_counts(cache_key, data)
     return data
 
 def _prisma_figure():

@@ -81,9 +81,12 @@ def project(tmp_path):
     base = _write_xlsx(
         root / "Project" / "master_base.xlsx", HEADER,
         [
-            _row(an="A1", title="Alpha", doi="10.1/alpha", Curation_Note="kept"),
-            _row(an="A2", title="Beta", doi="10.1/beta"),
-            _row(an=None, title="Gamma", doi="10.1/gamma"),
+            _row(an="A1", title="Alpha", doi="10.1/alpha", Curation_Note="kept",
+                 Effective_Verdict="Abstract excluded"),
+            _row(an="A2", title="Beta", doi="10.1/beta",
+                 Effective_Verdict="Abstract excluded"),
+            _row(an=None, title="Gamma", doi="10.1/gamma",
+                 Effective_Verdict="Abstract excluded"),
         ],
         title="Sheet1",
     )
@@ -176,6 +179,77 @@ def test_fulltext_decision_by_study_key_resolves_the_row(project):
     assert alpha["Fulltext_Exclusion_Criterion"] == "No control/comparison group (C2)"
     assert alpha["Fulltext_Reason"] == "by study key"
     assert summary["fulltext"]["unmatched"] == []
+
+
+def test_a_curated_stage_survives_without_a_fulltext_decision(project):
+    """``Not retrieved / not assessed`` (and ``Unscreened``) is a stage, not a decision.
+
+    The base carries the record's stage; a record without a full-text decision
+    keeps it - the compiler must not flatten it to "Abstract excluded".
+    """
+    root = project["root"]
+    base = os.path.join(root, "Project", "master_base.xlsx")
+    rows = [
+        _row(an="N1", title="Not retrieved record", Effective_Verdict="Not retrieved / not assessed"),
+        _row(an="N2", title="Unscreened record", Effective_Verdict="Unscreened"),
+        _row(an="N3", title="Abstract excluded record", Effective_Verdict="Abstract excluded"),
+        _row(an="N4", title="Curated include", Effective_Verdict="Include"),
+    ]
+    _write_xlsx(base, HEADER, rows, title="Sheet1")
+    out = os.path.join(root, "stages.xlsx")
+    compile_master.compile_master(root, out)
+    head, got = _read_xlsx(out)
+    by_an = {row["an"]: row for row in got}
+    assert by_an["N1"]["Effective_Verdict"] == "Not retrieved / not assessed"
+    assert by_an["N2"]["Effective_Verdict"] == "Unscreened"
+    assert by_an["N3"]["Effective_Verdict"] == "Abstract excluded"
+    assert by_an["N4"]["Effective_Verdict"] == "Include"       # curated, no decision
+    # nothing was invented and the full-text cells stay empty
+    assert by_an["N1"]["Fulltext_Verdict"] in (None, "")
+    # a decision still overrides the curated stage
+    with open(os.path.join(root, "Fulltext", "OV.json"), "w", encoding="utf-8") as fh:
+        json.dump({"N4": {"exclude": True, "criterion": "C2",
+                          "criterion_label": "No control/comparison group (C2)",
+                          "note": "", "saved_at": "2026-09-25T00:00:00"}}, fh)
+    compile_master.compile_master(root, out)
+    _head, got = _read_xlsx(out)
+    assert {row["an"]: row for row in got}["N4"]["Effective_Verdict"] == "Exclude"
+
+
+def test_duplicate_uids_are_matched_by_migration_and_compile(tmp_path):
+    """A decision on the *second* record of a repeated accession is not lost.
+
+    Two rows share ``an=D1``; only the second carries a full-text verdict, so a
+    migration that numbered duplicates only over its own subset would store the
+    decision under ``D1`` while the compiler looks for ``D1#2``.
+    """
+    root = str(tmp_path / "dup_project")
+    for folder in ("Screening", "Fulltext", "Project", "temp", "Extraction"):
+        os.makedirs(os.path.join(root, folder), exist_ok=True)
+    workbook = os.path.join(root, "master_dataset.xlsx")
+    rows = [
+        _row(an="D1", title="Duplicate report one", Effective_Verdict="Abstract excluded"),
+        _row(an="D1", title="Duplicate report two", Fulltext_Verdict="Exclude",
+             Fulltext_Exclusion_Criterion="No control/comparison group (C2)",
+             Fulltext_Reason="no control arm", Effective_Verdict="Exclude"),
+    ]
+    _write_xlsx(workbook, HEADER, rows, title="Sheet1")
+    out_dir = os.path.join(root, "Fulltext")
+    assert migrate_fulltext_decisions.main(["--root", root, "--master", workbook,
+                                            "--out", out_dir, "--tag", "DUP",
+                                            "--apply"]) == 0
+    migrated = json.load(open(os.path.join(out_dir, "DUP.json"), encoding="utf-8"))
+    assert list(migrated) == ["D1#2"]                  # the shared numbering, not "D1"
+
+    # the base is the same workbook with the decision cells blanked
+    assert compile_master.main(["--root", root, "--init-base"]) == 0
+    summary = compile_master.compile_master(root, os.path.join(root, "dup_out.xlsx"))
+    assert summary["fulltext"]["unmatched"] == []      # every decision matched a row
+    _head, got = _read_xlsx(os.path.join(root, "dup_out.xlsx"))
+    assert got[1]["Fulltext_Verdict"] == "Exclude"
+    assert got[1]["Fulltext_Exclusion_Criterion"] == "No control/comparison group (C2)"
+    assert got[1]["Effective_Verdict"] == "Exclude"
+    assert got[0]["Fulltext_Verdict"] in (None, "")    # the first duplicate is untouched
 
 
 def test_cli_check_reports_no_difference_against_itself(project):
@@ -370,3 +444,30 @@ def test_fulltext_decisions_live_in_the_owned_fulltext_file(tmp_path, monkeypatc
     }), encoding="utf-8")
     decisions = fulltext_lib.load_decisions("MF")
     assert "Old (2019)" in decisions and "Key (2021)" in decisions
+
+
+def test_master_job_skips_gracefully_in_a_blinded_coder_mirror(project, monkeypatch):
+    """A coder's online mirror has no other tags' decisions and no master
+    workbook in its manifest: the compile must report why it skipped."""
+    import master_job
+    from studio_state import S
+
+    class _Store:
+        def me(self):
+            return {"role": "coder", "tags": ["Anna"], "tasks": ["coding"]}
+
+    monkeypatch.setattr(S, "ROOT", project["root"], raising=False)
+    monkeypatch.setattr(S, "online", True, raising=False)
+    import routes_online
+
+    monkeypatch.setattr(routes_online, "current_store", lambda: _Store())
+
+    assert master_job.enabled() is False
+    state = master_job.status()
+    assert state["enabled"] is False
+    assert "owner" in (state["blocked"] or "")
+    result = master_job.compile_now()
+    assert result["ok"] is False and result["skipped"] is True
+    assert "owner" in result["error"]
+    # ... and nothing was written
+    assert not os.path.exists(os.path.join(project["root"], "master_dataset.xlsx"))

@@ -97,7 +97,10 @@ def visibility_epoch(conn, member: dict[str, Any]) -> str:
 
     Membership (role/tags/tasks), the blinding settings and the count/latest
     timestamp of the caller's own done rows — a change in any of them means a
-    ``manifest?since=0`` is due.
+    ``manifest?since=0`` is due.  ``settings.blinding`` also governs the
+    ``blind_stages`` rule (the master workbook, settlements, the agreed full
+    text and the ``Results/`` agreement products), so flipping a stage to
+    "visible" or back changes this epoch too.
     """
     tags = list(member.get("tags") or [])
     done_rows = 0

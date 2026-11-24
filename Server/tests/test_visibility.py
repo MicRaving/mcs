@@ -112,9 +112,53 @@ def test_member_reads_shared_admin_derived_immutable():
         "Project/project.json",
         "Results/x.xlsx",
         "Papers/x.pdf",
-        "master_dataset.xlsx",
     ):
         assert can_read(BOB, classify(path), set(), BLINDED), path
+    # ... except the derived consensus files (see the blind_stages tests below)
+    assert can_read(BOB, classify("master_dataset.xlsx"), set(), VISIBLE)
+
+
+def test_blinded_derived_consensus_files_are_hidden_from_a_coder():
+    """The master workbook, settlements, the agreed full text and the Results/
+    agreement products carry other coders' (and the AI's) verdicts: a blinded
+    coder cannot read them, the owner always can, and "visible" opens them."""
+    paths = (
+        "master_dataset.xlsx",
+        "Codings/_settlements.json",
+        "Screening/fulltext_agreed.json",
+        "Results/sb_coding_agreement.csv",
+        "Results/mm_coding_agreement.csv",
+        "Results/coder_disagreement_tiers.csv",
+        "Results/HUMAN_MASTER_BRIEFING.md",
+        "Results/irr_baseline_2026-11-23/agreement_overall.csv",
+    )
+    for path in paths:
+        fc = classify(path)
+        assert fc.blind_stages, path
+        assert not can_read(ANNA, fc, set(), BLINDED), path
+        assert can_read(OWNER, fc, set(), BLINDED), path
+        assert can_read(ANNA, fc, set(), VISIBLE), path
+    # a plain analysis product is not a per-coder verdict: readable either way
+    assert can_read(ANNA, classify("Results/metaanalysis.xlsx"), set(), BLINDED)
+
+
+def test_each_derived_file_follows_its_own_stage():
+    """Only the stage a consensus file encodes governs it: blinding ``coding``
+    does not hide the screening workbook, and a visible screening stage does
+    not open the coding agreement products."""
+    coding_blinded = {"blinding": {"abstract": "visible", "fulltext": "visible",
+                                   "coding": "blinded"}}
+    screening_blinded = {"blinding": {"abstract": "blinded", "fulltext": "blinded",
+                                      "coding": "visible"}}
+    assert can_read(ANNA, classify("master_dataset.xlsx"), set(), coding_blinded)
+    assert not can_read(ANNA, classify("master_dataset.xlsx"), set(), screening_blinded)
+    assert can_read(ANNA, classify("Screening/fulltext_agreed.json"), set(), coding_blinded)
+    assert not can_read(ANNA, classify("Screening/fulltext_agreed.json"), set(),
+                        screening_blinded)
+    assert can_read(ANNA, classify("Results/sb_coding_agreement.csv"), set(),
+                    screening_blinded)
+    assert not can_read(ANNA, classify("Results/sb_coding_agreement.csv"), set(),
+                        coding_blinded)
 
 
 def test_unknown_member_reads_nothing_and_harmonizer_drafts_are_owned():

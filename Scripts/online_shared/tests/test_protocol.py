@@ -112,10 +112,13 @@ CLASSIFY_CASES = [
         "Supplements/Smith (2020) Supplement 10.docx",
         FileClass("immutable", key="Smith (2020)"),
     ),
-    # Rule 13 — analysis products
+    # Rule 13 - analysis products
     ("Results/a.xlsx", FileClass("derived")),
     ("Results/figures/a.png", FileClass("derived")),
-    ("master_dataset.xlsx", FileClass("derived")),
+    (
+        "master_dataset.xlsx",
+        FileClass("derived", blind_stages=("abstract", "fulltext")),
+    ),
     # Rule 14 — administrative files
     ("Project/project.json", FileClass("admin")),
     ("Screening/abc.csv", FileClass("admin")),
@@ -172,9 +175,22 @@ CORE_CASES = [
     ("Text/Smith (2020).txt", True),      # immutable but in CORE_PREFIXES
     ("Reproduction/Key (2021).md", True),
     ("master_dataset.xlsx", True),
-    ("Datasets/K/K - harmonized.csv", True),      # shared
     ("Datasets/K/K - variable_assignments.csv", True),
+    ("Datasets/K/K - variables.csv", True),             # metadata sidecars stay
+    ("Datasets/K/K - harmonized_variables.csv", True),
+    ("Datasets/K/K - dv_direction.csv", True),
+    ("Datasets/K/K - exclusions.csv", True),
+    ("Datasets/K/K - conditions.csv", True),
+    ("Datasets/K/K - repro_results.csv", True),
+    ("Datasets/K/K - repro_facts.json", True),
     ("Datasets/K/harmonizer.py", True),
+    ("Datasets/K/K - codebook.md", True),
+    # not core: the dataset data products are fetched on demand (INTERFACES 4)
+    ("Datasets/K/K - harmonized.csv", False),
+    ("Datasets/K/K - harmonized - SB.csv", False),
+    ("Datasets/K/K - prepared.csv", False),
+    ("Datasets/K/K - prepared 2.csv", False),
+    ("Datasets/K/K - dataset.csv", False),
     # not core
     ("Papers/Smith (2020).pdf", False),
     ("Supplements/Smith (2020) Supplement 2.pdf", False),
@@ -246,3 +262,37 @@ def test_fulltext_decision_file_is_owned_by_its_tag():
     # the legacy location stays owned too, so a half-migrated project keeps working
     assert classify("Screening/fulltext - MF.json") == FileClass(
         "owned", tag="MF", stage="fulltext")
+
+# --- blind_stages: derived consensus files (INTERFACES 3.5, 2026-11-24) -----
+
+BLIND_CASES = [
+    ("master_dataset.xlsx", ("abstract", "fulltext")),
+    ("Project/master_base.xlsx", ()),                    # base: decision columns empty
+    ("Screening/fulltext_agreed.json", ("fulltext",)),
+    ("Codings/_settlements.json", ("abstract", "fulltext")),
+    ("Codings/_settled.jsonl", ("abstract", "fulltext")),
+    ("Codings/_resolutions/OG.json", ("abstract", "fulltext")),
+    ("Results/sb_coding_agreement.csv", ("coding",)),
+    ("Results/mm_coding_agreement.csv", ("coding",)),
+    ("Results/coder_disagreement_tiers.csv", ("coding",)),
+    ("Results/CODER_DISAGREEMENTS.md", ("coding",)),
+    ("Results/HUMAN_MASTER_BRIEFING.md", ("coding",)),
+    ("Results/irr_baseline_2026-11-23/agreement_overall.csv", ("coding",)),
+    ("Results/sb_route_summary.json", ("coding",)),
+    # a plain analysis product is not a per-coder verdict
+    ("Results/metaanalysis.xlsx", ()),
+    ("Results/harmonization_coverage.csv", ()),
+    ("Results/repro_dossier_index.csv", ()),
+    ("Codings/K (2021) - MM.json", ()),                   # owned files use stage
+    ("Extraction/K (2021).json", ()),
+]
+
+
+@_pt.mark.parametrize("path,stages", BLIND_CASES)
+def test_classify_blind_stages(path, stages):
+    assert classify(path).blind_stages == stages
+
+
+def test_blind_stages_are_validated():
+    with pytest.raises(ValueError):
+        FileClass("derived", blind_stages=("nonsense",))

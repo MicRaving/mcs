@@ -9,6 +9,8 @@ it by hand any more.  It is rebuilt, deterministically, from
   **with every decision column present but empty**, so the compiled workbook
   keeps today's column order; ``--init-base`` produces it from the current
   workbook by blanking exactly the cells a decision file owns.
+  ``Effective_Verdict`` is the record's **stage**, not a coder decision: it stays
+  in the base and is only overwritten where a full-text decision exists.
 * every ``Screening/<Tag>.json`` - the abstract screening decisions, one file
   per coder tag (written by the screening tab);
 * every ``Fulltext/<Tag>.json`` - the full-text decisions, one file per coder
@@ -26,10 +28,12 @@ The full-text layer follows the **union rule** of
 ``Scripts/homogenize_fulltext_exclusions.py``: a record any coder excludes is
 excluded in the master (``Fulltext_Verdict = Exclude``, the criterion label, the
 note, ``Effective_Verdict = Exclude``); a record a coder includes gets
-``Include``; a record nobody decided stays at the abstract stage
-(``Effective_Verdict = Abstract excluded``).  The coded corpus' own
-``Fulltext_Exclusion_Criterion`` field is untouched - the union of the two
-sources stays the definition (``prisma_report.coded_fulltext_excluded``).
+``Include``; a record **without** a full-text decision keeps the stage the base
+carries (``Abstract excluded``, ``Not retrieved / not assessed``, ``Unscreened``,
+a curated ``Include``/``Exclude``, ...) - the compiler never invents a stage.  The
+coded corpus' own ``Fulltext_Exclusion_Criterion`` field is untouched - the union
+of the two sources stays the definition
+(``prisma_report.coded_fulltext_excluded``).
 
 A full-text decision is keyed by the **master record id** (``an``, or
 ``row-<n>``, or ``<an>#2`` for a repeated accession number) when it is about one
@@ -82,12 +86,18 @@ BASE_REL = os.path.join("Project", "master_base.xlsx")
 #: A decision column is a column the merge (abstract) or the full-text layer
 #: writes: ``<criterion>_verdict`` / ``_certainty`` / ``_rationale`` (C1..C4,
 #: ``Intervention``, and any criterion added later), the two provenance columns,
-#: and the four full-text columns.
+#: and the full-text verdict/criterion/reason.  ``Effective_Verdict`` is **not**
+#: a decision column: it is the record's stage (``Abstract excluded``,
+#: ``Not retrieved / not assessed``, ``Unscreened``, ``Include``, ``Exclude``),
+#: curated by the owner and derived from the full-text decisions where one
+#: exists, so it stays in the base and is only overwritten by a decision.
 _DECISION_SUFFIXES = ("_verdict", "_certainty", "_rationale")
 _DECISION_NAMES = frozenset({"screened_by", "screened_at",
                              "fulltext_exclusion_criterion", "fulltext_reason"})
+_STAGE_NAMES = frozenset({"effective_verdict"})
 FULLTEXT_COLUMNS = ("Fulltext_Verdict", "Fulltext_Exclusion_Criterion",
                     "Fulltext_Reason", "Effective_Verdict")
+STAGE_COLUMN = "Effective_Verdict"
 ABSTRACT_ONLY_STAGE = "Abstract excluded"
 INCLUDE_STAGE = "Include"
 EXCLUDE_STAGE = "Exclude"
@@ -110,7 +120,7 @@ def enabled(root):
 def is_decision_column(name):
     """Whether the master column *name* is owned by a decision file."""
     n = SL._norm(name)
-    if not n:
+    if not n or n in _STAGE_NAMES:
         return False
     return n.endswith(_DECISION_SUFFIXES) or n in _DECISION_NAMES
 
@@ -170,7 +180,9 @@ def fulltext_decisions(root):
 
     ``Fulltext/<Tag>.json`` is canonical; a legacy
     ``Screening/fulltext - <Tag>.json`` is merged underneath it, so a key the
-    new file carries wins.
+    new file carries wins.  **Every** ``*.json`` in ``Fulltext/`` is a decision
+    file (the tag is the file stem), so a superseded file belongs in
+    ``archive/`` - not beside the live one, where it would be applied too.
     """
     merged, errors = {}, {}
     legacy = os.path.join(root, "Screening")
@@ -250,9 +262,12 @@ def _fulltext_cells(entries):
         effective = str(dec.get("effective") or "").strip() or EXCLUDE_STAGE
         return (EXCLUDE_STAGE, label, note, effective)
     _tag, dec = entries[-1]
+    # An inclusion carries no criterion as a rule, but a curated one (a record
+    # migrated with a criterion on an Include row) is written back verbatim.
+    label = str(dec.get("criterion_label") or "").strip()
     note = str(dec.get("note") or "").strip()
     effective = str(dec.get("effective") or "").strip() or INCLUDE_STAGE
-    return (INCLUDE_STAGE, "", note, effective)
+    return (INCLUDE_STAGE, label, note, effective)
 
 
 # ---------------------------------------------------------------- measurement
@@ -379,14 +394,12 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
         for row in above:
             ws_out.append(row)
         ws_out.append(header)
-        seen = {}
-        for rownum, row in enumerate(it, start=header_row + 2):
+        for rownum, row, uid in SL.row_uids(it, header_row, plan["cols"]):
             vals = list(row) + [None] * (len(header) - len(row))
-            if not any(v not in (None, "") for v in row):
+            if uid is None:                     # a blank spacer row, verbatim
                 ws_out.append(vals)
                 continue
             rows += 1
-            uid = SL.screening_row_uid(row, rownum, seen, plan["cols"])
             for tag, decisions in screening:
                 decision = SL.screening_decision_for(decisions, uid, rownum)
                 if SL.apply_screening_decision(vals, decision, tag, plan):
@@ -408,18 +421,19 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
                 matched_ft.add(uid)
                 if study:
                     matched_ft.add(study)
-            if cells is None:
-                vals[ft_columns["Effective_Verdict"]] = ABSTRACT_ONLY_STAGE
-            else:
+            if cells is not None:
                 verdict, label, note, effective = cells
                 vals[ft_columns["Fulltext_Verdict"]] = verdict
                 vals[ft_columns["Fulltext_Exclusion_Criterion"]] = label or None
                 vals[ft_columns["Fulltext_Reason"]] = note or None
-                vals[ft_columns["Effective_Verdict"]] = effective
+                vals[ft_columns[STAGE_COLUMN]] = effective
                 if verdict == EXCLUDE_STAGE:
                     excluded += 1
                 else:
                     included += 1
+            # No full-text decision: the row keeps the stage the base carries
+            # ("Abstract excluded", "Not retrieved / not assessed", "Unscreened",
+            # a curated "Include"/"Exclude", ...).  The compiler never invents one.
             ws_out.append(vals)
         wb_out.save(tmp)
         atomic_replace(tmp, out_path)

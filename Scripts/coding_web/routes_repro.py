@@ -534,7 +534,7 @@ def _synth_dossier(key):
         "synthesized": True,
         "generated_at": _s(idx.get("generated_at")),
         "study_key": key,
-        "has_dataset": _s(idx.get("has_dataset")) == "yes" or os.path.isfile(harmonized),
+        "has_dataset": _s(idx.get("has_dataset")) == "yes" or S.has_file(harmonized),
         "fully_within": _is_fully_within(key),
         "file_inventory": _scan_inventory(key),
         "run": {

@@ -71,7 +71,21 @@ _SCREEN_MERGE = {"running": False, "coder": None, "ok": None, "error": "", "log"
 
 # Bumped whenever the shape of an index row changes, so a stale on-disk cache
 # (temp/screening_index.json) written by an older build is never served.
-_INDEX_VERSION = 4
+#
+# v5: the in-memory rows no longer carry the abstract text or the long AI
+# rationale/certainty text.  Those are the bulk of the 73 MB cache (abstract
+# 47 MB, ai 15 MB) and no list/filter/sort needs them: they are read from the
+# side file temp/screening_text.sqlite for the one record the abstract pane
+# shows (see `record_text`; PLAN_online_only §6.3.1).
+_INDEX_VERSION = 5
+
+#: The compact side file of the long texts: one SQLite row per record, keyed by
+#: the index key (master path + stamp + version) so a stale file is never read.
+_TEXT_DB_NAME = "screening_text.sqlite"
+_TEXT_BATCH = 500
+
+_TEXT_LOCK = threading.RLock()
+_TEXT_STATE = {"key": None, "conn": None}
 
 # Decisions are re-read only when the coder's file changed on disk (one coder
 # file can hold tens of thousands of records, 30 MB of JSON): the file stays
@@ -314,12 +328,73 @@ def _pick_sheet(wb):
     return wb.worksheets[0], 0
 
 
-def _build_screening_index(path=None):
-    """Extract the columns the screening tab needs from the master workbook."""
+def _index_key(path, stamp):
+    """The identity of one parsed master workbook (JSON-safe, for the caches)."""
+    return [os.path.abspath(path), stamp[0], stamp[1], _INDEX_VERSION]
+
+
+def _text_db_path():
+    return os.path.join(S.TEMP, _TEXT_DB_NAME)
+
+
+def _close_text_db():
+    """Forget the cached side-file connection (the file is about to change)."""
+    with _TEXT_LOCK:
+        conn = _TEXT_STATE.get("conn")
+        _TEXT_STATE.update(key=None, conn=None)
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:  # noqa: BLE001 - closing a connection never fails a read
+            pass
+
+
+def _text_db_conn(key):
+    """A read connection to the side file **when it belongs to** *key*.
+
+    ``None`` when the file is missing, unreadable or built for another master
+    stamp: the caller then rebuilds the index (which rewrites both caches).
+    """
+    import sqlite3
+
+    with _TEXT_LOCK:
+        if _TEXT_STATE["conn"] is not None and _TEXT_STATE["key"] == key:
+            return _TEXT_STATE["conn"]
+        _close_text_db()
+        path = _text_db_path()
+        if not os.path.isfile(path):
+            return None
+        try:
+            conn = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
+            row = conn.execute("SELECT value FROM meta WHERE name='key'").fetchone()
+            if row is None or json.loads(row[0]) != key:
+                conn.close()
+                return None
+        except Exception as exc:  # noqa: BLE001 - a broken cache is a slow start
+            log(f"screening: ignoring the text cache {path}: {exc!r}")
+            return None
+        _TEXT_STATE.update(key=list(key), conn=conn)
+        return conn
+
+
+def _build_screening_index(path=None, key=None):
+    """Extract the columns the screening tab needs from the master workbook.
+
+    The long texts (``abstract``, the AI ``rationale``/``certainty``) are written
+    to the side file as the workbook is read and are NOT kept in the returned
+    rows; the rows keep what the list, the filters, the search and the AI
+    decision need (ids, bibliographic fields and the AI **verdicts**).  Writing
+    them out while iterating also keeps the xlsx parse's peak low: the strings
+    are discarded one row at a time instead of being held in every row dict.
+    """
     import openpyxl
 
     path = path or screening_master_path()
+    key = key or _index_key(path, _file_stamp(path) or (0, 0))
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    tmp = None
+    conn = None
+    inline = False
     try:
         ws, header_row = _pick_sheet(wb)
         it = ws.iter_rows(values_only=True)
@@ -335,6 +410,21 @@ def _build_screening_index(path=None):
             "missing": [f for f in _REQUIRED if f not in cols],
             "missing_recommended": [f for f in _RECOMMENDED if f not in cols],
         }
+        # The side file is written next to the index cache and swapped in whole,
+        # so a reader never sees a half-written one.
+        batch = []
+        try:
+            os.makedirs(S.TEMP, exist_ok=True)
+            db_path = _text_db_path()
+            tmp = db_path + ".tmp"
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            _close_text_db()
+            conn = _begin_text_db(tmp)
+        except Exception as exc:  # noqa: BLE001 - fall back to texts in memory
+            log(f"screening: no text side file, keeping texts in memory: {exc!r}")
+            inline = True
+            conn = None
         rows = []
         seen = {}
         for n, row in enumerate(it):
@@ -343,39 +433,94 @@ def _build_screening_index(path=None):
                 continue                       # a blank spacer row is no record
             an = _id_text(_cell(row, cols.get("id")))
             uid = _unique_uid(an, rownum, seen)
+            abstract = str(_cell(row, cols.get("abstract")))
             ai = {}
-            for key, ix in crits.items():
-                ai[key] = {
+            verdicts = {}
+            for crit, ix in crits.items():
+                entry = {
                     "verdict": _cell(row, ix["verdict"]),
                     "certainty": _cell(row, ix["certainty"]),
                     "rationale": _cell(row, ix["rationale"]),
                 }
+                ai[crit] = entry
+                verdict = str(entry["verdict"]).strip()
+                if verdict:
+                    # the verdict is all the list/filter/agreement need in memory
+                    verdicts[crit] = verdict
             extra = {}
             if "#" in uid:
                 # Some decision files (e.g. a batch-coded Screening/OG.json) key a
                 # repeated accession number by its Excel row instead of "X#2".
                 # Both spellings must find the record; see decision_for().
                 extra["alt"] = f"row-{rownum}"
-            rows.append({
+            rec = {
                 **extra,
                 "id": uid,
                 "an": an,
                 "row": rownum,
                 "title": str(_cell(row, cols.get("title"))),
-                "abstract": str(_cell(row, cols.get("abstract"))),
                 "authors": str(_cell(row, cols.get("authors"))),
                 "year": _year_of(_cell(row, cols.get("year"))),
                 "doi": str(_cell(row, cols.get("doi"))),
                 "source": str(_cell(row, cols.get("source"))),
-                "ai": ai,
+                "ai": ai if inline else verdicts,
                 "fulltext": str(_cell(row, cols.get("fulltext"))),
-            })
+            }
+            if inline:
+                # no side file: the row itself has to carry the text
+                rec["abstract"] = abstract
+            rows.append(rec)
+            if conn is not None:
+                batch.append((uid, json.dumps({"abstract": abstract, "ai": ai},
+                                              ensure_ascii=False)))
+                if len(batch) >= _TEXT_BATCH:
+                    conn.executemany("INSERT OR REPLACE INTO records (uid, payload) "
+                                     "VALUES (?, ?)", batch)
+                    batch.clear()
+        if conn is not None:
+            if batch:
+                conn.executemany("INSERT OR REPLACE INTO records (uid, payload) "
+                                 "VALUES (?, ?)", batch)
+            _finish_text_db(conn, key)
+            conn = None
+            atomic_replace(tmp, _text_db_path())
+            tmp = None
         info["records"] = len(rows)
         info["duplicate_ids"] = sum(v - 1 for v in seen.values() if v > 1)
         info["row_ids"] = sum(1 for r in rows if not r["an"])
+        info["texts_inline"] = bool(inline)
         return rows, info
     finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+        if tmp and os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         wb.close()
+
+
+def _begin_text_db(tmp):
+    import sqlite3
+
+    conn = sqlite3.connect(tmp)
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("CREATE TABLE records (uid TEXT PRIMARY KEY, payload TEXT)")
+    return conn
+
+
+def _finish_text_db(conn, key):
+    conn.execute("INSERT INTO meta (name, value) VALUES ('key', ?)",
+                 (json.dumps(list(key), ensure_ascii=False),))
+    conn.commit()
+    conn.close()
+
 
 
 def screening_index():
@@ -383,8 +528,10 @@ def screening_index():
 
     The xlsx is parsed once per change (it takes tens of seconds for 30k
     records); the parsed rows are also kept in temp/screening_index.json so a
-    restart does not re-parse an unchanged workbook.  The file on disk stays
-    authoritative: any rewrite (a merge, an edit in Excel) changes the stamp.
+    restart does not re-parse an unchanged workbook, and the long texts the
+    rows do not carry live in temp/screening_text.sqlite (see
+    :func:`record_text`).  The file on disk stays authoritative: any rewrite
+    (a merge, an edit in Excel) changes the stamp, and both caches are rebuilt.
     Returns ``{"available", "rows", "by_id", "info", "error"}``.
     """
     path = screening_master_path()
@@ -393,7 +540,7 @@ def screening_index():
         return {"available": False, "rows": [], "by_id": {}, "info": {},
                 "error": f"{os.path.basename(path)} was not found in the project folder "
                          f"({S.ROOT})."}
-    key = [os.path.abspath(path), stamp[0], stamp[1], _INDEX_VERSION]
+    key = _index_key(path, stamp)
     with _SCREEN_INDEX_LOCK:
         if _SCREEN_INDEX["rows"] is not None and _SCREEN_INDEX["stamp"] == key:
             return {"available": True, "rows": _SCREEN_INDEX["rows"],
@@ -408,12 +555,15 @@ def screening_index():
                 with open(cache, encoding="utf-8") as fh:
                     blob = json.load(fh)
                 if blob.get("key") == key and isinstance(blob.get("rows"), list):
-                    rows, info = blob["rows"], blob.get("info") or {}
+                    # the rows are only useful with the texts they point at: a
+                    # missing/stale side file means both caches are rebuilt
+                    if _text_db_conn(key) is not None or not blob["rows"]:
+                        rows, info = blob["rows"], blob.get("info") or {}
         except Exception:  # noqa: BLE001
             rows = None
         if rows is None:
             try:
-                rows, info = _build_screening_index(path)
+                rows, info = _build_screening_index(path, key)
             except Exception as exc:  # noqa: BLE001
                 log(f"screening: cannot read {path}: {exc}")
                 return {"available": False, "rows": [], "by_id": {}, "info": {},
@@ -422,7 +572,8 @@ def screening_index():
                 os.makedirs(S.TEMP, exist_ok=True)
                 tmp = cache + ".tmp"
                 with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump({"key": key, "info": info, "rows": rows}, fh, ensure_ascii=False)
+                    json.dump({"key": key, "info": info, "rows": rows}, fh,
+                              ensure_ascii=False)
                 atomic_replace(tmp, cache)
             except OSError:
                 pass
@@ -444,6 +595,55 @@ def screening_index():
                 "error": info.get("error", "")}
 
 
+def record_text(rec):
+    """The long texts of one index record: ``(abstract, ai)``.
+
+    ``abstract`` is the workbook's abstract text and ``ai`` the full AI verdict
+    entries (``verdict``/``certainty``/``rationale``).  Both are read from the
+    side file for the ONE record the abstract pane shows, never held for the
+    whole corpus; a list/filter/search never calls this.  A row built with the
+    in-memory fallback (no side file) carries them itself.
+    """
+    if not rec:
+        return "", {}
+    if "abstract" in rec:
+        return rec.get("abstract") or "", rec.get("ai") or {}
+    key = _SCREEN_INDEX.get("stamp")
+    with _TEXT_LOCK:
+        conn = _text_db_conn(key) if key is not None else None
+        if conn is not None:
+            try:
+                row = conn.execute("SELECT payload FROM records WHERE uid = ?",
+                                   (rec["id"],)).fetchone()
+                if row is not None:
+                    payload = json.loads(row[0])
+                    return payload.get("abstract") or "", payload.get("ai") or {}
+            except Exception as exc:  # noqa: BLE001 - a read must not fail the pane
+                log(f"screening: cannot read the text of {rec.get('id')}: {exc!r}")
+                _close_text_db()
+    return "", {}
+
+
+def abstract_record(rec, criteria=None):
+    """The abstract pane's record dict, in the shape the old index had.
+
+    ``record_text`` supplies the abstract and the full AI entries; the key order
+    is the historical one (``alt``, ``id``, ``an``, ``row``, ``title``,
+    ``abstract``, ``authors``, ...), so the response is unchanged byte for byte.
+    """
+    abstract, ai = record_text(rec)
+    out = {}
+    for field, value in rec.items():
+        if field == "authors":
+            out["abstract"] = abstract
+        out[field] = value
+    if "abstract" not in out:
+        out["abstract"] = abstract
+    out["ai"] = ai_for_criteria(ai, criteria or [])
+    return out
+
+
+
 def decision_for(decisions, rec):
     """The coder's decision for an index record, under its id or its row alias."""
     if not decisions or not rec:
@@ -461,14 +661,21 @@ def canonical_uid(uid, idx=None):
 
 
 def ai_entry(ai, key):
-    """The workbook's verdict entry for a criterion key (case-insensitive)."""
+    """The workbook's verdict entry for a criterion key (case-insensitive).
+
+    The in-memory index keeps only the verdict strings (``{"C1": "Yes"}``); the
+    full entry (``certainty``/``rationale``) comes from the side file and is a
+    dict.  Both shapes are accepted, so a caller never has to know which one it
+    was handed.
+    """
     ai = ai or {}
     if key in ai:
-        return ai[key] or {}
+        value = ai[key]
+        return value if isinstance(value, dict) else ({"verdict": value} if value else {})
     nk = _norm(key)
     for k, v in ai.items():
         if _norm(k) == nk:
-            return v or {}
+            return v if isinstance(v, dict) else ({"verdict": v} if v else {})
     return {}
 
 
@@ -495,23 +702,43 @@ def _scheme_criteria():
     that carries no criteria of its own; a scheme's criteria win, so a
     criterion added in the Scheme editor really appears in the screening tab.
 
-    This normalises the scheme's criteria on every call: call it ONCE per
-    request and pass the result to the decision helpers below, never per row
-    (30k calls made the list take over a minute).
+    Normalising the scheme's criteria is cheap per call (~2 ms) but not free:
+    the abstract-agreement view calls the decision helpers once per record, and
+    at 30k records that was 183 s on the real corpus.  The result is therefore
+    memoised **for the current request** (Flask ``g``), which cannot go stale:
+    a scheme edit is another request.  Callers outside a request still get a
+    fresh normalisation, and passing the value to the helpers stays the fastest
+    form for a loop.
     """
+    try:
+        from flask import g, has_request_context
+
+        if has_request_context():
+            hit = g.get("_screen_scheme_criteria")
+            if hit is not None and hit[0] == S.ROOT:
+                return hit[1]
+    except Exception:  # noqa: BLE001 - no Flask request: no memo
+        pass
     try:
         import project_context
         criteria = (project_context.criteria() or {}).get("abstract") or []
     except Exception:  # noqa: BLE001
         criteria = []
-    if criteria:
-        return criteria
-    return [
-        {"key": c["label"], "label": c["title"], "kind": c.get("kind", "verdict"),
-         "prompt_text": c.get("instruction", ""), "options": c.get("options") or [],
-         "pass_values": ["Yes"], "gating": True}
-        for c in SCREENING_CRITERIA
-    ]
+    if not criteria:
+        criteria = [
+            {"key": c["label"], "label": c["title"], "kind": c.get("kind", "verdict"),
+             "prompt_text": c.get("instruction", ""), "options": c.get("options") or [],
+             "pass_values": ["Yes"], "gating": True}
+            for c in SCREENING_CRITERIA
+        ]
+    try:
+        from flask import g, has_request_context
+
+        if has_request_context():
+            g._screen_scheme_criteria = (S.ROOT, criteria)
+    except Exception:  # noqa: BLE001
+        pass
+    return criteria
 
 
 def screening_criteria():
@@ -616,6 +843,24 @@ def record_screening_decision(coder, uid, record, alt=None):
 def screening_row_uid(row, rownum, seen, cols):
     """The record uid of a workbook row (``_unique_uid`` on the id column)."""
     return _unique_uid(_id_text(_cell(row, cols.get("id"))), rownum, seen)
+
+
+def row_uids(rows, header_row=1, cols=None):
+    """``(rownum, row, uid)`` for every row of a workbook's data area.
+
+    ``uid`` is ``None`` for a blank spacer row.  The duplicate numbering
+    (``X``, ``X#2`` ...) is computed over **all** rows, so every consumer - the
+    app's merge, the compiler and the full-text migration - agrees about which
+    duplicate is ``#2``.  Numbering over a filtered subset (say, only the rows
+    that carry a full-text verdict) silently mismatches every later duplicate.
+    """
+    cols = cols or {}
+    seen = {}
+    for rownum, row in enumerate(rows, start=header_row + 2):
+        if not any(value not in (None, "") for value in row):
+            yield rownum, row, None
+            continue
+        yield rownum, row, _unique_uid(_id_text(_cell(row, cols.get("id"))), rownum, seen)
 
 
 def screening_merge_plan(header, criteria_keys, extra_keys=()):
@@ -750,13 +995,11 @@ def _screen_merge_worker(coder):
                                     {k for d in decisions.values()
                                      for k in ((d or {}).get("criteria") or {})})
         ws_out.append(header)
-        seen = {}
-        for r, row in enumerate(it, start=header_row + 2):
+        for r, row, uid in row_uids(it, header_row, plan["cols"]):
             vals = list(row) + [None] * (len(plan["header"]) - len(row))
-            if not any(v not in (None, "") for v in row):
+            if uid is None:
                 ws_out.append(vals)
                 continue
-            uid = screening_row_uid(row, r, seen, plan["cols"])
             dec = screening_decision_for(decisions, uid, r)
             if apply_screening_decision(vals, dec, coder, plan):
                 matched += 1
