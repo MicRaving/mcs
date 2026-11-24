@@ -247,6 +247,8 @@ def _local_status():
     return {
         "active": False,
         "mode": "local",
+        "backend": "local",
+        "guarantees": "strong",
         "pending": 0,
         "conflicts": 0,
         "last_sync": None,
@@ -287,6 +289,8 @@ def _online_status(store):
     payload.setdefault("local_only", 0)
     payload.setdefault("last_error", None)
     payload.setdefault("next_retry_in", None)
+    payload.setdefault("backend", "server")
+    payload.setdefault("guarantees", "strong")
     return payload
 
 
@@ -305,12 +309,15 @@ def api_status():
 @bp.post("/api/online/connect")
 def api_connect():
     payload = request.get_json(force=True, silent=True) or {}
-    server = str(payload.get("server") or "").strip()
+    kind = str(payload.get("kind") or "server").strip().lower()
     username = str(payload.get("username") or "").strip()
+    store = get_store()
+    if kind in ("nextcloud", "webdav", "nc"):
+        return _connect_nextcloud(store, payload, username)
+    server = str(payload.get("server") or "").strip()
     password = str(payload.get("password") or "")
     if not server or not username:
         return _err("bad_request", "server and username are required", 400)
-    store = get_store()
     try:
         projects = store.connect(server, username, password)
     except AuthError as exc:
@@ -321,7 +328,40 @@ def api_connect():
         return _err("offline", str(exc), 503)
     except OnlineError as exc:
         return _err("error", str(exc), 400)
-    return jsonify({"projects": projects})
+    return jsonify({"projects": projects, "backend": "server", "guarantees": "strong"})
+
+
+def _connect_nextcloud(store, payload, username):
+    """``{kind: "nextcloud", url, username, app_password|password, folder}``.
+
+    The same client and the same engine; the shared folder is the project.  The
+    answer carries ``guarantees: "best-effort"`` so the badge can say what this
+    mode promises (PLAN §13).
+    """
+    url = str(payload.get("url") or payload.get("server") or "").strip()
+    folder = str(payload.get("folder") or "").strip()
+    app_password = str(payload.get("app_password") or payload.get("password") or "")
+    webdav_root = str(payload.get("webdav_root") or "").strip() or None
+    if not url or not username or not app_password:
+        return _err("bad_request", "url, username and app password are required", 400)
+    try:
+        projects = store.connect_nextcloud(url, username, app_password, folder,
+                                           webdav_root=webdav_root)
+    except ValueError as exc:                       # bad URL, plain http to a remote host
+        return _err("bad_request", str(exc), 400)
+    except AuthError as exc:
+        return _err("unauthorized", str(exc), 401)
+    except RateLimitedError as exc:
+        return _err("rate_limited", str(exc), 429)
+    except OfflineError as exc:
+        return _err("offline", str(exc), 503)
+    except ForbiddenError as exc:
+        return _err("forbidden", str(exc), 403)
+    except NotFoundError as exc:
+        return _err("not_found", f"{exc} (check the folder name)", 404)
+    except OnlineError as exc:
+        return _err("error", str(exc), 400)
+    return jsonify({"projects": projects, "backend": "nextcloud", "guarantees": "best-effort"})
 
 
 @bp.post("/api/online/open")

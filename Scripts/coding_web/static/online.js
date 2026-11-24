@@ -216,10 +216,11 @@
     }
     badge.hidden = false;
     badge.dataset.mode = S.mode;
-    let label = "Online";
-    if (S.mode === "syncing") label = "Syncing…";
+    const bestEffort = st.backend === "nextcloud";
+    let label = bestEffort ? "Nextcloud (best-effort)" : "Online";
+    if (S.mode === "syncing") label = bestEffort ? "Nextcloud — syncing…" : "Syncing…";
     else if (S.mode === "offline") label = `offline — ${Number(st.pending) || 0} pending`;
-    else if (S.mode === "error") label = "Sync error";
+    else if (S.mode === "error") label = bestEffort ? "Nextcloud — sync error" : "Sync error";
     if (text) text.textContent = label;
     if (flag) {
       const n = S.conflictCount;
@@ -235,6 +236,7 @@
         : (showPending ? `${pending} change${pending === 1 ? "" : "s"} pending` : "");
     }
     const bits = [];
+    if (bestEffort) bits.push("Nextcloud mode: best-effort locks, honour-system roles and blinding");
     if (st.project_name) bits.push(st.project_name);
     if (st.server) bits.push(st.server);
     if (st.user) bits.push(st.user);
@@ -493,13 +495,32 @@
 
     const form = h("form", { class: "online-form", id: "online-form", autocomplete: "off" });
     const field = (label, input) => h("label", { class: "online-field" }, h("span", { text: label }), input);
+    // Two backends, one client (PLAN §13): the studio server (strong
+    // guarantees) or a shared Nextcloud folder over WebDAV (best-effort).
+    const kind = h("select", { class: "input select", id: "online-kind" });
+    kind.innerHTML = '<option value="server">Studio server</option>'
+      + '<option value="nextcloud">Nextcloud folder</option>';
     const server = h("input", { class: "input", id: "online-server", placeholder: "https://studio.example.org", spellcheck: "false" });
     const user = h("input", { class: "input", id: "online-username", placeholder: "username", autocomplete: "username", spellcheck: "false" });
     const pass = h("input", { class: "input", id: "online-password", type: "password", placeholder: "password", autocomplete: "current-password" });
+    const folder = h("input", { class: "input", id: "online-folder", placeholder: "Coding/meta-analysis (folder in your Nextcloud)", spellcheck: "false" });
+    const folderField = field("Folder", folder);
+    const serverField = field("Server", server);
     form.append(
-      field("Server", server),
+      field("Kind", kind),
+      serverField,
       h("div", { class: "online-row" }, field("Username", user), field("Password", pass)),
+      folderField,
     );
+    const syncKind = () => {
+      const nc = kind.value === "nextcloud";
+      folderField.hidden = !nc;
+      serverField.querySelector("span").textContent = nc ? "Nextcloud URL" : "Server";
+      server.placeholder = nc ? "https://cloud.example.org" : "https://studio.example.org";
+      pass.placeholder = nc ? "app password" : "password";
+    };
+    kind.addEventListener("change", syncKind);
+    syncKind();
     const status = h("p", { class: "online-status", id: "online-connect-status" });
     const list = h("div", { class: "online-projects", id: "online-projects" });
     form.append(status, list);
@@ -540,15 +561,17 @@
         h("div", { class: "online-card" },
           h("b", { text: st.project_name || "Online project" }),
           h("div", { class: "online-kv" },
-            h("span", { text: "Server" }), h("b", { text: st.server || "—" }),
+            h("span", { text: st.backend === "nextcloud" ? "Nextcloud" : "Server" }),
+            h("b", { text: st.server || "—" }),
             h("span", { text: "User" }), h("b", { text: st.user || "—" }),
             h("span", { text: "Role" }), h("b", { text: (me().role || "—") }),
+            h("span", { text: "Guarantees" }), h("b", { text: st.guarantees || "strong" }),
             h("span", { text: "Mode" }), h("b", { text: S.mode })),
         ),
       );
       return d;
     }
-    sub.textContent = "Sign in to a studio server and open one of its projects. The project is mirrored into the app's cache; the password is used for this connection only and is never stored.";
+    sub.textContent = "Sign in to a studio server, or open a shared Nextcloud folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the password is used for this connection only and is never stored.";
     form.hidden = false;
     offBtn.hidden = true;
     if (connectBtn) connectBtn.hidden = false;
@@ -559,29 +582,42 @@
   async function connect() {
     const d = $("#online-connect-dialog");
     const st = $("#online-connect-status", d);
+    const kindEl = $("#online-kind", d);
+    const nc = !!kindEl && kindEl.value === "nextcloud";
     const server = ($("#online-server", d).value || "").trim();
     const username = ($("#online-username", d).value || "").trim();
     const password = $("#online-password", d).value || "";
-    if (!server || !username || !password) {
-      if (st) { st.textContent = "Server, username and password are all needed."; st.className = "online-status err"; }
+    const folder = nc ? (($("#online-folder", d).value || "").trim()) : "";
+    if (!server || !username || !password || (nc && !folder)) {
+      if (st) {
+        st.textContent = nc
+          ? "Nextcloud URL, username, app password and folder are all needed."
+          : "Server, username and password are all needed.";
+        st.className = "online-status err";
+      }
       return;
     }
     if (st) { st.textContent = "Connecting…"; st.className = "online-status"; }
     try {
-      const r = await POST("/api/online/connect", { server, username, password });
+      const body = nc
+        ? { kind: "nextcloud", url: server, username, app_password: password, folder }
+        : { kind: "server", server, username, password };
+      const r = await POST("/api/online/connect", body);
       $("#online-password", d).value = "";        // never kept, not even in the DOM
       S.projects = (r && r.projects) || [];
       renderProjectList();
       if (st) {
-        st.textContent = S.projects.length
+        const weak = nc ? " Nextcloud mode is best-effort: locks, roles and blinding are honour system." : "";
+        st.textContent = (S.projects.length
           ? `${S.projects.length} project${S.projects.length === 1 ? "" : "s"} available.`
-          : "This account is not a member of any project.";
+          : "This account is not a member of any project.") + weak;
         st.className = "online-status";
       }
     } catch (err) {
       if (st) {
-        st.textContent = err.status === 401 ? "Wrong username or password."
+        st.textContent = err.status === 401 ? (nc ? "Wrong username or app password." : "Wrong username or password.")
           : err.status === 0 ? "The server cannot be reached."
+          : err.status === 404 ? `${String(err.message || err)} — check the folder name.`
           : String(err.message || err);
         st.className = "online-status err";
       }
@@ -750,9 +786,10 @@
     const box = card("online-card-state", "Connection",
       kv([
         ["Project", st.project_name],
-        ["Server", st.server],
+        [st.backend === "nextcloud" ? "Nextcloud" : "Server", st.server],
         ["User", st.user],
         ["Role", me().role],
+        ["Guarantees", st.guarantees || "strong"],
         ["Mode", S.mode + (S.mode === "offline" && st.pending ? ` — ${st.pending} pending` : "")],
         ["Last sync", when(st.last_sync)],
         ["Changes pending", st.pending],

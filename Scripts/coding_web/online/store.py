@@ -61,6 +61,39 @@ class OnlineStore:
         transport = self.transport_factory(server) if self.transport_factory else None
         return ServerClient(server, token=token, timeout=self.timeout, transport=transport)
 
+    # -- which backend? ----------------------------------------------------------------
+
+    def connect_nextcloud(self, url: str, username: str, app_password: str, folder: str = "",
+                          *, webdav_root: str | None = None,
+                          allow_insecure_http: bool | None = None) -> list[dict]:
+        """Connect to a shared Nextcloud folder over WebDAV (PLAN §13).
+
+        The same store and the same sync engine as :meth:`connect`; the client
+        is :class:`~.nextcloud.NextcloudClient` instead of ``ServerClient``.
+        *url* is the Nextcloud base (``https://cloud.example.org``), *folder*
+        the path inside the user's files (``Coding/meta``); *webdav_root* skips
+        that derivation for a plain WebDAV share (the local test server).
+        Returns ``[{id, name, role}]`` like :meth:`connect`.
+        """
+        from .nextcloud import NextcloudClient
+
+        if allow_insecure_http is None:
+            from .webdav import is_loopback
+            allow_insecure_http = is_loopback(url)
+        client = NextcloudClient(url, username, app_password, folder,
+                                 webdav_root_url=webdav_root, timeout=self.timeout,
+                                 allow_insecure_http=bool(allow_insecure_http),
+                                 app_version=self.app_version)
+        data = client.login(username, app_password)
+        projects = client.projects()
+        with self.lock:
+            self.client, self.server, self.username = client, client.server_url, username
+            self.user = data.get("user")
+            self.projects_cache = list(projects)
+        keyring_store.save_token(client.server_url, username, client.token or "",
+                                 fallback_dir=None, use_keyring=self.use_keyring)
+        return list(self.projects_cache)
+
     def connect(self, server: str, username: str, password: str) -> list[dict]:
         """Log in; returns ``[{id, name, role}]``."""
         server = server.rstrip("/")
@@ -77,6 +110,10 @@ class OnlineStore:
 
     def resume(self, server: str, username: str, project_id: str | None = None) -> bool:
         """Re-use a stored token (keyring, else the mirror's token file).
+
+        Studio-server mode only: a Nextcloud mirror is resumed by calling
+        :meth:`connect_nextcloud` again with the same folder (the app itself
+        does not call this yet - it opens through ``/api/online/open``).
 
         Returns True when a token was found.  The token is validated lazily:
         offline is fine (the mirror opens from local state), an invalid token
@@ -133,6 +170,12 @@ class OnlineStore:
         self.close()
         path = mirror_dir(self.server, project_id, self.base_dir)
         mirror = Mirror(path, fsync=self.fsync)
+        bind = getattr(client, "bind_mirror", None)
+        if bind is not None:                 # Nextcloud backend: index + merge bases
+            try:
+                bind(mirror)
+            except OSError:
+                pass
         with mirror.lock:
             st = mirror.state
             if st.get("username") and st["username"] != self.username and st.get("project_id"):
@@ -211,10 +254,17 @@ class OnlineStore:
     def status(self) -> dict:
         with self.lock:
             syncer = self.syncer
+            client = self.client
+        backend = getattr(client, "backend", "server") if client is not None else "local"
+        guarantees = getattr(client, "guarantees", "strong") if client is not None else "strong"
         if syncer is None:
             return {"mode": "disconnected", "pending": 0, "conflicts": 0, "last_sync": None,
-                    "server": self.server, "user": self.username}
-        return syncer.status()
+                    "server": self.server, "user": self.username,
+                    "backend": backend, "guarantees": guarantees}
+        out = syncer.status()
+        out["backend"] = backend
+        out["guarantees"] = guarantees
+        return out
 
     def kick(self) -> None:
         self._require()[2].kick()
