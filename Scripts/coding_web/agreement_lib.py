@@ -1368,11 +1368,12 @@ def _abstract_agreement_index():
     # call: read them ONCE here, never inside the 30k-record loops below (that
     # made the abstract agreement take minutes).
     labels = [lab for lab, _ in abstract_fields()]
-    from screening_lib import ai_entry, load_screening_decisions
+    from screening_lib import ai_entry, decision_is_stale, load_screening_decisions
     try:
         idx = screening_index()
     except Exception:  # noqa: BLE001
         idx = {}
+    by_id = idx.get("by_id") or {}
     # a decision file may key a duplicate-accession record by its row
     # ("row-30348") while another uses "X#2": compare them as ONE record
     alias = (idx.get("info") or {}).get("alias") or {}
@@ -1393,6 +1394,11 @@ def _abstract_agreement_index():
             continue
         by_uid = {}
         for uid, rec in dec.items():
+            row = by_id.get(str(uid))
+            # a positional decision made on a record that has since moved is
+            # not this row's rating (screening_lib.decision_is_stale)
+            if row is not None and decision_is_stale(str(uid), rec, row.get("title")):
+                continue
             crits = (rec or {}).get("criteria") or {}
             vals = {}
             for lab in labels:

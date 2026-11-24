@@ -1,6 +1,7 @@
 """Screening logic: the master workbook index, per-coder decisions and verdict helpers."""
 
 from datetime import date, datetime
+import hashlib
 import json
 import math
 import os
@@ -857,45 +858,157 @@ def _criterion_passes(criterion, verdict):
     return verdict in {str(v).strip().lower() for v in wanted}
 
 
-def _decide(criteria, verdict_of):
-    """Include iff every decided GATING criterion passes; Exclude if one fails."""
-    decided = []
-    for criterion in criteria:
-        key = criterion.get("key") or criterion.get("label") or ""
-        if not key or not criterion.get("gating", True):
-            continue        # informational: reported, never blocking
-        verdict = verdict_of(key)
-        if verdict:
-            decided.append((criterion, verdict))
-    if any(not _criterion_passes(c, v) for c, v in decided):
+#: The four outcomes of a screened record (``screen_outcome``).
+OUTCOMES = ("Include", "Exclude", "Unsure")
+
+
+def screen_outcome(criteria, verdict_of):
+    """The four-valued screening outcome over the GATING criteria.
+
+    Owner decision 2026-11-24 (the rule the project folder's screening used,
+    and the one the PRISMA flow of ``master_dataset.xlsx`` follows - every
+    record with an Unsure and no No went on to full text):
+
+    * a verdict that is neither a pass value nor "Unsure" fails -> ``Exclude``
+    * every gating criterion passes                            -> ``Include``
+    * every gating criterion answered, none failing, an Unsure -> ``Unsure``
+      (the record advances to full text)
+    * anything left blank                                      -> ``""``
+      (incomplete)
+
+    Informational (``gating: false``) and ``classify`` criteria never decide.
+    """
+    gating = [c for c in criteria
+              if (c.get("key") or c.get("label")) and c.get("gating", True)
+              and c.get("kind") != "classify"]
+    if not gating:
+        return ""
+    blank = unsure = False
+    for criterion in gating:
+        verdict = str(verdict_of(criterion.get("key") or criterion.get("label")) or "").strip()
+        if not verdict:
+            blank = True
+            continue
+        if _criterion_passes(criterion, verdict):
+            continue
+        if verdict.lower() == "unsure":
+            unsure = True
+            continue
         return "Exclude"
-    if decided:
-        return "Include"
-    return ""
+    if blank:
+        return ""
+    return "Unsure" if unsure else "Include"
+
+
+def ai_screen_outcome(rec, criteria=None):
+    """The workbook (AI) outcome of one record, four-valued (``screen_outcome``).
+
+    The criteria and their pass values come from the project's scheme, so a
+    criterion added in the Scheme editor takes part.  Pass *criteria*
+    (``_scheme_criteria()``) when calling this in a loop.
+    """
+    criteria = _scheme_criteria() if criteria is None else criteria
+    verdicts = (rec or {}).get("ai", {}) or {}
+    return screen_outcome(criteria, lambda key: _screen_verdict_of(verdicts, key))
+
+
+def _human_verdict_of(dec):
+    crits = (dec or {}).get("criteria") or {}
+
+    def verdict_of(key):
+        entry = crits.get(key)
+        return str(entry.get("verdict") or "").strip() if isinstance(entry, dict) else ""
+    return verdict_of
+
+
+def human_screen_outcome(dec, criteria=None):
+    """A coder's outcome of one record, four-valued.
+
+    The criteria verdicts decide; the stored ``decision`` is only the fallback
+    for a record that carries no verdict at all, so a later edit of a criterion
+    is never masked by a stale stored decision (owner decision 2026-11-24).
+    """
+    if not dec:
+        return ""
+    criteria = _scheme_criteria() if criteria is None else criteria
+    verdict_of = _human_verdict_of(dec)
+    keys = [c.get("key") or c.get("label") for c in criteria]
+    if any(verdict_of(k) for k in keys if k):
+        return screen_outcome(criteria, verdict_of)
+    stored = str(dec.get("decision") or "").strip()
+    return stored if stored in OUTCOMES else ""
 
 
 def ai_screen_decision(rec, criteria=None):
-    """The workbook (AI) decision of one record.
-
-    The criteria and their pass values come from the project's scheme, so a
-    criterion added in the Scheme editor takes part in the decision.  Pass
-    *criteria* (``_scheme_criteria()``) when calling this in a loop.
-    """
-    criteria = _scheme_criteria() if criteria is None else criteria
-    verdicts = rec.get("ai", {}) or {}
-    return _decide(criteria, lambda key: _screen_verdict_of(verdicts, key))
+    """Two-valued form of :func:`ai_screen_outcome`: Include / Exclude / ""."""
+    out = ai_screen_outcome(rec, criteria)
+    return out if out in ("Include", "Exclude") else ""
 
 
 def human_screen_decision(dec, criteria=None):
-    if not dec:
+    """Two-valued form of :func:`human_screen_outcome`: Include / Exclude / ""."""
+    out = human_screen_outcome(dec, criteria)
+    return out if out in ("Include", "Exclude") else ""
+
+
+# ---------------------------------------------------------------- input checks
+_CERTAINTIES = {"high": "High", "medium": "Medium", "low": "Low"}
+RATIONALE_MAX = 2000
+#: Where a saved verdict came from when the coder did not set it by hand.
+PREFILL_SOURCES = frozenset({"ai", "rule", "keyword", "language"})
+
+
+def norm_certainty(value):
+    return _CERTAINTIES.get(str(value or "").strip().lower(), "")
+
+
+def norm_verdict(criterion, value):
+    """``value`` spelled like one of the criterion's options; ``None`` when it
+    is not one of them (``""`` for a blank)."""
+    raw = str(value or "").strip()
+    if not raw:
         return ""
-    decision = str(dec.get("decision") or "").strip()
-    if decision:
-        return decision
-    criteria = _scheme_criteria() if criteria is None else criteria
-    crits = dec.get("criteria") or {}
-    return _decide(criteria,
-                   lambda key: str((crits.get(key) or {}).get("verdict") or "").strip())
+    for option in criterion.get("options") or ["Yes", "No", "Unsure"]:
+        if str(option).strip().lower() == raw.lower():
+            return str(option)
+    return None
+
+
+# ---------------------------------------------------------------- stale rows
+def title_fingerprint(title):
+    """12 hex chars of the normalised title (case, punctuation, spacing free)."""
+    norm = re.sub(r"[^0-9a-z]+", " ", str(title or "").lower()).strip()
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:12] if norm else ""
+
+
+def decision_is_stale(uid, dec, title):
+    """A POSITIONAL decision (``row-<n>``) whose stored title fingerprint no
+    longer matches the row it is keyed to: the workbook was re-ordered since it
+    was saved, so the verdicts belong to another record.
+
+    Only positional keys can drift; a decision keyed by an accession number
+    follows its record wherever it moves.  A decision without a fingerprint
+    (saved before fingerprints existed, or batch-coded) is never stale.
+    """
+    if not dec or not isinstance(dec, dict) or not str(uid or "").startswith("row-"):
+        return False
+    fp = dec.get("fp")
+    return bool(fp) and fp != title_fingerprint(title)
+
+
+def live_decision_for(decisions, rec):
+    """``(decision, stale)`` for an index record: the coder's decision under its
+    id or its row alias, unless it is stale (then ``(None, the stale one)``)."""
+    if not decisions or not rec:
+        return None, None
+    key = rec["id"]
+    dec = decisions.get(key)
+    if dec is None and rec.get("alt"):
+        key = rec["alt"]
+        dec = decisions.get(key)
+    if dec is not None and decision_is_stale(key, dec, rec.get("title")):
+        return None, dec
+    return dec, None
 
 
 def record_screening_decision(coder, uid, record, alt=None):
@@ -980,11 +1093,22 @@ def screening_merge_plan(header, criteria_keys, extra_keys=()):
             "by": column("Screened_By"), "at": column("Screened_At")}
 
 
-def screening_decision_for(decisions, uid, rownum):
-    """A coder's decision for a row, under its id or its ``row-<n>`` alias."""
+def screening_decision_for(decisions, uid, rownum, title=None):
+    """A coder's decision for a row, under its id or its ``row-<n>`` alias.
+
+    With the row's *title*, a stale positional decision (see
+    :func:`decision_is_stale`) is not returned: its verdicts were made on the
+    record that used to sit in that row, and writing them here would attribute
+    them to another paper.  The app's merge and ``compile_master`` both pass
+    the title, so they agree.
+    """
+    key = uid
     dec = decisions.get(uid)
     if dec is None and "#" in uid:
-        dec = decisions.get(f"row-{rownum}")     # the row alias, see decision_for()
+        key = f"row-{rownum}"
+        dec = decisions.get(key)                 # the row alias, see decision_for()
+    if dec is not None and title is not None and decision_is_stale(key, dec, title):
+        return None
     return dec
 
 
@@ -1079,7 +1203,9 @@ def _screen_merge_worker(coder):
             if uid is None:
                 ws_out.append(vals)
                 continue
-            dec = screening_decision_for(decisions, uid, r)
+            tcol = plan["cols"].get("title")
+            dec = screening_decision_for(decisions, uid, r,
+                                         title=str(_cell(row, tcol)) if tcol is not None else None)
             if apply_screening_decision(vals, dec, coder, plan):
                 matched += 1
             ws_out.append(vals)

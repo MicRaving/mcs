@@ -428,8 +428,12 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
                     ws_out.append(vals)
                     continue
                 rows += 1
+                title = (str(SL._cell(row, cols["title"])) if cols.get("title") is not None
+                         else None)            # no title column: staleness cannot be judged
                 for tag, decisions in screening:
-                    decision = SL.screening_decision_for(decisions, uid, rownum)
+                    # a stale positional decision (re-ordered rows) is skipped,
+                    # exactly as the app's merge does (screening_decision_for)
+                    decision = SL.screening_decision_for(decisions, uid, rownum, title=title)
                     if SL.apply_screening_decision(vals, decision, tag, plan):
                         screened += 1
                 pdf = str(SL._cell(row, pdf_column) or "") if pdf_column is not None else ""
