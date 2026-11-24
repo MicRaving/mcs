@@ -104,6 +104,10 @@ _EXCLUDED_DIR = re.compile(r"^(?:temp|archive|\.claude|\.studio|\.git|CodingStud
 _EXCLUDED_ANY = (
     _EXCLUDED_DIR,
     re.compile(r"(?:^|/)__pycache__/"),
+    # build outputs and tool caches anywhere in the tree (the app build in
+    # Scripts/coding_web/dist/ alone is ~530 MB of DLLs)
+    re.compile(r"^Scripts/coding_web/(?:dist|build)(?:/|$)"),
+    re.compile(r"(?:^|/)(?:\.ruff_cache|\.pytest_cache|\.mypy_cache|\.openchamber)(?:/|$)"),
     re.compile(r"\.(?:exe|pyc)$"),
     re.compile(r"^~\$"),          # Office lock files: ~$report.docx
     re.compile(r"\.tmp$"),
