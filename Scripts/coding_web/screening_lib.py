@@ -77,7 +77,10 @@ _SCREEN_MERGE = {"running": False, "coder": None, "ok": None, "error": "", "log"
 # 47 MB, ai 15 MB) and no list/filter/sort needs them: they are read from the
 # side file temp/screening_text.sqlite for the one record the abstract pane
 # shows (see `record_text`; PLAN_online_only §6.3.1).
-_INDEX_VERSION = 5
+# v6: the index can be built from the decision-free records table
+# (Project/master_records.csv.gz) when the master workbook is not readable; the
+# info carries the source, so a stale cache from v5 is rebuilt.
+_INDEX_VERSION = 6
 
 #: The compact side file of the long texts: one SQLite row per record, keyed by
 #: the index key (master path + stamp + version) so a stale file is never read.
@@ -97,6 +100,38 @@ _DECISIONS_CACHE = {}
 
 def screening_master_path():
     return os.path.join(S.ROOT, "master_dataset.xlsx")
+
+
+#: The decision-free records table ``compile_master`` writes beside the base: the
+#: bibliographic columns the index reads, no verdict/stage column.  A blinded
+#: coder's mirror receives this file instead of the master workbook (the master
+#: carries every coder's and the AI's verdicts), so the screening tab reads it
+#: when the workbook is absent.
+RECORDS_REL = os.path.join("Project", "master_records.csv.gz")
+#: Extensions the index can read: the workbook, and the records table.
+_TABLE_SUFFIXES = (".xlsx", ".xlsm", ".csv", ".csv.gz", ".tsv", ".tsv.gz")
+
+
+def screening_records_path():
+    return os.path.join(S.ROOT, RECORDS_REL)
+
+
+def screening_source():
+    """``(path, kind)`` the screening tab reads: the master workbook, else the records.
+
+    The workbook wins because it carries the AI verdicts the tab's "AI" column
+    shows.  A blinded coder's mirror has no workbook (``master_dataset.xlsx`` is
+    a derived consensus file, hidden while a screening stage is blinded), so the
+    index falls back to ``Project/master_records.csv.gz`` - the same rows, the
+    same ids, no verdict - and the tab works with the coder's own decisions only.
+    """
+    master = screening_master_path()
+    if os.path.isfile(master):
+        return master, "master"
+    records = screening_records_path()
+    if os.path.isfile(records):
+        return records, "records"
+    return master, "missing"
 
 
 def screening_decision_path(coder):
@@ -333,6 +368,42 @@ def _index_key(path, stamp):
     return [os.path.abspath(path), stamp[0], stamp[1], _INDEX_VERSION]
 
 
+def _table_source(path):
+    """``(title, header_row, header, rows, close)`` for a workbook or a records table.
+
+    ``.xlsx``/``.xlsm`` are read through openpyxl (read-only); ``.csv``,
+    ``.csv.gz``, ``.tsv`` and ``.tsv.gz`` through :mod:`csv` (gzip when the name
+    says so).  Both give *header_row* as the **0-based** index of the header row
+    in the file and *rows* starting at the first data row, so the screening row
+    numbers (``header_row + 2 + n``) are the same for the workbook and for the
+    records file - that is what keeps the record ids identical.
+    """
+    low = str(path).lower()
+    if low.endswith(_TABLE_SUFFIXES[2:]) or low.endswith((".csv", ".tsv")):
+        import csv
+        import gzip
+
+        opener = gzip.open if low.endswith(".gz") else open
+        fh = opener(path, "rt", encoding="utf-8", newline="")
+        reader = csv.reader(fh, delimiter="\t" if low.endswith((".tsv", ".tsv.gz")) else ",")
+        header = [str(h) for h in (next(reader, None) or [])]
+        return ("records", 0, header, reader, fh.close)
+    import openpyxl
+
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        ws, header_row = _pick_sheet(wb)
+        it = ws.iter_rows(values_only=True)
+        head = ()
+        for _ in range(header_row + 1):
+            head = next(it, None) or ()
+    except Exception:
+        wb.close()
+        raise
+    return (ws.title, header_row,
+            [str(h) if h is not None else "" for h in head], it, wb.close)
+
+
 def _text_db_path():
     return os.path.join(S.TEMP, _TEXT_DB_NAME)
 
@@ -386,24 +457,24 @@ def _build_screening_index(path=None, key=None):
     decision need (ids, bibliographic fields and the AI **verdicts**).  Writing
     them out while iterating also keeps the xlsx parse's peak low: the strings
     are discarded one row at a time instead of being held in every row dict.
-    """
-    import openpyxl
 
+    The source may be the workbook or the decision-free records file (see
+    :func:`_table_source`); the rows are the same either way, and the records
+    file simply has no verdict columns, so ``ai`` stays empty.
+    """
     path = path or screening_master_path()
     key = key or _index_key(path, _file_stamp(path) or (0, 0))
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    title, header_row, head, it, close = _table_source(path)
     tmp = None
     conn = None
     inline = False
     try:
-        ws, header_row = _pick_sheet(wb)
-        it = ws.iter_rows(values_only=True)
-        head = ()
-        for _ in range(header_row + 1):
-            head = next(it, None) or ()
         cols, crits = _locate_columns(head)
         info = {
-            "sheet": ws.title,
+            "sheet": title,
+            "source": "records" if str(path).lower().endswith(
+                (".csv", ".csv.gz", ".tsv", ".tsv.gz")) else "master",
+            "source_path": os.path.abspath(path),
             "header_row": header_row + 1,
             "columns": {f: str(head[i]).strip() for f, i in cols.items()},
             "criteria_columns": sorted(crits),
@@ -501,7 +572,10 @@ def _build_screening_index(path=None, key=None):
                 os.remove(tmp)
             except OSError:
                 pass
-        wb.close()
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - closing a reader never fails the index
+            pass
 
 
 def _begin_text_db(tmp):
@@ -524,22 +598,25 @@ def _finish_text_db(conn, key):
 
 
 def screening_index():
-    """The workbook index, cached by file stamp (size + mtime_ns).
+    """The screening index, cached by file stamp (size + mtime_ns).
 
-    The xlsx is parsed once per change (it takes tens of seconds for 30k
-    records); the parsed rows are also kept in temp/screening_index.json so a
-    restart does not re-parse an unchanged workbook, and the long texts the
-    rows do not carry live in temp/screening_text.sqlite (see
-    :func:`record_text`).  The file on disk stays authoritative: any rewrite
-    (a merge, an edit in Excel) changes the stamp, and both caches are rebuilt.
-    Returns ``{"available", "rows", "by_id", "info", "error"}``.
+    The source is the master workbook when it is there, else the decision-free
+    records file (:func:`screening_source`) - a blinded coder's mirror has no
+    workbook.  The table is parsed once per change (tens of seconds for a 30k-row
+    workbook; seconds for the records CSV); the parsed rows are also kept in
+    temp/screening_index.json so a restart does not re-parse an unchanged file,
+    and the long texts the rows do not carry live in temp/screening_text.sqlite
+    (see :func:`record_text`).  The file on disk stays authoritative: any rewrite
+    (a merge, an edit in Excel, a new records file) changes the stamp, and both
+    caches are rebuilt.  Returns ``{"available", "rows", "by_id", "info", "error"}``.
     """
-    path = screening_master_path()
+    path, source = screening_source()
     stamp = _file_stamp(path)
     if stamp is None:
         return {"available": False, "rows": [], "by_id": {}, "info": {},
-                "error": f"{os.path.basename(path)} was not found in the project folder "
-                         f"({S.ROOT})."}
+                "error": f"neither {os.path.basename(screening_master_path())} nor "
+                         f"{RECORDS_REL.replace(os.sep, '/')} was found in the project "
+                         f"folder ({S.ROOT})."}
     key = _index_key(path, stamp)
     with _SCREEN_INDEX_LOCK:
         if _SCREEN_INDEX["rows"] is not None and _SCREEN_INDEX["stamp"] == key:
@@ -590,6 +667,8 @@ def screening_index():
                 by_id[alt] = r          # /abstract/row-30348 opens the "#2" record
                 alias[alt] = r["id"]
         info["alias"] = alias
+        info.setdefault("source", source)
+        info.setdefault("source_path", os.path.abspath(path))
         _SCREEN_INDEX.update(stamp=key, rows=rows, by_id=by_id, info=info)
         return {"available": True, "rows": rows, "by_id": by_id, "info": info,
                 "error": info.get("error", "")}

@@ -240,12 +240,31 @@ from online_shared.protocol import classify as _cl, is_core as _core
     ("Screening/fulltext_agreed.json", "derived", None, None, None, True),
     ("Fulltext/MF.json", "owned", None, "MF", "fulltext", True),
     ("Fulltext/OG.json", "owned", None, "OG", "fulltext", True),
+    ("Project/master_records.csv.gz", "derived", None, None, None, True),
+    ("Project/master_base.xlsx", "admin", None, None, None, True),
     ("Results/metaanalysis.xlsx", "derived", None, None, None, False),
 ])
 def test_audit_rules(path, kind, key, tag, stage, core):
     fc = _cl(path)
     assert (fc.kind, fc.key, fc.tag, fc.stage) == (kind, key, tag, stage)
     assert _core(path, fc) is core
+
+
+def test_the_screening_records_file_is_never_blinded_but_the_base_is():
+    """The records file is what a blinded coder screens from; the base is not.
+
+    ``master_records`` carries the bibliographic rows only (no verdict, stage or
+    Screened_* column), so every member reads it whatever the blinding says.
+    ``master_base`` keeps the curated stages (``Effective_Verdict``), so it
+    follows the master workbook's stages.
+    """
+    records = classify("Project/master_records.csv.gz")
+    assert records.kind == "derived" and records.blind_stages == ()
+    assert classify("Project/master_records.csv").blind_stages == ()
+    base = classify("Project/master_base.xlsx")
+    assert base.kind == "admin" and base.blind_stages == ("abstract", "fulltext")
+    # the master workbook itself stays a blocked consensus file
+    assert classify("master_dataset.xlsx").blind_stages == ("abstract", "fulltext")
 
 
 def test_fulltext_decision_file_is_owned_by_its_tag():
@@ -267,7 +286,11 @@ def test_fulltext_decision_file_is_owned_by_its_tag():
 
 BLIND_CASES = [
     ("master_dataset.xlsx", ("abstract", "fulltext")),
-    ("Project/master_base.xlsx", ()),                    # base: decision columns empty
+    # the compiler's base keeps the curated stages (Effective_Verdict): blinded
+    ("Project/master_base.xlsx", ("abstract", "fulltext")),
+    # the decision-free records table is what a blinded coder screens from
+    ("Project/master_records.csv.gz", ()),
+    ("Project/master_records.csv", ()),
     ("Screening/fulltext_agreed.json", ("fulltext",)),
     ("Codings/_settlements.json", ("abstract", "fulltext")),
     ("Codings/_settled.jsonl", ("abstract", "fulltext")),

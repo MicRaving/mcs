@@ -356,23 +356,26 @@ def master_mapping(master_path=None, extraction_dir=None):
     *master_path*/*extraction_dir* default to the app's project (``S.ROOT``); the
     compiler (``Scripts/compile_master.py``) passes its own base and
     ``Extraction`` folder, so a compile never depends on the app being
-    configured for the same root.
+    configured for the same root.  When the workbook is not readable (a blinded
+    coder's mirror does not get it) the decision-free records file is read
+    instead: same rows, same row numbers, no verdict columns - the mapping only
+    needs DOI/title/filename, so it is unchanged.
     """
-    import openpyxl
+    import screening_lib as SL      # the workbook/records table reader
 
     master = master_path or os.path.join(S.ROOT, "master_dataset.xlsx")
     if not os.path.exists(master):
-        return {}
+        records = os.path.join(S.ROOT, SL.RECORDS_REL)
+        if not os.path.exists(records):
+            return {}
+        master = records
     key = (os.path.abspath(master), int(os.path.getmtime(master)))
     if _MAP_CACHE["map"] is not None and _MAP_CACHE["mtime"] == key:
         return _MAP_CACHE["map"]
     info = _extraction_info(extraction_dir)
     by_doi, by_title, by_fn = {}, {}, {}
-    wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
+    _title, header_row, head, it, close = SL._table_source(master)
     try:
-        ws = wb.worksheets[0]
-        it = ws.iter_rows(values_only=True)
-        head = [str(h).strip() if h is not None else "" for h in next(it)]
         H = {h: i for i, h in enumerate(head)}
 
         def cell(row, name):
@@ -381,7 +384,7 @@ def master_mapping(master_path=None, extraction_dir=None):
                 return ""
             return row[i]
 
-        for idx, row in enumerate(it, start=2):
+        for idx, row in enumerate(it, start=header_row + 2):
             doi = _norm_doi(cell(row, "doi"))
             title = _norm(cell(row, "title"))
             fn = str(cell(row, "PDF_Filename") or "").strip()
@@ -393,7 +396,10 @@ def master_mapping(master_path=None, extraction_dir=None):
             if stem:
                 by_fn.setdefault(stem, idx)
     finally:
-        wb.close()
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - closing a reader never fails the mapping
+            pass
     mapping = {}
     for study, (doi, title) in info.items():
         row = None
@@ -423,13 +429,17 @@ def _mark_worker(keys):
 def master_is_derived():
     """Whether this project builds its master from decision files (plan §11).
 
-    True when ``Project/master_base.xlsx`` exists: the workbook is then a
-    derived product (``Scripts/compile_master.py``), never written by a route.
+    True when ``Project/master_base.xlsx`` exists, or when the compiler's
+    decision-free records file does: a blinded coder's mirror does not receive
+    the base (it carries the curated stages), only the records file, and the
+    master is derived there just the same.
     """
     try:
         import compile_master
 
-        return compile_master.enabled(S.ROOT)
+        if compile_master.enabled(S.ROOT):
+            return True
+        return os.path.isfile(os.path.join(S.ROOT, compile_master.RECORDS_REL))
     except Exception:  # noqa: BLE001 - a legacy project must keep marking the workbook
         return False
 
@@ -449,15 +459,12 @@ def _mark_master(keys):
     import openpyxl
 
     master = os.path.join(S.ROOT, "master_dataset.xlsx")
-    mapping = master_mapping()
     agreed = load_agreed()
     marked, missing = [], []
-    if not os.path.exists(master):
-        _MARK_STATE.update(error="master_dataset.xlsx not found")
-        return
     if master_is_derived():
         # The derived master is rebuilt from the decision files; there is no
         # cell to write here (and writing one would be overwritten anyway).
+        # Checked before the workbook: a coder's mirror does not receive it.
         with _DECISIONS_LOCK:
             cur = load_agreed()
             now = datetime.now().isoformat(timespec="seconds")
@@ -470,6 +477,10 @@ def _mark_master(keys):
                            note="the master is derived from the decision files; recompile scheduled")
         request_compile("fulltext")
         log(f"fulltext decisions recorded for {len(keys)} study/studies (derived master)")
+        return
+    mapping = master_mapping()
+    if not os.path.exists(master):
+        _MARK_STATE.update(error="master_dataset.xlsx not found")
         return
     backup_dir = os.path.join(S.ROOT, "archive", "coding_app_ui_backups",
                               "fulltext_merge_" + datetime.now().strftime("%Y%m%d_%H%M%S"))

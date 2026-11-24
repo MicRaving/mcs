@@ -159,6 +159,15 @@ _RESULTS_BLIND = re.compile(
     re.IGNORECASE,
 )
 
+# Rule 13b: the owner's compile inputs under ``Project/``.  ``master_records`` is
+# the decision-free record table the screening tab reads when the master
+# workbook is hidden (a blinded coder): bibliographic columns only, never a
+# verdict/stage/Screened_* column, so it is readable by every member and NEVER
+# blinded.  ``master_base`` is the compiler's input and carries the curated
+# stages (``Effective_Verdict``): it follows the master's blinding.
+_PROJECT_RECORDS = re.compile(r"^Project/master_records\.(?:csv(?:\.gz)?|tsv(?:\.gz)?|jsonl|xlsx)$")
+_PROJECT_BASE = re.compile(r"^Project/master_base\.xlsx$")
+
 #: Rule 14: everything else is administrative.
 #: (``Project/`` is admin, ``Screening/`` non-JSON is admin, unknown paths are admin.)
 
@@ -205,6 +214,8 @@ def classify(path: str) -> FileClass:
     11 ``Datasets/<K>/<anything else>``  (raw data)                        immutable
     12 ``Papers/``, ``Text/``, ``Supplements/``                            immutable
     13 ``Results/``, ``master_dataset.xlsx``                               derived
+    13b ``Project/master_records.*`` (no verdict column)                    derived
+    13b ``Project/master_base.xlsx``                                        admin + blinded
     14 ``Project/``, ``Screening/`` non-JSON, anything else                admin
     =  ==================================================================  =========
 
@@ -297,6 +308,14 @@ def classify(path: str) -> FileClass:
         # the master workbook carries the AI's and every coder's screening and
         # full-text verdicts
         return FileClass("derived", blind_stages=("abstract", "fulltext"))
+    if _PROJECT_RECORDS.match(p) is not None:
+        # the decision-free record table: bibliographic columns only, so a
+        # blinded coder screens from it (never a verdict in it)
+        return FileClass("derived")
+    if _PROJECT_BASE.match(p) is not None:
+        # the compiler's input: it keeps the curated stages (Effective_Verdict),
+        # so it is as sensitive as the master workbook
+        return FileClass("admin", blind_stages=("abstract", "fulltext"))
     if _DERIVED.match(p) is not None:
         blind = ("coding",) if _RESULTS_BLIND.search(p[len("Results/"):]) else ()
         return FileClass("derived", blind_stages=blind)

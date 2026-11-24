@@ -17,6 +17,13 @@ it by hand any more.  It is rebuilt, deterministically, from
   tag (written by the full-text tab; legacy ``Screening/fulltext - <Tag>.json``
   files are read too, the new file winning per key).
 
+The compiler also writes ``Project/master_records.csv.gz``: the same rows, in the
+same order and with the same record ids, but only the bibliographic columns the
+screening index reads (no verdict, certainty, rationale, stage, ``Fulltext_*`` or
+``Screened_*`` column).  A blinded coder's mirror does not receive the master
+workbook - it encodes every coder's and the AI's verdicts - so the screening tab
+reads that table instead (``Results/INTERFACES_online_projects.md`` §3.5a).
+
 The abstract merge is **the app's own merge core**
 (``screening_lib.screening_merge_plan`` / ``apply_screening_decision``): a
 non-empty decision value overwrites the cell, a blank one leaves it alone, and
@@ -82,6 +89,19 @@ from studio_lib import atomic_replace  # noqa: E402
 
 MASTER_NAME = "master_dataset.xlsx"
 BASE_REL = os.path.join("Project", "master_base.xlsx")
+#: The decision-free records table the screening tab falls back to when the
+#: master workbook is not readable (a blinded coder's mirror does not get it).
+RECORDS_REL = os.path.join("Project", "master_records.csv.gz")
+
+#: The columns the screening index reads (``screening_lib._COLUMN_ALIASES``) and
+#: *nothing else*: no verdict, certainty, rationale, stage or ``Screened_*``
+#: column may appear here, or the file would leak the outcome it must hide.
+RECORD_COLUMNS = ("an", "title", "abstract", "authors", "year", "doi", "source")
+#: ``output column -> the _locate_columns field`` it is read from.  ``an`` is the
+#: index's ``id`` field (the alias table accepts ``an``/``uid``/``id`` ...), so a
+#: workbook whose accession column is spelled ``AN`` still maps.
+_RECORD_FIELDS = {"an": "id", "title": "title", "abstract": "abstract",
+                  "authors": "authors", "year": "year", "doi": "doi", "source": "source"}
 
 #: A decision column is a column the merge (abstract) or the full-text layer
 #: writes: ``<criterion>_verdict`` / ``_certainty`` / ``_rationale`` (C1..C4,
@@ -110,6 +130,10 @@ def master_path(root):
 
 def base_path(root):
     return os.path.join(root, BASE_REL)
+
+
+def records_path(root):
+    return os.path.join(root, RECORDS_REL)
 
 
 def enabled(root):
@@ -394,49 +418,57 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
         for row in above:
             ws_out.append(row)
         ws_out.append(header)
-        for rownum, row, uid in SL.row_uids(it, header_row, plan["cols"]):
-            vals = list(row) + [None] * (len(header) - len(row))
-            if uid is None:                     # a blank spacer row, verbatim
+        records_writer = _RecordWriter(root, header)
+        records = None
+        try:
+            for rownum, row, uid in SL.row_uids(it, header_row, plan["cols"]):
+                vals = list(row) + [None] * (len(header) - len(row))
+                records_writer.write(row)       # every row, in the master's order
+                if uid is None:                 # a blank spacer row, verbatim
+                    ws_out.append(vals)
+                    continue
+                rows += 1
+                for tag, decisions in screening:
+                    decision = SL.screening_decision_for(decisions, uid, rownum)
+                    if SL.apply_screening_decision(vals, decision, tag, plan):
+                        screened += 1
+                pdf = str(SL._cell(row, pdf_column) or "") if pdf_column is not None else ""
+                stem = os.path.splitext(os.path.basename(pdf))[0] if pdf else ""
+                study = _row_study_key(studies, SL._cell(row, cols.get("doi")),
+                                       SL._cell(row, cols.get("title")), stem)
+                entries = list(ft_index.get(uid, ()))
+                if study and study != uid:
+                    entries += ft_index.get(study, ())
+                ordered = [(tag, dec) for _o, tag, dec in sorted(entries, key=lambda e: e[0])]
+                cells = _fulltext_cells(ordered)
+                if len({tag for tag, _d in ordered}) > 1:
+                    if (any(d.get("exclude") for _t, d in ordered)
+                            and any(not d.get("exclude") for _t, d in ordered)):
+                        ft_disagreements += 1
+                if entries:
+                    matched_ft.add(uid)
+                    if study:
+                        matched_ft.add(study)
+                if cells is not None:
+                    verdict, label, note, effective = cells
+                    vals[ft_columns["Fulltext_Verdict"]] = verdict
+                    vals[ft_columns["Fulltext_Exclusion_Criterion"]] = label or None
+                    vals[ft_columns["Fulltext_Reason"]] = note or None
+                    vals[ft_columns[STAGE_COLUMN]] = effective
+                    if verdict == EXCLUDE_STAGE:
+                        excluded += 1
+                    else:
+                        included += 1
+                # No full-text decision: the row keeps the stage the base carries
+                # ("Abstract excluded", "Not retrieved / not assessed", "Unscreened",
+                # a curated "Include"/"Exclude", ...).  The compiler never invents one.
                 ws_out.append(vals)
-                continue
-            rows += 1
-            for tag, decisions in screening:
-                decision = SL.screening_decision_for(decisions, uid, rownum)
-                if SL.apply_screening_decision(vals, decision, tag, plan):
-                    screened += 1
-            pdf = str(SL._cell(row, pdf_column) or "") if pdf_column is not None else ""
-            stem = os.path.splitext(os.path.basename(pdf))[0] if pdf else ""
-            study = _row_study_key(studies, SL._cell(row, cols.get("doi")),
-                                   SL._cell(row, cols.get("title")), stem)
-            entries = list(ft_index.get(uid, ()))
-            if study and study != uid:
-                entries += ft_index.get(study, ())
-            ordered = [(tag, dec) for _o, tag, dec in sorted(entries, key=lambda e: e[0])]
-            cells = _fulltext_cells(ordered)
-            if len({tag for tag, _d in ordered}) > 1:
-                if (any(d.get("exclude") for _t, d in ordered)
-                        and any(not d.get("exclude") for _t, d in ordered)):
-                    ft_disagreements += 1
-            if entries:
-                matched_ft.add(uid)
-                if study:
-                    matched_ft.add(study)
-            if cells is not None:
-                verdict, label, note, effective = cells
-                vals[ft_columns["Fulltext_Verdict"]] = verdict
-                vals[ft_columns["Fulltext_Exclusion_Criterion"]] = label or None
-                vals[ft_columns["Fulltext_Reason"]] = note or None
-                vals[ft_columns[STAGE_COLUMN]] = effective
-                if verdict == EXCLUDE_STAGE:
-                    excluded += 1
-                else:
-                    included += 1
-            # No full-text decision: the row keeps the stage the base carries
-            # ("Abstract excluded", "Not retrieved / not assessed", "Unscreened",
-            # a curated "Include"/"Exclude", ...).  The compiler never invents one.
-            ws_out.append(vals)
-        wb_out.save(tmp)
-        atomic_replace(tmp, out_path)
+            wb_out.save(tmp)
+            atomic_replace(tmp, out_path)
+            records = records_writer.close()
+        finally:
+            if records is None:
+                records_writer.abort()
     finally:
         try:
             wb_in.close()
@@ -475,6 +507,7 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
             "errors": [f"{tag}: {msg}" for tag, msg in fulltext_errors],
         },
         "seconds": round(time.time() - started, 2),
+        "records": records,
         "peak_tracemalloc_mb": (round((peak_trace - baseline) / (1024 * 1024), 1)
                                 if peak_trace is not None else None),
         "peak_rss_mb": _peak_rss_mb(),
@@ -483,6 +516,95 @@ def compile_master(root, out_path=None, *, base=None, trace_memory=False):
 
 
 # ---------------------------------------------------------------- base
+def _sha256_file(path):
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+class _RecordWriter:
+    """Writes the decision-free ``Project/master_records.csv.gz``.
+
+    One row per master row, in the master's order and with the same record ids
+    (``screening_lib.row_uids`` numbers them over all rows), carrying only
+    :data:`RECORD_COLUMNS` - the fields the screening list needs.  A blinded
+    coder's mirror receives this file instead of the master workbook, so it must
+    never gain a verdict, certainty, rationale, stage or ``Screened_*`` column.
+
+    The file is gzip (a few MB instead of ~30), deterministic (no embedded file
+    name or timestamp) and replaced only when its bytes change, so a compile
+    does not make every mirror pull it again.
+    """
+
+    def __init__(self, root, header):
+        import csv
+        import gzip
+        import io
+
+        self.root = os.path.abspath(root)
+        self.path = records_path(self.root)
+        os.makedirs(os.path.join(self.root, "temp"), exist_ok=True)
+        self.tmp = os.path.join(self.root, "temp", "master_records.csv.gz.tmp")
+        self.raw = open(self.tmp, "wb")
+        self.gz = gzip.GzipFile(filename="", mode="wb", fileobj=self.raw, mtime=0)
+        self.text = io.TextIOWrapper(self.gz, encoding="utf-8", newline="")
+        self.csv = csv.writer(self.text, lineterminator="\n")
+        self.cols, _criteria = SL._locate_columns(header)
+        self.columns = list(RECORD_COLUMNS)
+        self.missing = [name for name in self.columns
+                        if _RECORD_FIELDS.get(name, name) not in self.cols]
+        self.csv.writerow(self.columns)
+        self.rows = 0
+        self.closed = False
+
+    def write(self, row):
+        self.csv.writerow([SL._cell(row, self.cols.get(_RECORD_FIELDS.get(name, name)))
+                           for name in self.columns])
+        self.rows += 1
+
+    def _finish(self):
+        self.closed = True
+        try:
+            self.text.close()               # flushes the csv into the gzip stream
+        finally:
+            try:
+                self.raw.close()
+            except OSError:
+                pass
+
+    def close(self):
+        """Finish the file; replace the previous one only when its bytes differ."""
+        self._finish()
+        try:
+            digest = _sha256_file(self.tmp)
+            previous = _sha256_file(self.path) if os.path.isfile(self.path) else None
+            written = digest != previous
+            if written:
+                atomic_replace(self.tmp, self.path)
+            return {"path": self.path, "rows": self.rows, "written": written,
+                    "columns": list(self.columns), "missing_columns": list(self.missing),
+                    "sha256": digest}
+        finally:
+            if os.path.exists(self.tmp):
+                os.remove(self.tmp)
+
+    def abort(self):
+        if not self.closed:
+            try:
+                self._finish()
+            except Exception:  # noqa: BLE001 - an aborted write has no reader
+                pass
+        if os.path.exists(self.tmp):
+            try:
+                os.remove(self.tmp)
+            except OSError:
+                pass
+
+
 def _scan_base(path):
     """One streaming pass over a workbook: sheet, header, rows above it."""
     import openpyxl
@@ -541,15 +663,23 @@ def initialise_base(root, *, source=None, force=False):
         it = ws_in.iter_rows(values_only=True)
         for _ in range(scan["header_row"] + 1):
             next(it, None)
-        for row in it:
-            vals = list(row)
-            for i in drop_idx:
-                if i < len(vals) and vals[i] not in (None, ""):
-                    blanked += 1
-                    vals[i] = None
-            ws_out.append(vals)
-        wb_out.save(tmp)
-        atomic_replace(tmp, out)
+        records_writer = _RecordWriter(root, scan["header"])
+        records = None
+        try:
+            for row in it:
+                vals = list(row)
+                records_writer.write(row)
+                for i in drop_idx:
+                    if i < len(vals) and vals[i] not in (None, ""):
+                        blanked += 1
+                        vals[i] = None
+                ws_out.append(vals)
+            wb_out.save(tmp)
+            atomic_replace(tmp, out)
+            records = records_writer.close()
+        finally:
+            if records is None:
+                records_writer.abort()
     finally:
         try:
             wb_in.close()
@@ -559,7 +689,7 @@ def initialise_base(root, *, source=None, force=False):
             os.remove(tmp)
     return {"base": out, "source": source, "sheet": scan["sheet"],
             "columns": len(scan["header"]), "decision_columns": drop,
-            "blanked_cells": blanked}
+            "blanked_cells": blanked, "records": records}
 
 
 # ---------------------------------------------------------------- CLI
@@ -577,7 +707,8 @@ def main(argv=None):
     parser.add_argument("--base", default=None,
                         help="base workbook (default: <root>/Project/master_base.xlsx)")
     parser.add_argument("--init-base", action="store_true",
-                        help="write <root>/Project/master_base.xlsx from the current workbook")
+                        help="write <root>/Project/master_base.xlsx and "
+                             "<root>/Project/master_records.csv.gz from the current workbook")
     parser.add_argument("--from", dest="source", default=None,
                         help="workbook --init-base reads (default: <root>/master_dataset.xlsx)")
     parser.add_argument("--force", action="store_true",

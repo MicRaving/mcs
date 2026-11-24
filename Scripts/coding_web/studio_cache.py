@@ -395,6 +395,9 @@ def response_stamp(path=None):
         S.ROOT,
         scheme,
         _file_stamp(os.path.join(S.ROOT, "master_dataset.xlsx")),
+        # a blinded coder's mirror has no workbook: its screening source is the
+        # decision-free records file the compiler writes
+        _file_stamp(os.path.join(S.ROOT, "Project", "master_records.csv.gz")),
         _sorted_listing(S.EXTRACTION, ".json"),
         _sorted_listing(S.CODINGS, ".json"),
         _sorted_listing(S.SCREENING, ".json"),

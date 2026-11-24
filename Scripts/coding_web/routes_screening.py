@@ -19,11 +19,14 @@ def api_screening_meta():
     idx = screening_index()
     coder = (request.args.get("coder") or "").strip()
     decisions = load_screening_decisions(coder)
-    master = screening_master_path()
     info = idx.get("info") or {}
+    # The source is the master workbook, or the decision-free records file when
+    # the workbook is not readable (a blinded coder's mirror does not get it).
+    master = info.get("source_path") or screening_master_path()
     return jsonify({
         "available": idx["available"],
         "error": idx.get("error") or "",
+        "source": info.get("source") or "missing",
         "master": os.path.basename(master),
         "master_path": master,
         "master_mtime": (datetime.fromtimestamp(os.path.getmtime(master)).isoformat(timespec="seconds")

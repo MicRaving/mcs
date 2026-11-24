@@ -161,6 +161,28 @@ def test_each_derived_file_follows_its_own_stage():
                         coding_blinded)
 
 
+def test_the_records_file_is_readable_while_the_master_and_base_are_not():
+    """A blinded coder screens from ``Project/master_records.csv.gz``.
+
+    The master workbook and the compiler's base (it keeps ``Effective_Verdict``)
+    are hidden while a screening stage is blinded; the decision-free records
+    table is readable by every member, blinded or not - otherwise the tab has no
+    list at all.  It is still owner-only to write (derived).
+    """
+    records = classify("Project/master_records.csv.gz")
+    assert records.blind_stages == ()
+    assert can_read(ANNA, records, set(), BLINDED)
+    assert can_read(BOB, records, set(), BLINDED)
+    assert can_read(ANNA, records, set(), VISIBLE)
+    assert not can_write(ANNA, records)
+
+    base = classify("Project/master_base.xlsx")
+    assert not can_read(ANNA, base, set(), BLINDED)
+    assert can_read(ANNA, base, set(), VISIBLE)      # a visible stage opens it
+    assert not can_write(ANNA, base)
+    assert can_write(OWNER, base) and can_write(OWNER, records)
+
+
 def test_unknown_member_reads_nothing_and_harmonizer_drafts_are_owned():
     assert not can_read(None, classify(f"Codings/{KEY} - Anna.json"), set(), BLINDED)
     draft = classify(f"Codings/{KEY} - harmonizer - Bob.json")
