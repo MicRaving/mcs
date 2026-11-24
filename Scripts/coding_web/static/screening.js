@@ -234,7 +234,7 @@
   }
 
   async function loadMeta() {
-    S.meta = await call(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
+    S.meta = await call(`api/screening/meta?coder=${encodeURIComponent(coderName())}`);
     S.criteria = S.meta.criteria || [];
     await loadCriteria();
     const rec = S.meta.missing_recommended || [];
@@ -251,7 +251,7 @@
      tab - the criteria simply carry no rules then. */
   async function loadCriteria() {
     try {
-      const doc = await api("/api/criteria");
+      const doc = await api("api/criteria");
       const list = (doc && Array.isArray(doc.abstract)) ? doc.abstract : [];
       const byKey = {};
       list.forEach((c) => { if (c && c.key) byKey[c.key] = c; });
@@ -267,7 +267,7 @@
     const host = $("#screen-list");
     if (host && !S.keys.length) host.innerHTML = `<div class="empty"><b>Loading abstracts…</b><p>${esc(String((S.meta && S.meta.total) || ""))} records in ${esc((S.meta && S.meta.master) || "the workbook")}</p></div>`;
     const q = new URLSearchParams({ coder: coderName(), filter: S.filter, search: S.search });
-    const d = await call(`/api/screening/list?${q.toString()}`);
+    const d = await call(`api/screening/list?${q.toString()}`);
     S.rows = d.rows || [];
     S.byIdMeta = {};
     S.rows.forEach((r) => { S.byIdMeta[r.i] = r; });
@@ -287,7 +287,7 @@
     if (!uid) return;
     if (!force && S.cur && S.cur.id === uid) { renderList(); return; }
     try {
-      const d = await call(`/api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
+      const d = await call(`api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
       S.cur = d.record;
       S.ai = d.record.ai || {};
       S.values = blankValues();
@@ -538,7 +538,7 @@
     if (S.saving) return false;
     S.saving = true;
     try {
-      const r = await call("/api/screening/decision", {
+      const r = await call("api/screening/decision", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder, id: S.cur.id, criteria: S.values }),
       });
@@ -761,7 +761,7 @@
       "This cannot be undone from the app.");
     if (!ok) return;
     try {
-      const r = await call("/api/screening/merge", {
+      const r = await call("api/screening/merge", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder }),
       });
@@ -777,7 +777,7 @@
     if (S.mergePoll) clearInterval(S.mergePoll);
     S.mergePoll = setInterval(async () => {
       let s;
-      try { s = await api("/api/screening/merge/status"); } catch { return; }
+      try { s = await api("api/screening/merge/status"); } catch { return; }
       if (s.running) return;
       clearInterval(S.mergePoll); S.mergePoll = null;
       const btn = $("#merge-btn"); if (btn) btn.disabled = false;

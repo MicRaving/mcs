@@ -630,8 +630,8 @@
   async function loadStudy(key, slot) {
     const token = state.token;
     const [walk, asg] = await Promise.all([
-      api("/api/gapwalk/" + enc(key)).catch(() => null),
-      api("/api/assignments/" + enc(key)).catch(() => ({ applied: [] })),
+      api("api/gapwalk/" + enc(key)).catch(() => null),
+      api("api/assignments/" + enc(key)).catch(() => ({ applied: [] })),
     ]);
     if (token !== state.token) return;
     const fallback = {
@@ -1074,7 +1074,7 @@
     setStatus("Saving…");
     const token = state.token;
     try {
-      const r = await api("/api/assignments/" + enc(state.key), {
+      const r = await api("api/assignments/" + enc(state.key), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder: readCoder(), assignments: rows }),
       });
@@ -1112,7 +1112,7 @@
     const uniform = (card && card.uniform_variable) || "";
     const qs = new URLSearchParams({ var: varName, uniform, artifact: (card && card.artifact) || "" });
     const token = state.token;
-    api("/api/rawvar/" + enc(key) + "?" + qs.toString())
+    api("api/rawvar/" + enc(key) + "?" + qs.toString())
       .then((d) => { if (token === state.token) state.context = d; })
       .catch((e) => { if (token === state.token) state.context = { degraded: ["context unavailable: " + String(e.message || e)] }; })
       .finally(() => {
@@ -1133,7 +1133,7 @@
       const name = nameOverride != null ? nameOverride
         : card.uniform_variable || "";
       const qs = new URLSearchParams({ name, notes: card.auto_detail || "", original: card.original_variable || "" });
-      api("/api/harmonizer/decode?" + qs.toString())
+      api("api/harmonizer/decode?" + qs.toString())
         .then((d) => { if (token === state.token) state.decode = d; })
         .catch((e) => { if (token === state.token) state.decode = { errors: [String(e.message || e)] }; })
         .finally(() => { if (token === state.token) renderDecodeBox(); });
@@ -1179,7 +1179,7 @@
       words.slice(-3).join(" ")].filter(Boolean);
     const tryAt = (i) => {
       if (i >= phrases.length) { go(1); return; }
-      api("/api/pdfsearch/" + enc(key) + "?q=" + enc(phrases[i]))
+      api("api/pdfsearch/" + enc(key) + "?q=" + enc(phrases[i]))
         .then((d) => {
           if (d && d.hits && d.hits.length) go(d.hits[0].page);
           else tryAt(i + 1);

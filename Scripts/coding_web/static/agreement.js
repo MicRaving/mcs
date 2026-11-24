@@ -49,8 +49,8 @@
     if (ex) q.set("exclude", ex);
     let d;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/reliability"
-                                           : "/api/agreement/reliability";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/reliability"
+                                           : "api/agreement/reliability";
       d = await api(base + "?" + q.toString());
     } catch (e) {
       $("#ag-rel-table").innerHTML = `<div class="ag-empty">Could not compute agreement: ${esc(e.message)}</div>`;
@@ -218,8 +218,8 @@
     if (S.study) q.set("study", S.study);
     let d;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/conflicts"
-                                           : "/api/agreement/conflicts";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/conflicts"
+                                           : "api/agreement/conflicts";
       d = await api(base + "?" + q.toString());
     } catch (e) {
       if (!append) $("#ag-conflist").innerHTML = `<div class="ag-empty">Could not load conflicts: ${esc(e.message)}</div>`;
@@ -350,7 +350,7 @@
     host.innerHTML = `<div class="ag-llmexcl"><div class="ag-llmexcl-head">` +
       `<h3>LLM excluded · raters would include</h3></div><p class="an-note">Loading…</p></div>`;
     try {
-      renderLlmExcluded(await api("/api/agreement/abstract/llm-excluded"));
+      renderLlmExcluded(await api("api/agreement/abstract/llm-excluded"));
     } catch (e) {
       host.innerHTML = `<div class="ag-empty">Could not load LLM/rater disagreements: ${esc(e.message)}</div>`;
     }
@@ -645,7 +645,7 @@
     if (link) {
       const ok = S.scope === "fulltext" && !!S.study;
       link.hidden = !ok;
-      if (ok) link.href = `/paper/${encodeURIComponent(S.study)}`;
+      if (ok) link.href = `paper/${encodeURIComponent(S.study)}`;
     }
     const findWrap = $("#ag-find-wrap");
     if (findWrap) findWrap.hidden = !(S.scope === "fulltext" && S.viewer === "pdf" && !!S.study);
@@ -682,7 +682,7 @@
       getCount: () => $("#ag-find-count"),
       getPrev: () => $("#ag-find-prev"),
       getNext: () => $("#ag-find-next"),
-      fetch: (q) => api(`/api/pdfsearch/${encodeURIComponent(S.study)}?q=${encodeURIComponent(q)}`),
+      fetch: (q) => api(`api/pdfsearch/${encodeURIComponent(S.study)}?q=${encodeURIComponent(q)}`),
       ensurePage: (p) => agEnsurePage(p),
     });
   }
@@ -752,7 +752,7 @@
   function agEnsureSpans(n) {
     if (S.spans[n]) return;
     S.spans[n] = "loading";
-    api(`/api/pdftext/${encodeURIComponent(S.study)}/${n}.json`)
+    api(`api/pdftext/${encodeURIComponent(S.study)}/${n}.json`)
       .then((d) => { S.spans[n] = (d && d.spans) || []; agAddTextLayer(n); })
       .catch(() => { S.spans[n] = []; });
   }
@@ -844,7 +844,7 @@
       const img = document.createElement("img");
       img.className = "pdf-page";
       img.dataset.page = String(n);
-      img.dataset.src = `/pageimg/${encodeURIComponent(S.study)}/${n}.png?scale=2`;
+      img.dataset.src = `pageimg/${encodeURIComponent(S.study)}/${n}.png?scale=2`;
       img.alt = `Page ${n}`;
       img.decoding = "async";
       if (s && s.w) img.style.aspectRatio = `${s.w} / ${s.h}`;
@@ -893,7 +893,7 @@
       host.classList.remove("pdf-mode");
       host.innerHTML = `<p class="side-hint" style="padding:16px">Loading abstract…</p>`;
       try {
-        const d = await api(`/api/screening/abstract/${encodeURIComponent(S.study)}`);
+        const d = await api(`api/screening/abstract/${encodeURIComponent(S.study)}`);
         const rec = d.record || {};
         host.innerHTML = `<article class="ag-abs">` +
           `<h2 class="ag-abs-title">${esc(rec.title || "(no title)")}</h2>` +
@@ -908,7 +908,7 @@
       host.classList.add("pdf-mode");
       host.innerHTML = `<p class="side-hint" style="padding:16px">Loading PDF…</p>`;
       try {
-        const info = await api(`/api/pdfinfo/${encodeURIComponent(S.study)}`);
+        const info = await api(`api/pdfinfo/${encodeURIComponent(S.study)}`);
         S.pages = info.pages || 0;
         S.pageSize = info.size || null;
         if (!S.pages) {
@@ -928,7 +928,7 @@
     host.classList.remove("pdf-mode");
     host.innerHTML = `<p class="side-hint" style="padding:16px">Loading text…</p>`;
     try {
-      const d = await api(`/api/text/${encodeURIComponent(S.study)}`);
+      const d = await api(`api/text/${encodeURIComponent(S.study)}`);
       host.innerHTML = d.text
         ? `<pre class="text ag-text">${esc(d.text)}</pre>`
         : `<div class="ag-empty">No extracted text for this study.</div>`;
@@ -945,8 +945,8 @@
     const prevIdx = Math.max(0, agCards().indexOf(card));
     S.busy = true;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/resolve"
-                                           : "/api/agreement/resolve";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/resolve"
+                                           : "api/agreement/resolve";
       const res = await api(base, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -981,7 +981,7 @@
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
     S.busy = true;
     try {
-      const res = await api("/api/agreement/settle-bulk", {
+      const res = await api("api/agreement/settle-bulk", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ master, key: S.study, mode: "majority", field: S.field || "" }),
       });
@@ -1003,7 +1003,7 @@
     const status = (btn && btn.dataset.complete === "1") ? "open" : "complete";
     S.busy = true;
     try {
-      await api("/api/agreement/study-status", {
+      await api("api/agreement/study-status", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ master, key: S.study, status, scope: S.scope }),
       });
@@ -1055,7 +1055,7 @@
       // Auto-detect a master name from existing resolution files so settled
       // conflicts show up without the user having to type the name exactly.
       try {
-        const avail = await api("/api/agreement/masters");
+        const avail = await api("api/agreement/masters");
         const list = Array.isArray(avail) ? avail : (avail && Array.isArray(avail.masters) ? avail.masters : []);
         if (list.length) {
           S.master = list.includes("Master") ? "Master" : list[0];

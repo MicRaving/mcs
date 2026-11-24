@@ -648,11 +648,11 @@
     }
     let records = null;
     if (kind === "original") {
-      const d = await api(`/api/extraction/${encodeURIComponent(key)}`);
+      const d = await api(`api/extraction/${encodeURIComponent(key)}`);
       records = d.records;
     } else if (kind.startsWith("coding:")) {
       const coder = kind.slice(7);
-      const d = await api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`);
+      const d = await api(`api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`);
       records = d.records;
     }
     // A slower answer for a paper (or coder) the user has already left must
@@ -687,7 +687,7 @@
     if (!tag) { state.done = new Set(); state.doneTag = ""; state.doneAt = 0; return state.done; }
     if (!force && state.doneTag === tag && state.doneAt && Date.now() - state.doneAt < 4000) return state.done;
     try {
-      const r = await fetch(`/api/online/done?stage=coding&tag=${encodeURIComponent(tag)}`);
+      const r = await fetch(`api/online/done?stage=coding&tag=${encodeURIComponent(tag)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       const rows = (d && Array.isArray(d.done)) ? d.done : [];
@@ -707,7 +707,7 @@
     const tag = (state.coder || "").trim();
     if (!key || !tag) return false;
     try {
-      const r = await fetch("/api/online/done", {
+      const r = await fetch("api/online/done", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, stage: "coding", tag }),
@@ -731,7 +731,7 @@
     if (!tag) { state.assigned = new Set(); state.assignedTag = ""; return state.assigned; }
     if (!force && state.assignedTag === tag && state.assignedAt && Date.now() - state.assignedAt < 15000) return state.assigned;
     try {
-      const r = await fetch("/api/online/assignments?stage=coding");
+      const r = await fetch("api/online/assignments?stage=coding");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
       const rows = (d && Array.isArray(d.assignments)) ? d.assignments : [];
@@ -899,12 +899,12 @@
       "Delete coding", true);
     if (!ok) return;
     try {
-      await api("/api/coding/delete", {
+      await api("api/coding/delete", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, coder }),
       });
       toast("Coding deleted", "ok", `${coder} · ${key}`);
-      const fresh = await api("/api/papers");
+      const fresh = await api("api/papers");
       state.papers = fresh.papers;
       state.byKey = {};
       state.papers.forEach((p) => { state.byKey[p.key] = p; });
@@ -2309,7 +2309,7 @@
     }
     det.hidden = true;
     try {
-      const d = await api(`/api/notes/${encodeURIComponent(state.key)}`);
+      const d = await api(`api/notes/${encodeURIComponent(state.key)}`);
       state.notesCache[state.key] = d.notes;
       paint(d.notes);
     } catch {
@@ -2344,19 +2344,19 @@
 
   function pdfFileUrl() {
     const key = state.key;
-    let url = `/paper/${encodeURIComponent(key)}`;
+    let url = `paper/${encodeURIComponent(key)}`;
     if (state.supp) url += `?supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
 
   function pageImageUrl(n) {
-    let url = `/pageimg/${encodeURIComponent(state.key)}/${n}.png?scale=${PDF_RENDER_SCALE}`;
+    let url = `pageimg/${encodeURIComponent(state.key)}/${n}.png?scale=${PDF_RENDER_SCALE}`;
     if (state.supp) url += `&supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
 
   function pageTextUrl(n) {
-    let url = `/api/pdftext/${encodeURIComponent(state.key)}/${n}.json`;
+    let url = `api/pdftext/${encodeURIComponent(state.key)}/${n}.json`;
     if (state.supp) url += `?supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
@@ -2817,7 +2817,7 @@
     if (state.view === "pdf") renderViewer();
     try {
       const q = state.supp ? `?supp=${encodeURIComponent(state.supp)}` : "";
-      const d = await api(`/api/pdfinfo/${encodeURIComponent(state.key)}${q}`);
+      const d = await api(`api/pdfinfo/${encodeURIComponent(state.key)}${q}`);
       state.pages = d.pages;
       state.pageSize = d.size || null;
       /* no page count (e.g. Lite build without PyMuPDF) -> embedded viewer */
@@ -2856,7 +2856,7 @@
       wrap.appendChild(pre);
       v.appendChild(wrap);
       if (cached == null) {
-        api(`/api/text/${encodeURIComponent(key)}`).then((d) => {
+        api(`api/text/${encodeURIComponent(key)}`).then((d) => {
           state.textCache[key] = d.text || "(no extracted text)";
           pre.textContent = state.textCache[key];
           if (state.coderMode) coderRelocateSoon(60);
@@ -2889,7 +2889,7 @@
       fetch: (q) => {
         const p = new URLSearchParams({ q });
         if (state.supp) p.set("supp", state.supp);
-        return api(`/api/pdfsearch/${encodeURIComponent(state.key)}?${p.toString()}`);
+        return api(`api/pdfsearch/${encodeURIComponent(state.key)}?${p.toString()}`);
       },
     });
   }
@@ -3139,7 +3139,7 @@
       state.source = "blind";
       let records = null;
       if (p.has_extraction) {
-        try { const d = await api(`/api/extraction/${encodeURIComponent(key)}`); records = d.records; }
+        try { const d = await api(`api/extraction/${encodeURIComponent(key)}`); records = d.records; }
         catch { records = null; }
       }
       if (seq !== state.loadSeq || state.key !== key) return false;
@@ -3196,8 +3196,8 @@
       const who = state.compareCoder;
       try {
         const d = who === "OG"
-          ? await api(`/api/extraction/${encodeURIComponent(key)}`)
-          : await api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(who)}`);
+          ? await api(`api/extraction/${encodeURIComponent(key)}`)
+          : await api(`api/coding/${encodeURIComponent(key)}/${encodeURIComponent(who)}`);
         // a comparison for a paper / coder the user already left is dropped
         if (state.key !== key || state.compareCoder !== who) return;
         state.compare = (d && d.records && d.records.length) ? d.records : null;
@@ -3415,7 +3415,7 @@
     if (!key) return;
     try {
       const q = state.coder ? `?coder=${encodeURIComponent(state.coder)}` : "";
-      const d = await api(`/api/fulltext/${encodeURIComponent(key)}${q}`);
+      const d = await api(`api/fulltext/${encodeURIComponent(key)}${q}`);
       state.fulltext.criteria = d.criteria || state.fulltext.criteria;
       state.fulltext.mine = d.mine || null;
       state.fulltext.agreed = d.agreed || null;
@@ -3437,7 +3437,7 @@
     const note = $("#ft-note") ? $("#ft-note").value : "";
     if (exclude && !crit) { toast("Pick an exclusion reason", "err"); $("#ft-criterion").focus(); return; }
     try {
-      const d = await api(`/api/fulltext/${encodeURIComponent(key)}`, {
+      const d = await api(`api/fulltext/${encodeURIComponent(key)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder, exclude, criterion: crit || "other", note }),
       });
@@ -3454,7 +3454,7 @@
 
   async function refreshExcluded() {
     try {
-      const a = await api("/api/fulltext/excluded");
+      const a = await api("api/fulltext/excluded");
       const agreed = a.agreed || {};
       state.papers.forEach((p) => {
         const ex = agreed[p.key];
@@ -4414,7 +4414,7 @@
     const savedEdit = state.editSeq || 0;
     try {
       const recordsOut = state.blind ? stripEmptyForBlind(state.records) : state.records;
-      const res = await fetch("/api/save", {
+      const res = await fetch("api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: savedKey, coder, records: recordsOut, blind: state.blind }),
@@ -4642,7 +4642,7 @@
   async function openProjectDialog() {
     let info = { root: "", can_pick: false };
     try {
-      info = await api("/api/root");
+      info = await api("api/root");
     } catch { /* ignore */ }
     $("#project-input").value = info.root || "";
     $("#project-status").textContent = info.papers != null ? `${info.papers} papers found` : "";
@@ -4671,7 +4671,7 @@
       status.textContent = "";
     }
     try {
-      const r = await fetch("/api/pick-root", { method: "POST" }).then((x) => x.json());
+      const r = await fetch("api/pick-root", { method: "POST" }).then((x) => x.json());
       if (r.ok && r.path) {
         $("#project-input").value = r.path;
         status.textContent = "Folder selected — press “Use this folder”.";
@@ -4690,7 +4690,7 @@
      working copy, caches and the scheme editor all belong to one project, so
      they are reset here and nowhere else. */
   async function applyRootSwitch(r) {
-    const fresh = await api("/api/papers");
+    const fresh = await api("api/papers");
     state.papers = fresh.papers;
     state.byKey = {};
     state.papers.forEach((p) => { state.byKey[p.key] = p; });
@@ -4739,7 +4739,7 @@
     }
     $("#project-status").textContent = "Switching project…";
     try {
-      const r = await fetch("/api/root", {
+      const r = await fetch("api/root", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ root: path }),
@@ -4816,7 +4816,7 @@
     const tick = async () => {
       if (stopped) return;
       try {
-        const p = await api("/api/papers/progress");
+        const p = await api("api/papers/progress");
         const total = Number(p.total) || 0;
         const done = Number(p.done) || 0;
         // stamping has no count: show a thin indeterminate start instead of 0 %
@@ -4858,8 +4858,8 @@
     // coder picker, filters and the topbar work while the list is still loading.
     // state.papers is [] until then, which every handler tolerates.
     wireEvents();
-    const papersReq = api("/api/papers");
-    const schema = await api("/api/schema");
+    const papersReq = api("api/papers");
+    const schema = await api("api/schema");
     state.schema = schema;
     schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
     Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
@@ -4882,7 +4882,7 @@
     state.papers.forEach((p) => { state.byKey[p.key] = p; });
     renderCoderOptions();
     updateFtCount();
-    try { state.fulltext.criteria = (await api("/api/fulltext/criteria")).criteria || []; } catch { /* ignore */ }
+    try { state.fulltext.criteria = (await api("api/fulltext/criteria")).criteria || []; } catch { /* ignore */ }
 
     renderPaperList();
     $("#form").innerHTML = "";
@@ -5220,7 +5220,7 @@
       const p = state.byKey[state.key] || {};
       const sp = (p.supplements || []).find((s) => s.file === val);
       if (sp && sp.kind !== "pdf") {
-        window.open(`/supplement/${encodeURIComponent(state.key)}/` +
+        window.open(`supplement/${encodeURIComponent(state.key)}/` +
                     `${encodeURIComponent(sp.file)}`, "_blank");
         e.target.value = state.supp;
         return;
@@ -5390,7 +5390,7 @@
                               { type: "application/json" });
         // sendBeacon refuses bodies over its quota (~64 KB) and says so only
         // through its return value; a large coding was silently lost here.
-        sent = navigator.sendBeacon("/api/save", blob);
+        sent = navigator.sendBeacon("api/save", blob);
       } catch { sent = false; }
       if (sent) { state.dirty = false; return; }
       // could not queue the save: ask before leaving rather than lose the edits

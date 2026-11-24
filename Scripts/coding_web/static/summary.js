@@ -158,7 +158,7 @@
     if (state.levelCache[dim] !== undefined) return;
     if (!levelSelectable(dim)) { state.levelCache[dim] = []; return; }
     try {
-      const d = await api("/api/summary/levels?dim=" + encodeURIComponent(dim) + (state.coder ? "&coder=" + encodeURIComponent(state.coder) : ""));
+      const d = await api("api/summary/levels?dim=" + encodeURIComponent(dim) + (state.coder ? "&coder=" + encodeURIComponent(state.coder) : ""));
       state.levelCache[dim] = d.levels || [];
       if (state.byName[dim] && d.n_levels != null) state.byName[dim].n_levels = d.n_levels;
     } catch { state.levelCache[dim] = []; }
@@ -199,7 +199,7 @@
     const req = ++state.request;
     let d;
     try {
-      d = await api("/api/summary/variables?" + p.toString());
+      d = await api("api/summary/variables?" + p.toString());
     } catch (e) {
       $("#sm-table").innerHTML = `<div class="sm-empty">Could not load the list: ${esc(e.message)}</div>`;
       return;
@@ -414,7 +414,7 @@
     state.edits = {};
     state.saving = true;
     try {
-      const r = await api("/api/summary/save", {
+      const r = await api("api/summary/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder, edits: sent }),
       });
@@ -456,7 +456,7 @@
   // ---------------------------------------------------------------- load
   async function loadDimensions() {
     try {
-      const d = await api("/api/summary/dimensions" + (state.coder ? "?coder=" + encodeURIComponent(state.coder) : ""));
+      const d = await api("api/summary/dimensions" + (state.coder ? "?coder=" + encodeURIComponent(state.coder) : ""));
       state.dims = d.dimensions || [];
       state.groupOrder = d.group_order || [];
       state.byName = {};

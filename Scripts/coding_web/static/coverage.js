@@ -68,7 +68,7 @@
     try {
       const qs = new URLSearchParams({ sort: state.sort, dir: state.dir, filter: state.filter });
       if (state.q) qs.set("q", state.q);
-      state.data = await api("/api/coverage?" + qs.toString());
+      state.data = await api("api/coverage?" + qs.toString());
     } catch (e) {
       toast("Could not load the harmonization queue", "err", String(e.message || e));
       state.data = { studies: [], funnel: {}, counts: {}, audit: { checks: [], findings: [] }, slots: [] };

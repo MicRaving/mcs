@@ -143,7 +143,7 @@
 
   async function pollRun() {
     let s;
-    try { s = await api("/api/repro/run/status"); } catch { return; }
+    try { s = await api("api/repro/run/status"); } catch { return; }
     const body = $("#rp-runlog-body");
     if (body) {
       body.textContent = s.log || "(starting…)";
@@ -174,7 +174,7 @@
     const only = onlyEl ? onlyEl.value.trim() : "";
     let res;
     try {
-      res = await api("/api/repro/run", {
+      res = await api("api/repro/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, only }),
       });
@@ -852,7 +852,7 @@
     btn.disabled = true;
     let res;
     try {
-      res = await api("/api/repro/dossier/edit", {
+      res = await api("api/repro/dossier/edit", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -883,7 +883,7 @@
     const wrap = document.querySelector(".rp-logwrap");
     if (wrap) wrap.innerHTML = `<span class="rp-muted">loading log…</span>`;
     try {
-      S.log = await api("/api/repro/dossier/log/" + encodeURIComponent(S.study));
+      S.log = await api("api/repro/dossier/log/" + encodeURIComponent(S.study));
     } catch (e) {
       if (wrap) wrap.innerHTML = `<span class="rp-muted">could not load the log: ${esc(String(e.message || e))}</span>`;
       return;
@@ -947,8 +947,8 @@
     let dossier, files;
     try {
       [dossier, files] = await Promise.all([
-        api("/api/repro/study/" + encodeURIComponent(key) + "/dossier"),
-        api("/api/repro/dossier/files/" + encodeURIComponent(key)).catch(() => null),
+        api("api/repro/study/" + encodeURIComponent(key) + "/dossier"),
+        api("api/repro/dossier/files/" + encodeURIComponent(key)).catch(() => null),
       ]);
     } catch (e) {
       if (empty) empty.textContent = `Could not load ${key}: ${String(e.message || e)}`;
@@ -967,7 +967,7 @@
   }
 
   async function loadOverview() {
-    const d = await api("/api/repro/overview");
+    const d = await api("api/repro/overview");
     S.overview = d;
     // Say where the verdicts come from.  The workbook is the campaign's own
     // summary; without it the tab reads each study's repro_facts.json, and a

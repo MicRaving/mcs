@@ -345,7 +345,7 @@
     if (!state.docText[id]) {
       if (host) host.innerHTML = `<p class="home-note">Loading…</p>`;
       try {
-        const r = await fetch(`/static/docs/${encodeURIComponent(id)}.md`);
+        const r = await fetch(`static/docs/${encodeURIComponent(id)}.md`);
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         state.docText[id] = window.CS.markdown(await r.text());
       } catch (err) {
@@ -361,7 +361,7 @@
   async function loadDocs() {
     if (state.docs.length) return;
     try {
-      const r = await fetch("/static/docs/index.json");
+      const r = await fetch("static/docs/index.json");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       state.docs = Array.isArray(data.docs) ? data.docs : [];
@@ -387,7 +387,7 @@
     if (state.fetching) return;
     state.fetching = true;
     try {
-      const data = await api("/api/projects");
+      const data = await api("api/projects");
       state.projects = Array.isArray(data.projects) ? data.projects : [];
       state.current = data.current || "";
       state.available = true;
@@ -397,7 +397,7 @@
       state.available = false;
       // the active project is still known, even without the list
       try {
-        const info = await api("/api/root");
+        const info = await api("api/root");
         state.current = (info && info.root) || "";
       } catch { /* ignore */ }
     } finally {
@@ -413,7 +413,7 @@
   async function loadMetrics() {
     const root = state.current || "";
     try {
-      const data = await api("/api/project/summary");
+      const data = await api("api/project/summary");
       state.metrics = data.metrics || null;
       state.metricsFor = (data.project && data.project.path) || root;
       state.metricsProject = !!(data.project && data.project.is_project);
@@ -434,7 +434,7 @@
     let root = state.current || "";
     if (!root) {
       try {
-        const info = await api("/api/root");
+        const info = await api("api/root");
         root = (info && info.root) || "";
       } catch { /* ignore */ }
     }
@@ -458,7 +458,7 @@
     const sel = $("#home-new-template");
     if (!sel) return;
     let info = null;
-    try { info = await api("/api/scheme/source"); } catch { return; }
+    try { info = await api("api/scheme/source"); } catch { return; }
     const list = (info && Array.isArray(info.schemes)) ? info.schemes : [];
     sel.querySelectorAll("option[data-installed]").forEach((o) => o.remove());
     for (const s of list) {
@@ -512,7 +512,7 @@
       return;                    // already open
     }
     state.dialogIsMine = true;
-    api("/api/root").then((info) => {
+    api("api/root").then((info) => {
       if (!dlg.open || !info) return;
       if (input && !input.value.trim()) input.value = info.root || "";
       if (status && info.papers != null) status.textContent = `${info.papers} papers found`;
@@ -526,7 +526,7 @@
     if (!path) return;
     setBusy(true);
     try {
-      const r = await postJson("/api/root", { root: path });
+      const r = await postJson("api/root", { root: path });
       if (!r.ok) {
         const why = (r.data && r.data.error) || "Could not open that folder.";
         toast("Could not open that project", "err", why);
@@ -534,7 +534,7 @@
         return;
       }
       // the back end keeps the recent list
-      try { await postJson("/api/project/recent", { path }); } catch { /* not fatal */ }
+      try { await postJson("api/project/recent", { path }); } catch { /* not fatal */ }
       const root = r.data.root || path;
       flash(`Project opened — ${root}`);
       // the paper list belongs to the project, so the app is reloaded
@@ -562,7 +562,7 @@
     if (!parent) { setError("Give the folder the new project is created in."); return; }
     setBusy(true);
     try {
-      const r = await postJson("/api/project/new", { name, parent, template });
+      const r = await postJson("api/project/new", { name, parent, template });
       if (!r.ok) {
         setError((r.data && r.data.error) || "The project could not be created.");
         return;
@@ -570,12 +570,12 @@
       const root = r.data.root || "";
       setOk(`Created ${root}`);
       // open it
-      const o = await postJson("/api/root", { root });
+      const o = await postJson("api/root", { root });
       if (!o.ok) {
         setError((o.data && o.data.error) || "The project was created but could not be opened.");
         return;
       }
-      try { await postJson("/api/project/recent", { path: root }); } catch { /* not fatal */ }
+      try { await postJson("api/project/recent", { path: root }); } catch { /* not fatal */ }
       flash(`Project created and opened — ${root}`);
       location.reload();
     } catch (err) {
@@ -590,12 +590,12 @@
   async function noteDialogSwitch() {
     let root = "";
     try {
-      const info = await api("/api/root");
+      const info = await api("api/root");
       root = (info && info.root) || "";
     } catch { return; }
     if (!root || samePath(root, state.current)) return;
     try {
-      const r = await postJson("/api/project/recent", { path: root });
+      const r = await postJson("api/project/recent", { path: root });
       if (r.ok && Array.isArray(r.data.projects)) {
         state.projects = r.data.projects;
         state.current = r.data.current || root;
@@ -683,7 +683,7 @@
   async function maybeLandOnHome() {
     if (safeGet("cs.view")) return;
     let info = null;
-    try { info = await api("/api/root"); } catch { return; }
+    try { info = await api("api/root"); } catch { return; }
     if (!info) return;
     if (info.has_papers || Number(info.papers || 0) > 0) return;
     showHome();

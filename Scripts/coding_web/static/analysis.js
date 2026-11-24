@@ -192,7 +192,7 @@
     if (state.spec) p.set("spec", state.spec);
     p.set("exclusions", state.exclusions);
     p.set("fully_within", state.fullyWithin ? "1" : "0");
-    return api(`/api/analysis/table?${p}`);
+    return api(`api/analysis/table?${p}`);
   }
 
   function renderTable(columns, rows, { numeric = "auto" } = {}) {
@@ -583,7 +583,7 @@
                                     scope: (state.cred ? "restricted" : "unrestricted") });
     if (bayes) { p.set("model", "bayes"); priorParams(p); }
     filterParams(p);
-    try { return await api(`/api/analysis/subgroup?${p}`); } catch { return { rows: [] }; }
+    try { return await api(`api/analysis/subgroup?${p}`); } catch { return { rows: [] }; }
   }
 
   async function fetchPooled() {
@@ -592,7 +592,7 @@
                                     scope: (state.cred ? "restricted" : "unrestricted") });
     priorParams(p);
     filterParams(p);
-    try { return await api(`/api/analysis/pooled?${p}`); } catch { return null; }
+    try { return await api(`api/analysis/pooled?${p}`); } catch { return null; }
   }
 
   async function fetchBayes(sensitivity = false) {
@@ -604,7 +604,7 @@
                                     tau_prior: state.tauPrior });
     filterParams(p);
     if (sensitivity) p.set("sensitivity", "1");
-    try { return await api(`/api/analysis/bayes?${p}`); } catch { return null; }
+    try { return await api(`api/analysis/bayes?${p}`); } catch { return null; }
   }
 
   async function showSensitivity() {
@@ -744,7 +744,7 @@
     const sel = $("#an-filter");
     if (!sel) return;
     try {
-      const d = await api("/api/analysis/moderators");
+      const d = await api("api/analysis/moderators");
       let html = `<option value="">All studies</option>`;
       (d.featured || []).forEach((m) => {
         const levels = m.levels || [];
@@ -900,11 +900,11 @@
     // Do not pull the (large) image until the Figures tab is actually open.
     if ($("#an-panel-figures")?.hidden) return;
     const img = $("#an-fig-img");
-    img.src = `/api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
+    img.src = `api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
     img.hidden = false;
     $("#an-fig-cap").innerHTML = `${esc(figCaption(f))}<br><span class="an-figlinks">` +
-      `<a href="/api/analysis/figure/${encodeURIComponent(stem)}.png" target="_blank" rel="noopener">PNG</a>` +
-      (f.pdf ? ` · <a href="/api/analysis/figure/${encodeURIComponent(stem)}.pdf" target="_blank" rel="noopener">PDF</a>` : "") +
+      `<a href="api/analysis/figure/${encodeURIComponent(stem)}.png" target="_blank" rel="noopener">PNG</a>` +
+      (f.pdf ? ` · <a href="api/analysis/figure/${encodeURIComponent(stem)}.pdf" target="_blank" rel="noopener">PDF</a>` : "") +
       `</span>`;
   }
 
@@ -975,9 +975,9 @@
       return;
     }
     img.hidden = false;
-    img.src = `/api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
+    img.src = `api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
     if (none) none.hidden = true;
-    const url = `/api/analysis/figure/${encodeURIComponent(stem)}`;
+    const url = `api/analysis/figure/${encodeURIComponent(stem)}`;
     if (png) { png.href = url + ".png"; png.hidden = false; }
     if (pdf) { pdf.href = url + ".pdf"; pdf.hidden = isMod; }
     if (fallbackNote) {
@@ -1020,7 +1020,7 @@
     host.innerHTML = figs.map((f) => {
       const stem = String(f.file || "").replace(/\.png$/, "");
       if (!stem) return "";
-      const url = `/api/analysis/figure/${encodeURIComponent(stem)}`;
+      const url = `api/analysis/figure/${encodeURIComponent(stem)}`;
       const label = esc(f.label || f.name);
       return `<figure class="an-sidefig"><figcaption>${label}</figcaption>` +
         `<img src="${url}.png?t=${Date.now()}" alt="${label}">` +
@@ -1037,7 +1037,7 @@
     const groupsHost = $("#an-mod-groups");
     if (groupsHost) groupsHost.innerHTML = `<div class="an-empty">Loading moderators…</div>`;
     try {
-      const d = await api("/api/analysis/moderators");
+      const d = await api("api/analysis/moderators");
       state.mods = d.moderators || [];
       state.featured = d.featured || [];
       state.modGroups = d.groups || [];
@@ -1327,7 +1327,7 @@
     const out = {};
     for (const oc of ["true_score", "fake_score", "criterion"]) {
       try {
-        out[oc] = await api("/api/analysis/moderate", {
+        out[oc] = await api("api/analysis/moderate", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(Object.assign({}, base, { outcome: oc })),
         });
@@ -1347,7 +1347,7 @@
     state.modFitting = true;
     syncModWait();
     try {
-      const r = await api("/api/analysis/moderate", {
+      const r = await api("api/analysis/moderate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ layer: state.layer, spec: state.spec, exclusions: state.exclusions,
                                scope: (state.cred ? "restricted" : "unrestricted"),
@@ -1387,7 +1387,7 @@
   async function loadMethods() {
     const host = $("#an-methods");
     try {
-      const n = await api("/api/analysis/note");
+      const n = await api("api/analysis/note");
       if (!n.available) {
         host.innerHTML = `<div class="an-empty">No methods note found (<code>Scripts/ANALYSIS_SUITE_NOTE.md</code>).</div>`;
         return;
@@ -1477,7 +1477,7 @@
 
   async function pollRun() {
     try {
-      const s = await api("/api/analysis/run/status");
+      const s = await api("api/analysis/run/status");
       $("#an-runlog-body").textContent = s.log || "(starting…)";
       $("#an-runlog-body").scrollTop = $("#an-runlog-body").scrollHeight;
       setProgress("Recomputing prerequisite tables and figures…", true);
@@ -1494,7 +1494,7 @@
 
   async function run(kind) {
     try {
-      const res = await api("/api/analysis/run", {
+      const res = await api("api/analysis/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, fully_within: state.fullyWithin }),
       });
@@ -1522,7 +1522,7 @@
   // ---------------------------------------------------------------- refresh
   async function refresh() {
     try {
-      state.overview = await api(`/api/analysis/overview?fully_within=${state.fullyWithin ? "1" : "0"}`);
+      state.overview = await api(`api/analysis/overview?fully_within=${state.fullyWithin ? "1" : "0"}`);
     } catch (e) {
       $("#an-summary").innerHTML = `<div class="an-empty">Could not load the analysis overview: ${esc(e.message)}</div>`;
       return;
@@ -1708,7 +1708,7 @@
     const img = $("#apa-prisma-img");
     if (!img) return;
     img.hidden = false;
-    img.src = `/api/analysis/prisma.png?t=${Date.now()}`;
+    img.src = `api/analysis/prisma.png?t=${Date.now()}`;
     renderPrismaCounts();
   }
 
@@ -1720,7 +1720,7 @@
     const host = $("#apa-prisma-counts");
     if (!host) return;
     try {
-      const c = await api("/api/analysis/prisma/counts");
+      const c = await api("api/analysis/prisma/counts");
       if (!c || !c.available) {
         host.hidden = true;
         return;
@@ -1768,7 +1768,7 @@
     if (!body.analyses.length) { alert("Select at least one analysis."); return; }
     toast("Building the report…", "ok", "This can take a few seconds.");
     try {
-      const r = await fetch("/api/analysis/apa", {
+      const r = await fetch("api/analysis/apa", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -1801,7 +1801,7 @@
                                     exclusions: state.exclusions,
                                     scope: (state.cred ? "restricted" : "unrestricted") });
     p.set("fully_within", state.fullyWithin ? "1" : "0");
-    const url = `/api/analysis/export?${p}`;
+    const url = `api/analysis/export?${p}`;
     const a = document.createElement("a");
     a.href = url;
     a.download = "";

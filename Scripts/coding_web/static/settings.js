@@ -76,7 +76,7 @@
   async function loadProjectDoc(force = false) {
     let info = null;
     try {
-      info = await api("/api/settings/project");
+      info = await api("api/settings/project");
     } catch (err) {
       setDocStatus("The file could not be read: " + (err.message || err), "err");
       return;
@@ -109,7 +109,7 @@
     state.busy = true;
     setDocStatus("Saving…");
     try {
-      const r = await fetch("/api/settings/project", {
+      const r = await fetch("api/settings/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: area.value, stamp: state.stamp }),
@@ -150,7 +150,7 @@
     if (!ok) return;
     state.busy = true;
     try {
-      const r = await fetch("/api/settings/project/reset", {
+      const r = await fetch("api/settings/project/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stamp: state.stamp }),
@@ -264,7 +264,7 @@
 
   async function loadUpdateState() {
     try {
-      renderUpdate(await api("/api/update/state"));
+      renderUpdate(await api("api/update/state"));
     } catch (err) {
       setUpdateStatus("The update state could not be read: " + (err.message || err), "err");
     }
@@ -277,7 +277,7 @@
     if (dl.status !== "downloading") return;
     state.poll = setTimeout(async () => {
       try {
-        renderUpdate(await api("/api/update/state"));
+        renderUpdate(await api("api/update/state"));
       } catch { /* keep the last state */ }
       schedulePoll();
     }, 700);
@@ -288,7 +288,7 @@
     if (btn) btn.disabled = true;
     setUpdateStatus("Checking…");
     try {
-      renderUpdate(await api("/api/update/check", { method: "POST" }));
+      renderUpdate(await api("api/update/check", { method: "POST" }));
     } catch (err) {
       setUpdateStatus("Could not check: " + (err.message || err), "err");
     } finally {
@@ -314,14 +314,14 @@
     if (dl.status !== "ready") {
       setUpdateStatus("Downloading…");
       try {
-        const r = await postJson("/api/update/download");
+        const r = await postJson("api/update/download");
         if (!r.ok) {
           setUpdateStatus(r.error || "The download could not start", "err");
           return;
         }
         // refresh first: the cached state still says "idle", and the poll
         // only runs while the state says "downloading"
-        renderUpdate(await api("/api/update/state"));
+        renderUpdate(await api("api/update/state"));
       } catch (err) {
         setUpdateStatus("The download could not start: " + (err.message || err), "err");
         return;
@@ -336,7 +336,7 @@
     if (!ok) return;
     setUpdateStatus("Installing…");
     try {
-      const r = await postJson("/api/update/apply");
+      const r = await postJson("api/update/apply");
       if (!r.ok) {
         setUpdateStatus(r.message || "The update could not be installed", "err");
         return;

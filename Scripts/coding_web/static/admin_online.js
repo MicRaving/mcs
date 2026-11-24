@@ -12,7 +12,7 @@
   "use strict";
 
   const ROOT_ID = "online-admin-root";
-  const API = "/api/online/admin";
+  const API = "api/online/admin";
   const STAGES = ["abstract", "fulltext", "coding"];
   const TASKS = ["abstract", "fulltext", "coding", "settle", "harmonize", "reproduce"];
   const ROLES = ["owner", "coder", "viewer"];
@@ -560,7 +560,7 @@
     keysTA.addEventListener("input", updateKeysNote);
     const useAll = el("button", { class: "btn", type: "button", text: "Use all papers" });
     useAll.addEventListener("click", action(useAll, async () => {
-      const d = await api("/api/papers");
+      const d = await api("api/papers");
       const keys = listOf(d, "papers").map((p) => p.key).filter(Boolean);
       keysTA.value = keys.join("\n");
       updateKeysNote();
@@ -773,7 +773,7 @@
   /* ------------------------------------------------------------ Locks tab */
 
   VIEWS.locks = async function () {
-    const d = await api("/api/online/locks");
+    const d = await api("api/online/locks");
     const rows = listOf(d, "locks").map((l) => {
       const key = l.key;
       const force = el("button", { class: "btn danger", type: "button", text: "Force release" });

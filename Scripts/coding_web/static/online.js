@@ -174,7 +174,7 @@
   async function refreshStatus() {
     if (S.routeMissing) return;
     try {
-      const st = await GET("/api/online/status");
+      const st = await GET("api/online/status");
       applyStatus(st);
     } catch (err) {
       if (err.status === 404) {
@@ -306,7 +306,7 @@
     const sig = `${key}|${tab}`;
     if (sig === S.lastPresence) return;   // still inside the TTL window
     S.lastPresence = sig;
-    GET(`/api/online/presence?key=${encodeURIComponent(key)}&tab=${encodeURIComponent(tab)}`)
+    GET(`api/online/presence?key=${encodeURIComponent(key)}&tab=${encodeURIComponent(tab)}`)
       .then((d) => { S.others = (d && d.others) || []; renderPresenceIfOpen(); })
       .catch(() => { /* heartbeat failures are the offline mode's business */ });
   }
@@ -326,7 +326,7 @@
   async function fetchLocks() {
     if (!S.active) { S.locks = []; return S.locks; }
     try {
-      const d = await GET("/api/online/locks");
+      const d = await GET("api/online/locks");
       S.locks = (d && d.locks) || [];
     } catch { S.locks = S.locks || []; }
     return S.locks;
@@ -374,7 +374,7 @@
     try {
       const body = { task: task || "", key };
       Object.assign(body, extra || {});
-      const d = await POST(`/api/online/locks/${encodeURIComponent(key)}`, body);
+      const d = await POST(`api/online/locks/${encodeURIComponent(key)}`, body);
       const lock = d && d.lock;
       const timer = setInterval(() => renew(key), RENEW_MS);
       S.held.set(key, { task, timer, lock });
@@ -394,7 +394,7 @@
   async function renew(key) {
     if (!S.active || !S.held.has(key)) return;
     try {
-      await POST(`/api/online/locks/${encodeURIComponent(key)}`, { task: S.held.get(key).task || "" });
+      await POST(`api/online/locks/${encodeURIComponent(key)}`, { task: S.held.get(key).task || "" });
     } catch (err) {
       if (err.status === 409) {
         // someone force-released it and took it: stop renewing silently
@@ -412,7 +412,7 @@
     S.held.delete(key);
     S.blocked.delete(key);
     if (!S.active || !key) return;
-    try { await DELETE(`/api/online/locks/${encodeURIComponent(key)}`); } catch { /* TTL covers it */ }
+    try { await DELETE(`api/online/locks/${encodeURIComponent(key)}`); } catch { /* TTL covers it */ }
   }
 
   function releaseAll() {
@@ -602,7 +602,7 @@
       const body = nc
         ? { kind: "nextcloud", url: server, username, app_password: password, folder }
         : { kind: "server", server, username, password };
-      const r = await POST("/api/online/connect", body);
+      const r = await POST("api/online/connect", body);
       $("#online-password", d).value = "";        // never kept, not even in the DOM
       S.projects = (r && r.projects) || [];
       renderProjectList();
@@ -647,7 +647,7 @@
     const st = $("#online-connect-status", d);
     if (st) { st.textContent = `Opening ${name || projectId}…`; st.className = "online-status"; }
     try {
-      const r = await POST("/api/online/open", { project_id: projectId });
+      const r = await POST("api/online/open", { project_id: projectId });
       d.close();
       await refreshStatus();
       if (window.CS.app && window.CS.app.applyRootSwitch) {
@@ -665,7 +665,7 @@
 
   async function closeOnlineProject() {
     try {
-      const r = await POST("/api/online/close", {});
+      const r = await POST("api/online/close", {});
       const d = $("#online-connect-dialog");
       if (d) d.close();
       releaseAll();
@@ -726,7 +726,7 @@
     const btn = $("#online-sync-now");
     if (btn) { btn.disabled = true; btn.textContent = "Syncing…"; }
     try {
-      const r = await POST("/api/online/sync", {});
+      const r = await POST("api/online/sync", {});
       await refreshStatus();
       await loadPanelData();
       const mode = S.mode;
@@ -743,7 +743,7 @@
     if (!S.active) return;
     S.lastPresence = "";        // the panel always asks for a fresh heartbeat
     const jobs = [
-      GET("/api/online/conflicts").then((d) => {
+      GET("api/online/conflicts").then((d) => {
         S.conflicts = (d && d.conflicts) || [];
         S.conflictsLoaded = true;
         S.conflictsError = "";
@@ -751,8 +751,8 @@
         S.conflictsLoaded = false;
         S.conflictsError = String(err.message || err);
       }),
-      GET("/api/online/locks").then((d) => { S.locks = (d && d.locks) || []; }).catch(() => {}),
-      GET("/api/online/cache").then((d) => { S.cache = d || null; }).catch(() => {}),
+      GET("api/online/locks").then((d) => { S.locks = (d && d.locks) || []; }).catch(() => {}),
+      GET("api/online/cache").then((d) => { S.cache = d || null; }).catch(() => {}),
       Promise.resolve(sendPresence()),
     ];
     await Promise.all(jobs);
@@ -815,7 +815,7 @@
     const pinned = Array.isArray(c.pinned) ? c.pinned : [];
     const save = async (patch) => {
       try {
-        S.cache = await POST("/api/online/cache", patch);
+        S.cache = await POST("api/online/cache", patch);
         renderCacheCard();
       } catch (err) { toast("Cache setting not saved", "err", String(err.message || err)); }
     };
@@ -858,7 +858,7 @@
 
   async function myAssignmentKeys() {
     try {
-      const d = await GET("/api/online/assignments?stage=coding");
+      const d = await GET("api/online/assignments?stage=coding");
       const my = new Set(myTags().map((t) => String(t).toLowerCase()));
       const rows = (d && d.assignments) || [];
       const keys = rows
@@ -871,8 +871,8 @@
   async function preloadMine() {
     try {
       const keys = await myAssignmentKeys();
-      await POST("/api/online/cache/preload", { keys });
-      S.cache = await GET("/api/online/cache").catch(() => S.cache);
+      await POST("api/online/cache/preload", { keys });
+      S.cache = await GET("api/online/cache").catch(() => S.cache);
       renderCacheCard();
       toast("Pre-loading your assignments", "ok", keys.length ? `${keys.length} papers` : "nothing assigned");
     } catch (err) {
@@ -882,16 +882,16 @@
 
   async function unpin(keys) {
     try {
-      await POST("/api/online/cache/unpin", { keys });
-      S.cache = await GET("/api/online/cache").catch(() => S.cache);
+      await POST("api/online/cache/unpin", { keys });
+      S.cache = await GET("api/online/cache").catch(() => S.cache);
       renderCacheCard();
     } catch (err) { toast("Unpin failed", "err", String(err.message || err)); }
   }
 
   async function clearCache() {
     try {
-      await POST("/api/online/cache/clear", {});
-      S.cache = await GET("/api/online/cache").catch(() => S.cache);
+      await POST("api/online/cache/clear", {});
+      S.cache = await GET("api/online/cache").catch(() => S.cache);
       renderCacheCard();
       toast("Cache cleared", "ok", "Pinned papers and your core files stay.");
     } catch (err) { toast("Could not clear the cache", "err", String(err.message || err)); }
@@ -989,7 +989,7 @@
 
   async function forceRelease(key) {
     try {
-      await DELETE(`/api/online/locks/${encodeURIComponent(key)}?force=1`);
+      await DELETE(`api/online/locks/${encodeURIComponent(key)}?force=1`);
       await fetchLocks();
       renderLocksIfOpen();
       if (window.CS.app) window.CS.app.renderPaperList();
@@ -1020,7 +1020,7 @@
     go.addEventListener("click", () => takeOffline(list, hours));
 
     // Fill the key list from the coder's assignments.
-    GET("/api/online/assignments?stage=coding").then((d) => {
+    GET("api/online/assignments?stage=coding").then((d) => {
       const my = new Set(myTags().map((t) => String(t).toLowerCase()));
       const rows = ((d && d.assignments) || [])
         .filter((r) => r && r.key && (!my.size || !r.tag || my.has(String(r.tag).toLowerCase())));
@@ -1048,7 +1048,7 @@
     let leased = 0;
     for (const key of keys) {
       try {
-        await POST(`/api/online/locks/${encodeURIComponent(key)}`, { offline_hours: hours });
+        await POST(`api/online/locks/${encodeURIComponent(key)}`, { offline_hours: hours });
         leased += 1;
       } catch (err) {
         // 409: somebody else holds it — the pin below is still worth doing
@@ -1056,8 +1056,8 @@
       }
     }
     try {
-      await POST("/api/online/cache/pin", { keys });
-      S.cache = await GET("/api/online/cache").catch(() => S.cache);
+      await POST("api/online/cache/pin", { keys });
+      S.cache = await GET("api/online/cache").catch(() => S.cache);
       renderCacheCard();
     } catch (err) {
       toast("Pinning failed", "err", String(err.message || err));
@@ -1119,7 +1119,7 @@
     let c = preloaded || null;
     if (!c) {
       try {
-        c = await GET(`/api/online/conflicts/${encodeURIComponent(id)}`);
+        c = await GET(`api/online/conflicts/${encodeURIComponent(id)}`);
       } catch (err) {
         cmp.innerHTML = "";
         cmp.appendChild(h("p", { class: "online-warn", text: String(err.message || err) }));
@@ -1151,9 +1151,9 @@
         return;
       }
       try {
-        await POST(`/api/online/conflicts/${encodeURIComponent(id)}/resolve`,
+        await POST(`api/online/conflicts/${encodeURIComponent(id)}/resolve`,
           { resolution, merged_text: text });
-        await POST("/api/online/sync", {}).catch(() => {});
+        await POST("api/online/sync", {}).catch(() => {});
         await refreshStatus();
         d.close();
         toast("Conflict resolved", "ok", resolution === "merged" ? "your merged version was kept" : `kept ${resolution === "mine" ? "yours" : "theirs"}`);
@@ -1193,16 +1193,16 @@
      cannot include it twice. */
   function ensureAdminAssets() {
     if (!document.getElementById("online-admin-root")) return;
-    if (!document.querySelector('script[src="/static/admin_online.js"]')) {
+    if (!document.querySelector('script[src="static/admin_online.js"]')) {
       const s = document.createElement("script");
-      s.src = "/static/admin_online.js";
+      s.src = "static/admin_online.js";
       s.defer = true;
       document.body.appendChild(s);
     }
-    if (!document.querySelector('link[href="/static/admin_online.css"]')) {
+    if (!document.querySelector('link[href="static/admin_online.css"]')) {
       const l = document.createElement("link");
       l.rel = "stylesheet";
-      l.href = "/static/admin_online.css";
+      l.href = "static/admin_online.css";
       document.head.appendChild(l);
     }
   }

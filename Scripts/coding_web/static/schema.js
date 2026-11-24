@@ -955,7 +955,7 @@
 
   async function fetchSource() {
     try {
-      state.source = await api("/api/scheme/source");
+      state.source = await api("api/scheme/source");
     } catch (err) {
       state.source = null;
     }
@@ -1028,7 +1028,7 @@
         "Load scheme");
       if (!ok) return;
     }
-    let r = await postJson("/api/scheme/import", picked);
+    let r = await postJson("api/scheme/import", picked);
     if (!r.ok && r.status === 409 && r.data.conflict) {
       const id = r.data.scheme_id;
       const replace = await confirmDialog("Replace the installed scheme?",
@@ -1036,13 +1036,13 @@
         + "Replace it with the file's version? Choose Cancel to install the file as a new scheme instead.",
         "Replace '" + id + "'");
       if (replace) {
-        r = await postJson("/api/scheme/import", Object.assign({}, picked, { overwrite: true }));
+        r = await postJson("api/scheme/import", Object.assign({}, picked, { overwrite: true }));
       } else {
         const asNew = await confirmDialog("Install as a new scheme?",
           "The file is installed as '" + (r.data.suggested_id || id + "-2")
           + "' and the installed '" + id + "' is left as it is.", "Install as new");
         if (!asNew) return;
-        r = await postJson("/api/scheme/import", Object.assign({}, picked, { as_new: true }));
+        r = await postJson("api/scheme/import", Object.assign({}, picked, { as_new: true }));
       }
     }
     if (!r.ok) {
@@ -1059,7 +1059,7 @@
     const ok = await confirmDialog("Switch the project's scheme?",
       "The open project will use the installed scheme '" + id + "'. " + warn, "Switch scheme");
     if (!ok) return;
-    const r = await postJson("/api/scheme/assign", { scheme_id: id });
+    const r = await postJson("api/scheme/assign", { scheme_id: id });
     if (!r.ok) {
       toast("The scheme was not switched", "err", r.data.error || ("HTTP " + r.status));
       return;
@@ -1992,7 +1992,7 @@
 
   async function loadCriteria() {
     try {
-      const doc = await api("/api/criteria");
+      const doc = await api("api/criteria");
       state.criteria = normaliseCriteriaDoc(doc);
       state.criteriaError = "";
       state.criteriaDirty = false;
@@ -2009,7 +2009,7 @@
     let res = null;
     let data = null;
     try {
-      res = await fetch("/api/criteria", {
+      res = await fetch("api/criteria", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildCriteriaPayload()),
@@ -2608,7 +2608,7 @@
     if (btn) btn.disabled = true;
     showProblems([]);
     try {
-      const res = await fetch("/api/scheme", {
+      const res = await fetch("api/scheme", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildPayload()),
@@ -2653,7 +2653,7 @@
 
   async function loadRoles() {
     try {
-      const r = await api("/api/scheme/roles");
+      const r = await api("api/scheme/roles");
       const study = Array.isArray(r.study) ? r.study : [];
       const metric = Array.isArray(r.metric) ? r.metric : [];
       const all = Array.isArray(r.all) ? r.all : study.concat(metric);
@@ -2699,7 +2699,7 @@
     if (note) note.textContent = "Loading the scheme…";
     let raw = null;
     try {
-      raw = await api("/api/scheme");
+      raw = await api("api/scheme");
     } catch (err) {
       renderLoadError("The scheme could not be loaded",
         "The /api/scheme endpoint did not answer. The scheme editor needs the scheme API.");
