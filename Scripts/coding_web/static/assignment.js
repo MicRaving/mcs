@@ -732,6 +732,14 @@
   }
 
   function stageRows(card, rows, summary) {
+    // A per-variable answer names the sidecar variable it labels, so the server
+    // can refuse it when its raw column feeds several harmonized variables:
+    // variable_assignments.apply patches only the FIRST sidecar row of a raw
+    // key, and the answer would otherwise label another variable silently.
+    if (card.scope === "variable" && (card.kind === "select" || card.kind === "rename")
+        && card.uniform_variable) {
+      rows.forEach((r) => { if (!r.target_uniform) r.target_uniform = card.uniform_variable; });
+    }
     // stage rows under their draft keys and remember them on the card's
     // session entry, so Undo removes exactly what Confirm added
     const keys = rows.map((r) => { state.pending[draftKey(r)] = r; return draftKey(r); });
@@ -1074,17 +1082,31 @@
     setStatus("Saving…");
     const token = state.token;
     try {
-      const r = await api("api/assignments/" + enc(state.key), {
+      // fetch (not api()): a refused save carries the server's reasons
+      // (shared raw column, role/name mismatch, vocabulary) in its body
+      const resp = await fetch("api/assignments/" + enc(state.key), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder: readCoder(), assignments: rows }),
       });
+      let r = null;
+      try { r = await resp.json(); } catch { r = null; }
+      if (!resp.ok || !r || r.ok === false) {
+        const errs = (r && r.errors && r.errors.length) ? r.errors : [(r && r.error) || `HTTP ${resp.status}`];
+        throw new Error(errs.join(" · "));
+      }
       if (token !== state.token) return;
       state.pending = {};
       for (const id of Object.keys(state.session)) state.session[id].staged = false;
       const changes = (r.records || []).map((x) =>
         `${x.action} ${x.field || ""} ${x.old || ""}→${x.new || ""}`).join("; ");
-      setStatus(`Saved ${r.count} row(s) · ${r.changes} dataset change(s). ${changes}`, "ok");
-      toast("Answers saved", "ok", `${r.changes} dataset change(s)`);
+      const warns = r.warnings || [];
+      setStatus(`Saved ${r.count} row(s) · ${r.changes} dataset change(s)` +
+        (r.conflicts ? ` · ${r.conflicts} logged as conflict (not applied)` : "") +
+        `. ${changes}` + (warns.length ? ` Warnings: ${warns.join(" · ")}` : ""),
+        warns.length || r.conflicts ? "err" : "ok");
+      toast(warns.length || r.conflicts ? "Answers saved, with warnings" : "Answers saved",
+        warns.length || r.conflicts ? "err" : "ok",
+        warns.length ? warns.slice(0, 2).join(" · ") : `${r.changes} dataset change(s)`);
       await loadStudy(state.key, "");
       if (token !== state.token) return;
       renderHost();
