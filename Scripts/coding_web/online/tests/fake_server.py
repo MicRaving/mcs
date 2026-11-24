@@ -159,6 +159,9 @@ class FakeServer:
             return False
         if m.role == "owner":
             return True
+        for stage in getattr(fc, "blind_stages", ()) or ():
+            if p["settings"]["blinding"].get(stage) != "visible":
+                return False
         if fc.kind == "owned":
             if fc.tag in m.tags:
                 return True

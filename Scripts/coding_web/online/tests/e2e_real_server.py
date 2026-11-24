@@ -318,6 +318,26 @@ def record(key: str, **over) -> dict:
     return rec
 
 
+def write_records(root: str) -> None:
+    """The decision-free records table a blinded coder screens from.
+
+    ``Project/master_records.csv.gz`` carries only the bibliographic columns the
+    screening index reads (``compile_master`` writes it in a real project); the
+    master workbook stays the owner's.
+    """
+    import csv
+    import gzip
+
+    path = os.path.join(root, "Project", "master_records.csv.gz")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh, lineterminator="\n")
+        writer.writerow(["an", "title", "abstract", "authors", "year", "doi", "source"])
+        for i, key in enumerate(KEYS, start=1):
+            writer.writerow([f"E2E{i:03d}", key, f"Abstract of {key}. More text.",
+                             "Doe, J.", 2020, f"10.1000/e2e{i}", "Journal E2E"])
+
+
 def build_source(root: str) -> None:
     """The synthetic project the owner publishes (§ the scenario list)."""
     for i, key in enumerate(KEYS):
@@ -338,6 +358,9 @@ def build_source(root: str) -> None:
         write(os.path.join(folder, "harmonizer.py"),
               "# synthetic harmonizer\nprint('no-op')\n")
     write(os.path.join(root, "Project", "project.json"), {"scheme": "synthetic", "name": "E2E"})
+    write_records(root)
+    # a derived consensus file: readable by the owner, never by a blinded coder
+    write(os.path.join(root, "master_dataset.xlsx"), "PK\u0003\u0004 synthetic master\n")
 
 
 # ---------------------------------------------------------------------------
@@ -561,11 +584,66 @@ def test_02_coder_sees_papers_and_pdfs_stay_in_the_cache(world):
 
 
 # ---------------------------------------------------------------------------
-# 03 - blinding and the coder-tag gate
+# 02b - a blinded coder screens from the decision-free records file
 # ---------------------------------------------------------------------------
+
+def test_02b_blinded_coder_screens_from_the_records_file(world):
+    """The abstract stage is blinded, so the mirror has no master workbook.
+
+    Screening must still work: the tab reads ``Project/master_records.csv.gz``
+    (bibliographic rows only, never a verdict), the coder's decision saves to its
+    own ``Screening/<tag>.json`` and lands on the owner.
+    """
+    w = world
+    assert not os.path.exists(coder_path(w, "master_dataset.xlsx"))
+    assert os.path.isfile(coder_path(w, "Project/master_records.csv.gz"))
+
+    meta = w.coder.ok("GET", "/api/screening/meta?coder=" + CODER_TAG)
+    assert meta["available"] is True, meta
+    assert meta["source"] == "records"
+    assert meta["master"] == "master_records.csv.gz"
+    assert meta["total"] == len(KEYS)
+
+    listing = w.coder.ok("GET", "/api/screening/list?coder=" + CODER_TAG
+                         + "&filter=all")["rows"]
+    expected = [f"E2E{i:03d}" for i in range(1, len(KEYS) + 1)]
+    assert [r["i"] for r in listing] == expected
+    assert all(r["d"] == 0 for r in listing)          # nothing decided by this tag yet
+
+    # the abstract pane reads the text (the index's side file), and there is no
+    # AI verdict to show: those live in a foreign tag's Screening/ file
+    abstract = w.coder.ok("GET", "/api/screening/abstract/" + expected[0])
+    assert abstract["record"]["abstract"] == f"Abstract of {KEYS[0]}. More text."
+    assert abstract["ai_decision"] == ""
+    assert abstract["human"] is None
+
+    # the decision saves into the coder's own owned file ...
+    saved = w.coder.ok("POST", "/api/screening/decision", {
+        "coder": CODER_TAG, "id": expected[0],
+        "criteria": {key: {"verdict": "Yes", "certainty": "High", "rationale": ""}
+                     for key in ("C1", "C2", "C3", "C4")},
+    })
+    assert saved["ok"] is True and saved["decision"] == "Include", saved
+    own = coder_path(w, "Screening/" + CODER_TAG + ".json")
+    assert os.path.isfile(own)
+    assert read_json(own)[expected[0]]["decision"] == "Include"
+
+    # ... and reaches the owner through the normal push
+    sync = coder_sync(w)
+    assert sync["pending"] == 0, sync
+    owner_sync(w)
+    owner_copy = read_json(owner_path(w, "Screening/" + CODER_TAG + ".json"))
+    assert owner_copy[expected[0]]["decision"] == "Include"
+    assert owner_copy[expected[0]]["criteria"]["C1"]["verdict"] == "Yes"
+
+
 
 def test_03_blinding_hides_the_other_tag_and_the_gate_refuses_it(world):
     w = world
+    # a blinded coder's mirror holds no derived consensus file: the master
+    # workbook carries every coder's screening/full-text verdicts
+    assert os.path.isfile(owner_path(w, "master_dataset.xlsx"))
+    assert not os.path.exists(coder_path(w, "master_dataset.xlsx"))
     own = w.coder.ok("GET", "/api/coding/" + urllib.parse.quote(KEY, safe="") + "/" + CODER_TAG)
     assert own["coder"] == CODER_TAG
 

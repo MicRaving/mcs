@@ -3,9 +3,12 @@
 =========  ==============================================================  ==========
 tier       content                                                         eviction
 =========  ==============================================================  ==========
-core       ``protocol.is_core`` (Project/, Codings/, Extraction/, ...)      never
+core       ``protocol.is_core`` (Project/, Codings/, Extraction/, ...; and  never
+           only the small ``Datasets/`` metadata CSVs - ``harmonized.csv``,
+           ``prepared*.csv`` etc. are on demand)
 pinned     every file of a pinned key: assigned keys + "take offline"      never
-lru        any other downloaded file (PDFs, raw data, Results ...)         LRU, ``limit_mb``
+lru        any other downloaded file (PDFs, ``Datasets/`` products,         LRU, ``limit_mb``
+           Results ...)
 supplement ``Supplements/`` - like lru, but never pre-loaded unless the    LRU
            ``supplements`` switch is on
 =========  ==============================================================  ==========
@@ -16,6 +19,10 @@ scanner never sees "a head without its file" for an evicted file (which it
 would otherwise report as a deletion); a crash between the two steps leaves a
 file without a head, which the next scan re-adopts because its hash equals
 the server version.
+
+The "run analysis locally" switch is the one reader that wants the whole
+``Datasets/`` tier: :meth:`analysis_candidates` names what it still has to
+fetch and :meth:`analysis_usage` is the size display behind it.
 
 ``state["cache"]``::
 
@@ -190,3 +197,48 @@ class Cache:
                     continue
                 out.append(rel)
         return sorted(out)
+
+    # -- the local analysis run ("run analysis locally" switch) -------------------
+
+    def analysis_candidates(self) -> list[str]:
+        """Server ``Datasets/`` products a local analysis run needs, not local yet.
+
+        The pipeline reads ``Datasets/*/* - harmonized.csv`` (and the raw
+        products next to it) for every study; those CSVs are on-demand in the
+        core tier (INTERFACES 4), so the switch requests them explicitly.
+        ``Results/`` is not included: a local run writes it.
+        """
+        local, every = self._analysis_files()
+        local_set = set(local)
+        return sorted(rel for rel in every if rel not in local_set)
+
+    def analysis_usage(self) -> dict:
+        """``{files, pending, bytes, local_bytes}`` of the analysis inputs."""
+        local, files = self._analysis_files()
+        with self.mirror.lock:
+            remote = dict(self.mirror.remote)
+
+        def size(rel: str) -> int:
+            return max(0, int((remote.get(rel) or {}).get("size") or 0))
+
+        return {"files": len(files), "pending": len(files) - len(local),
+                "bytes": sum(size(rel) for rel in files),
+                "local_bytes": sum(size(rel) for rel in local)}
+
+    def _analysis_files(self) -> tuple[list[str], list[str]]:
+        """``(local, all)`` server ``Datasets/`` products of a local analysis run."""
+        with self.mirror.lock:
+            remote = dict(self.mirror.remote)
+            heads = dict(self.mirror.heads)
+        local: list[str] = []
+        every: list[str] = []
+        for rel, r in remote.items():
+            if r.get("deleted") or not rel.startswith("Datasets/"):
+                continue
+            if self.mirror.classify(rel).kind != "shared":
+                continue
+            every.append(rel)
+            h = heads.get(rel)
+            if h and h["hash"] == r.get("hash"):
+                local.append(rel)
+        return local, every

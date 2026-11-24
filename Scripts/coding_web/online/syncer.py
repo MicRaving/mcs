@@ -5,6 +5,14 @@ round and is serialised by ``sync_lock`` (the background thread, "sync now"
 and conflict resolution never overlap); ``mirror.lock`` guards the state dict
 and is held only for short in-memory updates, never across a network call.
 
+The manifest is the only authority on what this member may read: a path that
+disappears from a **full** manifest (blinding hid another tag's file, the
+master workbook, the settlement store or a ``Results/`` agreement product;
+membership changed; the server deleted it) is retired - its head, stale and
+restore marks are dropped and its bytes are unlinked, so a re-blinded coder
+does not keep an old copy.  An unpushed outbox entry, or a local edit of a
+still-writable path, is the user's work and survives.
+
 Crash safety - the invariants every step keeps:
 
 * A local change is in the outbox (fsync'ed) before anything is sent; its
@@ -57,6 +65,14 @@ from .errors import (
 from .mirror import Mirror, Permissions, atomic_write_bytes
 from .outbox import Outbox
 
+_HEX = frozenset("0123456789abcdef")
+
+
+def protocol_is_hash(value: str) -> bool:
+    """A lowercase sha256 hex digest (never a path fragment)."""
+    return len(value) == 64 and all(c in _HEX for c in value)
+
+
 BACKOFF_MIN = 5.0
 BACKOFF_MAX = 300.0
 PUSH_BATCH = 200
@@ -72,8 +88,12 @@ class Syncer:
     def __init__(self, mirror: Mirror, client, permissions: Permissions | None = None, *,
                  outbox: Outbox | None = None, conflicts: ConflictStore | None = None,
                  cache: Cache | None = None, debounce: float = protocol.PUSH_DEBOUNCE_SECS,
-                 interval: float = protocol.SYNC_INTERVAL_SECS, clock=time.time):
+                 interval: float = protocol.SYNC_INTERVAL_SECS, clock=time.time,
+                 local_blobs: str | None = None):
         self.mirror = mirror
+        #: Server-local read-only blob store (browser workers): versions are
+        #: installed as symlinks to ``<local_blobs>/<h[:2]>/<h>`` when present.
+        self.local_blobs = os.path.abspath(local_blobs) if local_blobs else None
         self.client = client
         self.clock = clock
         self.debounce = debounce
@@ -508,6 +528,7 @@ class Syncer:
                 pass
         files = man.get("files") or []
         touched: list[str] = []
+        retired: list[str] = []
         with self.mirror.lock:
             listed = set()
             for f in files:
@@ -520,7 +541,17 @@ class Syncer:
             if full:
                 for rel in [p for p in self.mirror.remote if p not in listed]:
                     self.mirror.remote.pop(rel, None)          # no longer readable
+                    retired.append(rel)
             candidates = list(dict.fromkeys(list(listed) + list(self.mirror.state.get("stale") or [])))
+        # A path we may no longer read (blinding: another tag's files, the master
+        # workbook, settlements, Results/ agreement products) must leave the
+        # mirror too, exactly like a server deletion - a blinded coder must not
+        # keep a copy that arrived before the stage was blinded again.  This runs
+        # before the restores so a pending restore of a now-hidden file is dropped,
+        # not downloaded (the server would answer 403).
+        for rel in retired:
+            for path in self._retire(rel):
+                touched.append(path)
         self._process_restores()
         for rel in candidates:
             if self._reconcile(rel):
@@ -535,9 +566,54 @@ class Syncer:
             self._notify(touched)
         return {"seq": man.get("seq"), "full": full, "files": len(files), "written": touched}
 
+    def _retire(self, rel: str) -> list[str]:
+        """Remove a path the server no longer lets this member read.
+
+        Returns the paths whose bytes were removed from the mirror.  An unpushed
+        local version of a *writable* file is the user's work: it is kept (the
+        push decides) - but every path that blinding hides is one this member
+        cannot write anyway (a foreign tag, a derived/admin consensus file), so
+        a local-only edit of it is discarded exactly as a server version would
+        overwrite it (INTERFACES 4).  The head is dropped, so the next scan does
+        not report the vanished file as a deletion.
+        """
+        fc = self.mirror.classify(rel)
+        if fc.kind == "excluded":
+            return []
+        if rel in self.outbox:
+            return []
+        full = self.mirror.abspath(rel)
+        if not os.path.exists(full):
+            with self.mirror.lock:
+                self.mirror.drop_head(rel)
+                self.mirror.discard_stale(rel)
+            return []
+        if self.mirror.local_state(rel) == "modified" and self.permissions.can_write(rel, fc):
+            return []
+        self.mirror.remove_file(rel)
+        with self.mirror.lock:
+            self.mirror.discard_stale(rel)
+            self.mirror.state["local_only"].pop(rel, None)
+            (self.mirror.state.get("restore") or {}).pop(rel, None)
+            cache = self.mirror.state.get("cache") or {}
+            (cache.get("atime") or {}).pop(rel, None)
+            (cache.get("evicted") or {}).pop(rel, None)
+        self.mirror.save()
+        return [rel]
+
     def _wanted(self, rel: str, fc) -> bool:
         if protocol.is_core(rel, fc):
             return True
+        if self.local_blobs:
+            # a server-local worker: a link costs no download and no disk, so
+            # every readable file is made local (no on-demand fetches later)
+            with self.mirror.lock:
+                r = self.mirror.remote.get(rel)
+            if r is not None and self._local_blob(r.get("hash")) is not None:
+                return True
+        with self.mirror.lock:
+            if rel in (self.mirror.state.get("stale") or []):
+                return True                 # an explicit request (preload / analysis)
         if os.path.exists(self.mirror.abspath(rel)):
             return True                                     # cached copy: keep it current
         tier = self.cache.tier(rel)
@@ -623,6 +699,28 @@ class Syncer:
         while the download ran (the path stays ``stale`` and is retried).
         """
         before = self.mirror.local_state(rel) if not force else None
+        blob = self._local_blob(digest)
+        if blob is not None:
+            # Server-local worker: link instead of download.  *digest* always
+            # comes from this user's own manifest, so visibility stays the
+            # server's decision.
+            with self.mirror.lock:
+                if not force:
+                    now = self.mirror.local_state(rel)
+                    if now == "modified" and before != "modified" and self.permissions.can_write(rel):
+                        self.mirror.add_stale(rel)
+                        return False
+                try:
+                    self.mirror.link_blob(rel, blob, digest)
+                except OSError as exc:
+                    # no symlink support here: download like a desktop from now on
+                    self.local_blobs = None
+                    self.last_error = f"blob links disabled: {exc}"
+                else:
+                    self.mirror.discard_stale(rel)
+                    if self.cache.tier(rel) in ("lru", "supplement", "pinned"):
+                        self.cache.touch(rel)
+                    return True
         tmp = os.path.join(self.mirror.tmp_dir, f"dl-{digest[:16]}-{threading.get_ident()}")
         try:
             self.client.get_blob(self.pid, digest, tmp)
@@ -641,6 +739,13 @@ class Syncer:
             if self.cache.tier(rel) in ("lru", "supplement", "pinned"):
                 self.cache.touch(rel)
         return True
+
+    def _local_blob(self, digest: str | None) -> str | None:
+        """Path of *digest* in the server-local blob store, or None."""
+        if not self.local_blobs or not digest or not protocol_is_hash(digest):
+            return None
+        path = os.path.join(self.local_blobs, digest[:2], digest)
+        return path if os.path.isfile(path) else None
 
     def fetch(self, rel: str) -> str:
         """Make sure *rel* is local and current (on-demand download)."""

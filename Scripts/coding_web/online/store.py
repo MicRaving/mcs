@@ -35,8 +35,15 @@ class OnlineStore:
     def __init__(self, base_dir: str | None = None, *, transport_factory=None, app_version: str = "",
                  debounce: float = protocol.PUSH_DEBOUNCE_SECS, interval: float = protocol.SYNC_INTERVAL_SECS,
                  fsync: bool = True, use_keyring: bool = True, autostart: bool = True, clock=time.time,
-                 timeout: float = 30.0):
+                 timeout: float = 30.0, persist_token: bool = True, local_blobs: str | None = None):
         self.base_dir = base_dir
+        #: False (browser worker): the token lives in memory only - no keyring,
+        #: no ``.studio/token`` fallback file on the server's disk.
+        self.persist_token = persist_token
+        #: A server-local, read-only blob directory (``<dir>/<h[:2]>/<h>``):
+        #: when set, the syncer installs server versions as symlinks into it
+        #: instead of downloading them (browser workers on the server, PLAN_online_only §4.4).
+        self.local_blobs = local_blobs
         self.transport_factory = transport_factory
         self.app_version = app_version
         self.debounce = debounce
@@ -104,9 +111,28 @@ class OnlineStore:
             self.client, self.server, self.username = client, server, username
             self.user = data.get("user") or me.get("user")
             self.projects_cache = list(me.get("projects") or [])
-        keyring_store.save_token(server, username, client.token or "", fallback_dir=None,
-                                 use_keyring=self.use_keyring)
+        if self.persist_token:
+            keyring_store.save_token(server, username, client.token or "", fallback_dir=None,
+                                     use_keyring=self.use_keyring)
         return list(self.projects_cache)
+
+    def adopt(self, server: str, token: str, username: str | None = None) -> dict:
+        """Use an already issued *token* (the browser gateway's session).
+
+        No login, nothing stored: the caller owns the token's lifetime.
+        Validates it with ``GET /api/auth/me`` and returns that answer
+        (``AuthError`` when the token is not valid).
+        """
+        server = server.rstrip("/")
+        client = self._new_client(server, token)
+        me = client.me()
+        user = me.get("user") or {}
+        with self.lock:
+            self.client, self.server = client, server
+            self.username = username or user.get("username")
+            self.user = user
+            self.projects_cache = list(me.get("projects") or [])
+        return me
 
     def resume(self, server: str, username: str, project_id: str | None = None) -> bool:
         """Re-use a stored token (keyring, else the mirror's token file).
@@ -159,12 +185,15 @@ class OnlineStore:
 
     # -- project -----------------------------------------------------------------------
 
-    def open(self, project_id: str, start: bool | None = None) -> str:
+    def open(self, project_id: str, start: bool | None = None,
+             analysis_prefetch: bool = False) -> str:
         """Open (create) the mirror of *project_id*; returns its path.
 
         Works offline when the mirror already exists (permissions come from
         the last known ``me``).  The background sync starts unless
         ``start=False`` (or the store was built with ``autostart=False``).
+        ``analysis_prefetch`` queues every ``Datasets/`` product a local
+        analysis run reads (the "run analysis locally" switch).
         """
         client = self._require_client()
         self.close()
@@ -198,16 +227,22 @@ class OnlineStore:
                 mirror.state["settings"] = info.get("settings") or {}
                 mirror.state["me"] = info.get("me") or {}
         mirror.save()
-        if client.token:
+        if client.token and self.persist_token:
             keyring_store.save_token(self.server, self.username, client.token, fallback_dir=mirror.studio,
                                      use_keyring=self.use_keyring)
-        syncer = Syncer(mirror, client, debounce=self.debounce, interval=self.interval, clock=self.clock)
+        syncer = Syncer(mirror, client, debounce=self.debounce, interval=self.interval, clock=self.clock,
+                        local_blobs=self.local_blobs)
         with self.lock:
             self.mirror, self.syncer = mirror, syncer
         try:
             self.refresh_assignments()
         except OnlineError:
             pass
+        if analysis_prefetch:
+            try:
+                self.prefetch_analysis()
+            except OnlineError:
+                pass
         if self.autostart if start is None else start:
             syncer.start()
         return mirror.root
@@ -285,15 +320,60 @@ class OnlineStore:
         """
         return self._require()[2].fetch(relpath)
 
+    #: How long a manifest view may be reused when the state stamp is unchanged.
+    #: ``/api/papers`` lists ``Papers/`` and ``Supplements/`` once per paper; a
+    #: fresh copy of the whole manifest per call cost O(papers x files) - tens of
+    #: seconds on the real project.  A listing that is <= 2 s old is fine for
+    #: every caller (names and sizes of a folder).
+    LISTING_TTL = 2.0
+
     def _known_files(self) -> dict[str, dict]:
+        """``{path: {hash, size, local}}`` of manifest ∪ heads (a shared, cached view - do not mutate)."""
+        return self._views()[0]
+
+    def _views(self):
         _c, mirror, _s = self._require()
         with mirror.lock:
+            stamp = (id(mirror), mirror.state.get("seq"), mirror.state.get("visibility_epoch"),
+                     len(mirror.remote), len(mirror.heads))
+            cached = getattr(self, "_listing_cache", None)
+            now = time.monotonic()
+            if cached and cached[0] == stamp and now - cached[1] < self.LISTING_TTL:
+                return cached[2], cached[3]
             out = {p: {"hash": r.get("hash"), "size": r.get("size") or 0, "local": False}
                    for p, r in mirror.remote.items()}
             for p, h in mirror.heads.items():
                 e = out.setdefault(p, {"hash": h["hash"], "size": h["size"]})
                 e["local"] = True
-        return out
+        # per-folder index: "Papers" -> {"x.pdf": meta, "sub": {"dir": True}}
+        by_dir: dict[str, dict[str, dict]] = {}
+        for p, meta in out.items():
+            parent, _sep, name = p.rpartition("/")
+            by_dir.setdefault(parent, {})[name] = meta
+            while parent:
+                grand, _sep, dname = parent.rpartition("/")
+                children = by_dir.setdefault(grand, {})
+                if dname in children:
+                    break
+                children[dname] = {"dir": True}
+                parent = grand
+        self._listing_cache = (stamp, time.monotonic(), out, by_dir)
+        return out, by_dir
+
+    def knows_file(self, relpath: str) -> bool:
+        """O(1): is *relpath* a file of the server manifest or a synced head?
+
+        ``S.exists`` asks this once per paper while building ``/api/papers``;
+        answering it from :meth:`listdir` copied the whole manifest per call
+        (O(papers x files): minutes on an 860-paper project).
+        """
+        _c, mirror, _s = self._require()
+        rel = protocol.normalize_path(relpath)
+        with mirror.lock:
+            r = mirror.remote.get(rel)
+            if r is not None and not r.get("deleted") and r.get("hash"):
+                return True
+            return rel in mirror.heads
 
     def listdir(self, prefix: str = "", recursive: bool = False) -> list[dict]:
         """Entries under *prefix* known from the server manifest, the heads
@@ -304,8 +384,10 @@ class OnlineStore:
         _c, mirror, _s = self._require()
         prefix = protocol.normalize_path(prefix).strip("/")
         pre = prefix + "/" if prefix else ""
-        known = self._known_files()
         d = mirror.abspath(prefix) if prefix else mirror.root
+        if not recursive:
+            return self._listdir_flat(mirror, prefix, pre, d)
+        known = dict(self._known_files())
         if os.path.isdir(d):
             if recursive:
                 for root, dirs, files in os.walk(d):
@@ -340,6 +422,37 @@ class OnlineStore:
             local = os.path.exists(mirror.abspath(p))
             out[rest] = {"name": rest.rsplit("/", 1)[-1], "path": p, "is_dir": False,
                          "size": meta.get("size"), "hash": meta.get("hash"), "local": local}
+        return sorted(out.values(), key=lambda e: e["path"])
+
+    def _listdir_flat(self, mirror, prefix: str, pre: str, d: str) -> list[dict]:
+        """One folder: its manifest children (from the cached index) ∪ the disk."""
+        children = self._views()[1].get(prefix, {})
+        on_disk: dict[str, tuple[bool, int | None]] = {}       # name -> (is_dir, size)
+        if os.path.isdir(d):
+            for e in os.scandir(d):
+                try:
+                    if e.is_file():
+                        on_disk[e.name] = (False, e.stat().st_size)
+                    elif e.is_dir():
+                        on_disk[e.name] = (True, None)
+                except OSError:
+                    continue
+        out: dict[str, dict] = {}
+        for name in set(children) | set(on_disk):
+            path = pre + name
+            meta = children.get(name)
+            disk = on_disk.get(name)
+            is_dir = bool(meta.get("dir")) if meta is not None else bool(disk and disk[0])
+            if mirror.classify(path + "/" if is_dir else path).kind == "excluded":
+                continue
+            if is_dir:
+                out[name] = {"name": name, "path": path, "is_dir": True, "size": None, "hash": None,
+                             "local": bool(disk and disk[0])}
+            else:
+                size = meta.get("size") if meta is not None else (disk[1] if disk else None)
+                out[name] = {"name": name, "path": path, "is_dir": False, "size": size,
+                             "hash": meta.get("hash") if meta is not None else None,
+                             "local": bool(disk and not disk[0])}
         return sorted(out.values(), key=lambda e: e["path"])
 
     def list_keys(self) -> set[str]:
@@ -508,3 +621,29 @@ class OnlineStore:
             syncer.fetch(rel)
             done.append(rel)
         return done
+
+    def prefetch_analysis(self, blocking: bool = False) -> list[str]:
+        """Fetch the ``Datasets/`` products a local analysis run reads.
+
+        Those CSVs are on-demand in the core tier (INTERFACES 4), so the "run
+        analysis locally" switch has to ask for them: non-blocking queues them
+        for the next pull (``stale``), blocking fetches them now (used right
+        before the pipeline starts).  Returns the paths involved.
+        """
+        _c, mirror, syncer = self._require()
+        todo = syncer.cache.analysis_candidates()
+        if not blocking:
+            for rel in todo:
+                mirror.add_stale(rel)
+            mirror.save()
+            syncer.kick()
+            return todo
+        done = []
+        for rel in todo:
+            syncer.fetch(rel)
+            done.append(rel)
+        return done
+
+    def analysis_download(self) -> dict:
+        """``{files, pending, bytes, local_bytes}`` of the local analysis inputs."""
+        return self._require()[2].cache.analysis_usage()

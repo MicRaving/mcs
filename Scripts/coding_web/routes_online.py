@@ -263,6 +263,8 @@ def _local_status():
         "me": {"role": "owner", "tags": [], "tasks": list(protocol.TASKS)},
         "settings": {},
         "run_analysis_locally": run_analysis_locally(),
+        # served through the browser gateway (browser_worker); static/browser.js keys off it
+        "browser": bool(getattr(S, "browser", False)),
     }
 
 
@@ -285,6 +287,7 @@ def _online_status(store):
         "me": state.get("me") or {},
         "settings": state.get("settings") or {},
         "run_analysis_locally": run_analysis_locally(),
+        "browser": bool(getattr(S, "browser", False)),
     })
     payload.setdefault("local_only", 0)
     payload.setdefault("last_error", None)
@@ -374,7 +377,7 @@ def api_open():
     if store is None or store.client is None:
         return _err("unauthorized", "connect to a server first", 401)
     try:
-        root = store.open(project_id)
+        root = store.open(project_id, analysis_prefetch=run_analysis_locally())
     except AuthError as exc:
         return _err("unauthorized", str(exc), 401)
     except OfflineError as exc:
@@ -695,12 +698,29 @@ def api_conflict_resolve(store, cid):
 def _cache_payload(settings):
     usage = settings.get("usage") or {}
     used = sum(int(usage.get(k) or 0) for k in ("core", "pinned", "lru", "supplement"))
-    return {"limit_mb": settings.get("limit_mb"),
-            "used_mb": round(used / (1024 * 1024), 1),
-            "supplements": bool(settings.get("supplements")),
-            "pinned": settings.get("pinned") or [],
-            "assigned": settings.get("assigned") or [],
-            "usage": usage}
+    payload = {"limit_mb": settings.get("limit_mb"),
+               "used_mb": round(used / (1024 * 1024), 1),
+               "supplements": bool(settings.get("supplements")),
+               "pinned": settings.get("pinned") or [],
+               "assigned": settings.get("assigned") or [],
+               "run_analysis_locally": run_analysis_locally(),
+               "usage": usage}
+    # The Datasets products a local analysis reads are on-demand in the core
+    # tier, so the switch's download is reported here (MB, still missing).
+    store = _STORE
+    if store is not None:
+        try:
+            analysis = store.analysis_download()
+        except Exception:  # noqa: BLE001 - the cache panel must still answer
+            analysis = None
+        if analysis is not None:
+            payload["analysis"] = {
+                "files": analysis["files"],
+                "pending": analysis["pending"],
+                "mb": round(analysis["bytes"] / (1024 * 1024), 1),
+                "local_mb": round(analysis["local_bytes"] / (1024 * 1024), 1),
+            }
+    return payload
 
 
 @bp.get("/api/online/cache")

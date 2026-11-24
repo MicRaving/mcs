@@ -464,6 +464,30 @@ class Mirror:
         st = os.stat(full)
         self.set_head(rel, digest, st.st_size, st.st_mtime_ns)
 
+    def link_blob(self, rel: str, blob_path: str, digest: str) -> None:
+        """Install *rel* as a symlink to a server-local blob and record the head.
+
+        Used by browser workers on the server (the blob store is mounted
+        read-only there).  The app only ever replaces files atomically, which
+        swaps the link for a real file that the next scan pushes; an in-place
+        write would hit the read-only mount and fail instead of altering the
+        content-addressed store.
+        """
+        full = self.abspath(rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        tmp = os.path.join(self.tmp_dir, f".l-{uuid.uuid4().hex}")
+        os.symlink(os.path.abspath(blob_path), tmp)
+        try:
+            replace_retry(tmp, full)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        st = os.stat(full)
+        self.set_head(rel, digest, st.st_size, st.st_mtime_ns)
+
     def write_version(self, rel: str, data: bytes, digest: str | None = None) -> None:
         digest = digest or protocol.sha256_bytes(data)
         full = self.abspath(rel)
@@ -497,6 +521,15 @@ class Mirror:
                         if e.is_dir(follow_symlinks=False):
                             if self.classify(rel + "/").kind != "excluded":
                                 stack.append((rel + "/", e.path))
+                            continue
+                        if e.is_symlink():
+                            # a version linked from the server-local blob store
+                            # (browser workers): it counts as the file it points to
+                            if not e.is_file(follow_symlinks=True):
+                                continue
+                            if self.classify(rel).kind == "excluded":
+                                continue
+                            out[rel] = e.stat(follow_symlinks=True)
                             continue
                         if not e.is_file(follow_symlinks=False):
                             continue

@@ -317,7 +317,10 @@ def test_resolve_theirs_and_merged(server, make_node):
 # --- 5. unwritable local edits stay local ---------------------------------------------------------
 
 def test_unwritable_local_changes_are_not_pushed(server, make_node):
-    server.projects[PID]["settings"]["blinding"]["coding"] = "visible"
+    # every stage visible: the app recomputes these derived files, and a coder
+    # may see them (a blinded stage hides master_dataset.xlsx from the mirror)
+    for stage in protocol.STAGES:
+        server.projects[PID]["settings"]["blinding"][stage] = "visible"
     server.put_file(PID, "Screening/fulltext_agreed.json", jbytes({"agreed": 1}))
     server.put_file(PID, "master_dataset.xlsx", b"PK\x03\x04 master v1")
     server.put_file(PID, "Codings/K - B.json", jbytes({"by": "B"}))
@@ -536,3 +539,119 @@ def test_rejected_locked_push_keeps_bytes_and_restores(server, make_node):
     b.store.resolve_conflict(rec["id"], "mine")                    # re-queued as a push
     assert b.tick()
     assert server.file_bytes(PID, rel) == mine
+
+
+# --- 9. blinding hides a derived consensus file and the mirror lets it go ------------
+
+def test_blinding_removes_a_newly_hidden_derived_file(server, make_node):
+    """A file readable now but hidden by the next blinding change leaves the
+    mirror, exactly like a server deletion - and comes back when it is visible."""
+    for stage in protocol.STAGES:
+        server.projects[PID]["settings"]["blinding"][stage] = "visible"
+    server.put_file(PID, "master_dataset.xlsx", b"PK\x03\x04 master v1")
+    server.put_file(PID, "Results/sb_coding_agreement.csv", b"key,kappa\nK1,0.8\n")
+    server.put_file(PID, "Results/metaanalysis.xlsx", b"PK\x03\x04 meta")
+    a = make_node("a")
+    assert a.tick()
+    # master_dataset.xlsx is core; Results/ is pulled only when opened
+    assert a.exists("master_dataset.xlsx")
+    for rel in ("Results/sb_coding_agreement.csv", "Results/metaanalysis.xlsx"):
+        a.store.ensure_local(rel)
+        assert a.exists(rel), rel
+
+    # the owner blinds the screening and coding stages again
+    server.projects[PID]["settings"]["blinding"]["abstract"] = "blinded"
+    server.projects[PID]["settings"]["blinding"]["fulltext"] = "blinded"
+    server.projects[PID]["settings"]["blinding"]["coding"] = "blinded"
+    assert a.tick()
+
+    assert not a.exists("master_dataset.xlsx")
+    assert not a.exists("Results/sb_coding_agreement.csv")
+    # a plain analysis product is not a verdict: it stays
+    assert a.exists("Results/metaanalysis.xlsx")
+    # the head is dropped too, so the removal is not queued as a deletion
+    assert "master_dataset.xlsx" not in a.mirror.heads
+    assert "master_dataset.xlsx" not in a.mirror.remote
+    assert a.store.status()["pending"] == 0
+    assert server.file_bytes(PID, "master_dataset.xlsx") is not None
+
+    # visible again: the next epoch change brings it back
+    for stage in protocol.STAGES:
+        server.projects[PID]["settings"]["blinding"][stage] = "visible"
+    assert a.tick()
+    assert a.read("master_dataset.xlsx") == b"PK\x03\x04 master v1"
+    assert a.store.status()["pending"] == 0
+
+
+def test_a_local_edit_of_a_newly_hidden_file_is_discarded(server, make_node):
+    """The app rewrites master_dataset.xlsx locally during a screening merge; a
+    coder's copy is local-only anyway, and blinding then takes it away."""
+    for stage in protocol.STAGES:
+        server.projects[PID]["settings"]["blinding"][stage] = "visible"
+    server.put_file(PID, "master_dataset.xlsx", b"PK\x03\x04 master v1")
+    a = make_node("a")
+    assert a.tick()
+    a.write("master_dataset.xlsx", b"PK\x03\x04 rewritten locally")
+    assert a.tick()
+    assert a.store.status()["local_only"] == 1
+    assert a.store.status()["pending"] == 0
+
+    for stage in protocol.STAGES:
+        server.projects[PID]["settings"]["blinding"][stage] = "blinded"
+    assert a.tick()
+    assert not a.exists("master_dataset.xlsx")
+    assert a.store.status()["local_only"] == 0
+    assert server.file_bytes(PID, "master_dataset.xlsx") == b"PK\x03\x04 master v1"
+
+
+# --- 10. Datasets products are on demand --------------------------------------------
+
+def test_dataset_products_are_on_demand_and_the_sidecars_are_core(server, make_node):
+    key = "K1"
+    server.put_file(PID, f"Datasets/{key}/{key} - variables.csv", b"uniform_variable\nuv1\n")
+    server.put_file(PID, f"Datasets/{key}/{key} - harmonized_variables.csv", b"uniform_variable\nuv1\n")
+    server.put_file(PID, f"Datasets/{key}/{key} - harmonized.csv", b"pid,uv1\n1,0.5\n2,0.7\n")
+    server.put_file(PID, f"Datasets/{key}/{key} - prepared.csv", b"pid,raw\n1,2\n")
+    server.put_file(PID, f"Datasets/{key}/harmonizer.py", b"# no-op\n")
+    a = make_node("a")
+    assert a.tick()
+
+    # the small metadata sidecars and the code are core ...
+    for rel in (f"Datasets/{key}/{key} - variables.csv",
+                f"Datasets/{key}/{key} - harmonized_variables.csv",
+                f"Datasets/{key}/harmonizer.py"):
+        assert a.exists(rel), rel
+    # ... the data products are only listed until opened
+    data = (f"Datasets/{key}/{key} - harmonized.csv",
+            f"Datasets/{key}/{key} - prepared.csv")
+    for rel in data:
+        assert not a.exists(rel), rel
+        assert rel in a.mirror.remote
+    assert {e["name"] for e in a.store.listdir(f"Datasets/{key}")} >= {
+        f"{key} - harmonized.csv", f"{key} - prepared.csv", "harmonizer.py"}
+
+    path = a.store.ensure_local(data[0])
+    assert open(path, "rb").read() == b"pid,uv1\n1,0.5\n2,0.7\n"
+    assert a.exists(data[0])
+    # an offline mirror keeps the fetched copy usable
+    a.transport.offline = True
+    assert a.store.ensure_local(data[0]) == path
+
+
+def test_analysis_prefetch_downloads_the_dataset_products(server, make_node):
+    key = "K1"
+    server.put_file(PID, f"Datasets/{key}/{key} - harmonized.csv", b"pid,dv\n1,0.5\n")
+    server.put_file(PID, f"Datasets/{key}/{key} - prepared.csv", b"pid,raw\n1,2\n")
+    a = make_node("a")
+    assert a.tick()
+    usage = a.store.analysis_download()
+    assert usage["files"] == 2 and usage["pending"] == 2 and usage["bytes"] > 0
+
+    queued = a.store.prefetch_analysis()
+    assert sorted(queued) == sorted([f"Datasets/{key}/{key} - harmonized.csv",
+                                     f"Datasets/{key}/{key} - prepared.csv"])
+    assert a.tick()
+    assert a.exists(f"Datasets/{key}/{key} - harmonized.csv")
+    assert a.exists(f"Datasets/{key}/{key} - prepared.csv")
+    usage = a.store.analysis_download()
+    assert usage["pending"] == 0 and usage["local_bytes"] == usage["bytes"]
