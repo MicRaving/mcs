@@ -10,6 +10,7 @@
 # Env overrides (defaults in parentheses):
 #   CTID (112)  CT_HOSTNAME (meta)  CORES (4)  RAM_MB (2048)  SWAP_MB (512)
 #   DISK (16G)  STORAGE (local-lvm)  BLOB_STORAGE (extHDD)  BLOB_SIZE (200G)
+#   WEB_STORAGE (STORAGE)  WEB_SIZE (20G)  WEB_BIND (unset: a volume, or a host dir)
 #   BRIDGE (vmbr0)  IP (192.168.178.12/24)  GW (192.168.178.1)
 #   TEMPLATE (local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst)
 #   REPO_SOURCE   required: git URL, or https URL of a .tar.gz/.tgz/.tar.xz
@@ -40,6 +41,12 @@ BLOB_SIZE="${BLOB_SIZE:-200G}"
 # e.g. a "dir" storage whose content is only "images").  Owned on the host by
 # 110001 = the unprivileged CT's uid 10001 (the server container's user).
 BLOB_BIND="${BLOB_BIND:-}"
+# WEB: the browser mode mirrors + per-user caches (PLAN_online_only §8).  A separate
+# volume (mp1) keeps them off the rootfs: the rootfs holds the OS, Docker and two
+# images; the mirrors are thousands of small reads on local-lvm, never the extHDD.
+WEB_STORAGE="${WEB_STORAGE:-$STORAGE}"
+WEB_SIZE="${WEB_SIZE:-20G}"
+WEB_BIND="${WEB_BIND:-}"
 BRIDGE="${BRIDGE:-vmbr0}"
 IP="${IP:-192.168.178.12/24}"
 GW="${GW:-192.168.178.1}"
@@ -53,8 +60,10 @@ DRY_RUN="${DRY_RUN:-0}"
 [[ "$CTID" =~ ^[0-9]+$ ]] || die "CTID must be a number"
 [[ "$DISK" =~ ^[0-9]+G$ ]] || die "DISK must look like 16G"
 [[ "$BLOB_SIZE" =~ ^[0-9]+G$ ]] || die "BLOB_SIZE must look like 200G"
+[[ "$WEB_SIZE" =~ ^[0-9]+G$ ]] || die "WEB_SIZE must look like 20G"
 DISK_GB="${DISK%G}"
 BLOB_GB="${BLOB_SIZE%G}"
+WEB_GB="${WEB_SIZE%G}"
 case "$IP" in */*) ;; *) die "IP must be CIDR, e.g. 192.168.178.12/24" ;; esac
 [ -n "$REPO_SOURCE" ] || die "REPO_SOURCE is required (git URL or tarball URL)"
 TEMPLATE_STORAGE="${TEMPLATE%%:*}"
@@ -124,7 +133,8 @@ else
 fi
 
 # ---- create and start -------------------------------------------------------
-log "creating CT $CTID ($CT_HOSTNAME): ${CORES} cores, ${RAM_MB} MB RAM, ${SWAP_MB} MB swap, ${DISK} rootfs on $STORAGE, ${BLOB_SIZE} blob store on $BLOB_STORAGE"
+log "creating CT $CTID ($CT_HOSTNAME): ${CORES} cores, ${RAM_MB} MB RAM, ${SWAP_MB} MB swap, ${DISK} rootfs on $STORAGE"
+log "  blob store: ${BLOB_SIZE} on $BLOB_STORAGE at /data/blobs; browser mirrors: ${WEB_SIZE} on $WEB_STORAGE at /srv/studio/web"
 # nesting + keyctl: Docker inside an unprivileged LXC. The blob volume is excluded from vzdump
 # (backup=0): blobs are protected by BLOB_BACKUP_DIR and/or RCLONE_REMOTE, see restore.md.
 if [ -n "$BLOB_BIND" ]; then
@@ -134,11 +144,21 @@ if [ -n "$BLOB_BIND" ]; then
 else
   MP0="${BLOB_STORAGE}:${BLOB_GB},mp=/data/blobs,backup=0"
 fi
+# The browser mirrors are rebuildable from the server (mirror + .studio state), so
+# they are excluded from the vzdump too; backup.sh keeps only the unpushed outboxes.
+if [ -n "$WEB_BIND" ]; then
+  MP1="${WEB_BIND},mp=/srv/studio/web,backup=0"
+  run mkdir -p "$WEB_BIND"
+  run chown 110001:110001 "$WEB_BIND"
+else
+  MP1="${WEB_STORAGE}:${WEB_GB},mp=/srv/studio/web,backup=0"
+fi
 run pct create "$CTID" "$TEMPLATE" \
   --hostname "$CT_HOSTNAME" --ostype debian \
   --cores "$CORES" --memory "$RAM_MB" --swap "$SWAP_MB" \
   --rootfs "${STORAGE}:${DISK_GB}" \
   --mp0 "$MP0" \
+  --mp1 "$MP1" \
   --net0 "name=eth0,bridge=${BRIDGE},ip=${IP},gw=${GW}" \
   --features "nesting=1,keyctl=1" \
   --unprivileged 1 --onboot 1 --start 0
@@ -149,6 +169,8 @@ if [ "$DRY_RUN" != "1" ]; then
   wait_for "container network" 30 pct exec "$CTID" -- getent hosts deb.debian.org
   pct exec "$CTID" -- mountpoint -q /data/blobs || die "/data/blobs is not mounted in CT $CTID (check mp0)"
   log "blob store mounted at /data/blobs"
+  pct exec "$CTID" -- mountpoint -q /srv/studio/web || die "/srv/studio/web is not mounted in CT $CTID (check mp1)"
+  log "browser mirror volume mounted at /srv/studio/web"
 fi
 
 # ---- hand the repo and the settings to the container ------------------------
@@ -237,10 +259,13 @@ cat <<EOF
 ======================================================
  IP:           ${CT_IP:-?}  (configured: ${IP})
  health:       pct exec $CTID -- bash /opt/studio/Server/deploy/health-check.sh
- proxy:        paste Server/deploy/caddy-snippet.txt into the Caddyfile on CT 110
+ browser:      https://${STUDIO_DOMAIN:-meta.home.mfendt.de}/app/  (same accounts as the desktop)
+ proxy:        paste Server/deploy/caddy-browser-mode.txt into the Caddyfile on CT 110
                (or set STUDIO_CADDY=1 for the bundled Caddy profile)
- firewall:     allow 8770 only from the proxy host (192.168.178.10)
+ firewall:     allow 8770 and 8780 only from the proxy host (192.168.178.10)
  backups:      nightly 02:30, DB snapshots in ${BACKUP_DIR:-/srv/studio/backups}
+               (the mirror volume /srv/studio/web is rebuildable: only its outboxes are kept)
  restore:      Server/deploy/restore.md (in the CT: /opt/studio/Server/deploy/restore.md)
+ upgrade:      Server/deploy/upgrade.sh (in the CT: /opt/studio/Server/deploy/upgrade.sh)
 ======================================================
 EOF

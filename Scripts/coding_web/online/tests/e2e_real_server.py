@@ -84,6 +84,22 @@ KEY = KEYS[0]          # the paper finished early (done marks, Extraction edits,
 KEY2 = KEYS[1]         # the paper finished while the server is down
 PATH_TIMEOUT = 20.0
 
+#: every marker of another coder's / the AI's verdicts starts with this prefix
+#: (see ``marker``): the blinding leak sweep forbids it in a blinded coder's view
+FOREIGN_PREFIX = "FOREIGN-"
+
+
+def marker(kind: str, i: int) -> str:
+    """A unique, searchable value that only a permitted viewer may ever see."""
+    return f"{FOREIGN_PREFIX}{kind}-{i}"
+
+
+def markers() -> list[str]:
+    """Every marker the synthetic project carries (all classes, all keys)."""
+    return [marker(kind, i)
+            for kind in ("CODING", "SCREEN", "FULLTEXT", "AI-VERDICT", "SETTLEMENT", "DERIVED")
+            for i in range(len(KEYS))]
+
 
 # ---------------------------------------------------------------------------
 # small helpers
@@ -338,8 +354,21 @@ def write_records(root: str) -> None:
                              "Doe, J.", 2020, f"10.1000/e2e{i}", "Journal E2E"])
 
 
+def screen_record(coder: str, note: str = "") -> dict:
+    """One saved abstract-screening decision in the app's real on-disk shape."""
+    return {"decision": "Include",
+            "criteria": {"C1": {"verdict": "Yes", "certainty": "High", "rationale": note}},
+            "coder": coder, "saved_at": "2024-01-01T00:00:00"}
+
+
 def build_source(root: str) -> None:
-    """The synthetic project the owner publishes (§ the scenario list)."""
+    """The synthetic project the owner publishes (§ the scenario list).
+
+    Every file that carries another coder's or the AI's verdict gets a unique
+    marker (``FOREIGN-<CLASS>-<i>``): the blinding leak sweep (test_leak_sweep.py)
+    asks every GET route of the app as a blinded coder and fails if any response
+    body contains one.
+    """
     for i, key in enumerate(KEYS):
         write(os.path.join(root, "Text", key + ".txt"), f"Full text of {key}.\nSecond paragraph.\n")
         write(os.path.join(root, "Papers", key + ".pdf"), PDF + f"% {key}\n".encode())
@@ -348,19 +377,39 @@ def build_source(root: str) -> None:
         write(os.path.join(root, "Codings", f"{key} - {CODER_TAG}.json"),
               [record(key, Coder=CODER_TAG, N_Analyzed=400 + i)])
         write(os.path.join(root, "Codings", f"{key} - {OTHER_TAG}.json"),
-              [record(key, Coder=OTHER_TAG, N_Analyzed=400 + i)])
-        write(os.path.join(root, "Screening", f"{CODER_TAG}.json"),
-              {"coder": CODER_TAG, "decisions": {key: "include"}})
-        write(os.path.join(root, "Screening", f"{OTHER_TAG}.json"),
-              {"coder": OTHER_TAG, "decisions": {key: "include"}})
+              [record(key, Coder=OTHER_TAG, N_Analyzed=400 + i,
+                      Rationale_Notes=marker("CODING", i))])
         folder = os.path.join(root, "Datasets", key)
         write(os.path.join(folder, f"{key} - raw.csv"), "pid,arm,dv\n1,treat,0.5\n2,ctrl,0.4\n")
         write(os.path.join(folder, "harmonizer.py"),
               "# synthetic harmonizer\nprint('no-op')\n")
+    # the coder's own screening file: a stale decision on an id the record table no
+    # longer has, so the coder has "finished nothing" but the file is well formed
+    write(os.path.join(root, "Screening", f"{CODER_TAG}.json"),
+          {"OLD-1": screen_record(CODER_TAG)})
+    # the other tag's whole-stage files: one file per stage, every paper in it, each
+    # record carrying the marker class of that stage
+    write(os.path.join(root, "Screening", f"{OTHER_TAG}.json"),
+          {f"E2E{i + 1:03d}": screen_record(OTHER_TAG, note=marker("SCREEN", i))
+           for i in range(len(KEYS))})
+    write(os.path.join(root, "Screening", f"fulltext - {OTHER_TAG}.json"),
+          {key: {"exclude": False, "criterion": "", "note": marker("FULLTEXT", i)}
+           for i, key in enumerate(KEYS)})
     write(os.path.join(root, "Project", "project.json"), {"scheme": "synthetic", "name": "E2E"})
     write_records(root)
     # a derived consensus file: readable by the owner, never by a blinded coder
-    write(os.path.join(root, "master_dataset.xlsx"), "PK\u0003\u0004 synthetic master\n")
+    write(os.path.join(root, "master_dataset.xlsx"),
+          "PK\u0003\u0004 synthetic master "
+          + " ".join(marker("AI-VERDICT", i) for i in range(len(KEYS))) + "\n")
+    # the Master's settlement store (abstract + full-text decisions) and the
+    # cross-coder agreement product: both encode every route's verdicts
+    write(os.path.join(root, "Codings", "_settlements.json"),
+          {"settled": {key: {"note": marker("SETTLEMENT", i)}
+                       for i, key in enumerate(KEYS)}})
+    rows = ["study_key,metric,coder_a,coder_b,value"]
+    rows += [f"{key},agreement,{CODER_TAG},{OTHER_TAG},{marker('DERIVED', i)}"
+             for i, key in enumerate(KEYS)]
+    write(os.path.join(root, "Results", "MM_SB_agreement.csv"), "\n".join(rows) + "\n")
 
 
 # ---------------------------------------------------------------------------

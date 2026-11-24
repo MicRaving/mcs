@@ -5,9 +5,14 @@
 #   packages -> Docker -> data dirs -> compose up --build -> health wait
 #   -> first admin (once) -> nightly backup cron (02:30)
 #
+# The stack is two services (Server/docker-compose.yml): `studio` (the sync server,
+# 8770, desktop clients) and `web` (the browser gateway + per-user workers, 8780;
+# PLAN_online_only §8).  Both are waited for; a broken browser side does not take
+# the sync server down, but the install fails loudly and names it.
+#
 # Optional settings come from /root/.studio-install.env (written by meta-lxc.sh with mode 600;
-# removed after it is read): ADMIN_USER, ADMIN_PASSWORD, BACKUP_DIR, BLOB_BACKUP_DIR,
-# RCLONE_REMOTE, STUDIO_CADDY, STUDIO_DOMAIN.
+# removed after it is read): ADMIN_USER, ADMIN_PASSWORD, DATA_DIR, WEB_DIR, BACKUP_DIR,
+# BLOB_BACKUP_DIR, RCLONE_REMOTE, STUDIO_CADDY, STUDIO_DOMAIN.
 set -euo pipefail
 
 log() { printf '[install %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -28,12 +33,14 @@ if [ -f "$HANDOFF" ]; then
 fi
 
 DATA_DIR="${DATA_DIR:-/srv/studio/data}"
+WEB_DIR="${WEB_DIR:-/srv/studio/web}"
 BACKUP_DIR="${BACKUP_DIR:-/srv/studio/backups}"
 BLOB_BACKUP_DIR="${BLOB_BACKUP_DIR:-}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 STATE_DIR=/srv/studio/state
 BLOB_DIR=/data/blobs
 STUDIO_PORT=8770
+WEB_PORT=8780
 CONTAINER_UID=10001
 ADMIN_USER="${ADMIN_USER:-admin}"
 STUDIO_CADDY="${STUDIO_CADDY:-0}"
@@ -60,8 +67,17 @@ log "docker: $(docker --version)"
 # ---- 3. storage ---------------------------------------------------------------
 mountpoint -q "$BLOB_DIR" || die "$BLOB_DIR is not a mount point: check mp0 in /etc/pve/lxc/<CTID>.conf"
 install -d -m 0750 "$DATA_DIR" "$BACKUP_DIR" "$STATE_DIR"
+# the browser side's mirrors + per-user caches (local-lvm; rebuildable, so not in
+# the vzdump and not in backup.sh's data set)
+install -d -m 0750 "$WEB_DIR"
+if ! mountpoint -q "$WEB_DIR"; then
+  # an existing CT installed before browser mode has no mp1: it still works on the
+  # rootfs, but the mirrors then share it with the images (PLAN_online_only §8)
+  log "WARN $WEB_DIR is not a mount point (mp1 missing): mirrors will live on the rootfs"
+fi
 # the container runs as UID $CONTAINER_UID; fix only entries with a wrong owner (idempotent)
 find "$DATA_DIR" ! -user "$CONTAINER_UID" -exec chown "$CONTAINER_UID:$CONTAINER_UID" {} +
+find "$WEB_DIR" ! -user "$CONTAINER_UID" -exec chown "$CONTAINER_UID:$CONTAINER_UID" {} +
 log "fixing ownership on $BLOB_DIR (only entries with a wrong owner)"
 find "$BLOB_DIR" ! -user "$CONTAINER_UID" -exec chown "$CONTAINER_UID:$CONTAINER_UID" {} +
 
@@ -86,6 +102,21 @@ if [ "$healthy" != "1" ]; then
   die "studio did not become healthy within 120 s"
 fi
 log "studio is healthy"
+
+log "waiting for http://127.0.0.1:$WEB_PORT/app/health (browser gateway)"
+web_healthy=0
+for _ in $(seq 1 90); do
+  if curl -fsS --max-time 4 "http://127.0.0.1:$WEB_PORT/app/health" >/dev/null 2>&1; then
+    web_healthy=1
+    break
+  fi
+  sleep 2
+done
+if [ "$web_healthy" != "1" ]; then
+  docker compose logs --tail 80 web || true
+  die "studio-web did not become healthy within 180 s (the sync server on $STUDIO_PORT is up and keeps serving desktop clients)"
+fi
+log "studio-web is healthy"
 
 # ---- 5. first admin (once) ----------------------------------------------------
 ADMIN_MARK="$STATE_DIR/admin-created"
@@ -115,6 +146,7 @@ tmp="$(mktemp)"
   echo "SHELL=/bin/bash"
   echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
   echo "DATA_DIR=$DATA_DIR"
+  echo "WEB_DIR=$WEB_DIR"
   echo "BACKUP_DIR=$BACKUP_DIR"
   if [ -n "$BLOB_BACKUP_DIR" ]; then echo "BLOB_BACKUP_DIR=$BLOB_BACKUP_DIR"; fi
   if [ -n "$RCLONE_REMOTE" ]; then echo "RCLONE_REMOTE=$RCLONE_REMOTE"; fi
@@ -127,21 +159,25 @@ log "nightly backup installed: $CRON_FILE"
 # ---- summary ------------------------------------------------------------------
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 if [ "$STUDIO_CADDY" = "1" ]; then
-  PROXY="bundled Caddy, https://$STUDIO_DOMAIN"
+  PROXY="bundled Caddy, https://$STUDIO_DOMAIN  (browser: https://$STUDIO_DOMAIN/app/)"
 else
-  PROXY="external proxy (see deploy/caddy-snippet.txt)"
+  PROXY="external proxy (see deploy/caddy-snippet.txt and deploy/caddy-browser-mode.txt)"
 fi
 cat <<EOF
 
 ======================================================
  studio server installed
 ======================================================
- local health:  http://127.0.0.1:$STUDIO_PORT/api/health
+ local health:  http://127.0.0.1:$STUDIO_PORT/api/health      (sync server)
+                http://127.0.0.1:$WEB_PORT/app/health       (browser gateway)
  LAN:           http://${IP:-?}:$STUDIO_PORT  (firewall 8770 to the proxy host only)
+                http://${IP:-?}:$WEB_PORT   (firewall 8780 to the proxy host only)
+ browser mode:  https://$STUDIO_DOMAIN/app/  (same accounts as the desktop)
+ mirrors:       $WEB_DIR (rebuildable; excluded from backups except unpushed outboxes)
  proxy:         $PROXY
  status:        bash $DEPLOY_DIR/health-check.sh
  backups:       $BACKUP_DIR (02:30 nightly), log /var/log/studio-backup.log
  restore:       $DEPLOY_DIR/restore.md
- upgrade:       cd <repo> && git pull && cd Server && docker compose up -d --build
+ upgrade:       bash $DEPLOY_DIR/upgrade.sh /root/studio-src.tar.gz
 ======================================================
 EOF

@@ -41,6 +41,9 @@ class WebConfig:
     push_debounce: float = 1.0
     cookie_name: str = "studio_session"
     cookie_secure: bool = True
+    #: lifetime of the session cookie; the server's token has the same sliding
+    #: 30-day expiry, so a shorter cookie only asks the user to sign in again
+    session_days: float = 30.0
     #: e.g. "https://meta.home.mfendt.de"; empty = compare Origin with Host
     public_origin: str = ""
 
@@ -65,6 +68,7 @@ class WebConfig:
             sync_interval=_f(env, "STUDIO_WEB_SYNC_INTERVAL", 5),
             push_debounce=_f(env, "STUDIO_WEB_PUSH_DEBOUNCE", 1),
             cookie_secure=env.get("STUDIO_WEB_COOKIE_SECURE", "1") != "0",
+            session_days=_f(env, "STUDIO_WEB_SESSION_DAYS", 30),
             public_origin=(env.get("STUDIO_WEB_PUBLIC_ORIGIN") or "").rstrip("/"),
         )
 

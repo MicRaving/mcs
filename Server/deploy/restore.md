@@ -6,11 +6,17 @@ What is backed up, where, and how to get it back.
 |---|---|---|---|
 | SQLite DB (users, projects, locks, changes, audit) | `/srv/studio/data/studio.db` (rootfs) | `backup.sh`, nightly 02:30 → `$BACKUP_DIR/studio-<UTC stamp>.db` (30-day retention) | newest good snapshot |
 | Blobs (PDFs, datasets, content-addressed, immutable) | `/data/blobs` (mp0, separate extHDD volume, `backup=0`) | only if `BLOB_BACKUP_DIR` is set (rsync, new files only) and/or `RCLONE_REMOTE` (off-site, e.g. Nextcloud) | the mirror / the remote |
+| Browser mirrors (per-user working copies: symlinks into `/data/blobs` + that user's own edits and caches) | `/srv/studio/web` (mp1, local-lvm, `backup=0`) | **not backed up** - rebuildable; `backup.sh` keeps only `<mirror>/.studio/` (sync state, outbox, queued versions) as `$BACKUP_DIR/web-state-<stamp>.tar.gz` | rebuilt by the next login; the tarball only recovers unsent changes |
 | The CT itself (OS, Docker, repo checkout, config) | `local-lvm` rootfs | Proxmox `vzdump` of CT 112 to `extBackups` (rootfs only) | `pct restore` |
 
 Important: **the blob volume is not in `vzdump`** (`backup=0`, so the nightly CT backup
 stays small). Blob protection therefore depends on `BLOB_BACKUP_DIR` and/or `RCLONE_REMOTE`.
 If neither is configured, the blobs have no backup. Check this during the drill.
+
+**The browser mirror volume is also `backup=0` and needs no restore.** A mirror is a cache
+of what the server already holds plus the user's own not-yet-pushed writes; a fresh login
+re-creates it from the manifest. The one thing that is not on the server is an unsent
+outbox, which is what `web-state-*.tar.gz` carries.
 
 Snapshots and mirrors are only as good as the restore drill, so run section 5 before
 relying on them.
@@ -73,6 +79,32 @@ Check that every blob the DB references exists. Blob hashes in the DB come from 
 blob copy after a newer mirror run, or restore the DB from a snapshot taken before the
 mirror's last run.
 
+## 2b. Browser mirrors (rebuildable: normally nothing to restore)
+
+`/srv/studio/web/u<id>/` holds one mirror per user and project plus that user's caches.
+It is derived data; there is nothing to restore after a loss - the user signs in at
+`/app/` again and the worker links the core tier from `/data/blobs` (seconds).
+
+The only unrecoverable content is an **unsent outbox** (writes made in the browser that
+had not reached the server yet). Those are in
+`$BACKUP_DIR/web-state-<stamp>.tar.gz` as `<user>/mirrors/<server>/<project>/.studio/`.
+Recovery of a lost volume:
+
+```bash
+cd /opt/studio/Server
+docker compose stop web
+SNAP="$(ls -t /srv/studio/backups/web-state-*.tar.gz | head -n1)"
+install -d -m 0750 /srv/studio/web
+tar -xzf "$SNAP" -C /srv/studio/web
+chown -R 10001:10001 /srv/studio/web
+docker compose up -d web
+```
+
+Then the user signs in with the **same account**: the worker's next sync round pushes
+what the outbox still holds (base hash -> merge3 -> conflict, exactly like a desktop that
+was offline). If the volume was not restored, the same user simply loses only those
+unsent browser writes; the app says so in the sync state.
+
 ## 3. Restore the whole container (rootfs loss)
 
 Use this when the CT itself is broken and the rootfs cannot be repaired. It needs a `vzdump`
@@ -109,6 +141,14 @@ pct exec 112 -- mountpoint -q /data/blobs && echo "mounted"
 ```
 
 `pct set --mp0` creates a new 200 GB volume. It is empty. Then run section 2.
+
+The browser mirror volume is re-created the same way (it needs no data restore, section 2b):
+
+```bash
+pct set 112 --mp1 local-lvm:20,mp=/srv/studio/web,backup=0
+pct start 112
+pct exec 112 -- mkdir -p /srv/studio/web && pct exec 112 -- chown 10001:10001 /srv/studio/web
+```
 
 ## 5. Restore drill (run before go-live and after changing backup settings)
 
@@ -157,8 +197,13 @@ Record the date, the snapshot name and the result in the project's ops log.
 
 ## 6. Checklist after any restore
 
-- `bash /opt/studio/Server/deploy/health-check.sh` exits 0.
+- `bash /opt/studio/Server/deploy/health-check.sh` exits 0 (it covers the sync server and the
+  browser gateway).
 - A test login works with a non-admin account.
 - A project opens and one document (`Codings/...`) loads.
-- Next nightly backup runs: `tail /var/log/studio-backup.log`.
+- The browser app loads at `https://meta.home.mfendt.de/app/`: sign in, open the project, open
+  one paper (the first start links the mirror; under a minute), save once, and see the change in
+  `docker compose exec -T studio python -c ...` / the server's changes table.
+- Next nightly backup runs: `tail /var/log/studio-backup.log` (it logs the DB snapshot, the
+  `web-state` tarball and the blob mirror).
 - Remove the forensics copy only after a week.

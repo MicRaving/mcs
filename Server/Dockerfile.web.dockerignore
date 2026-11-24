@@ -1,0 +1,26 @@
+# Allow-list build context for Server/Dockerfile.web (build context = repo root).
+# BuildKit reads this file because it sits next to Server/Dockerfile.web.
+# Docker applies the LAST matching rule, so the re-excludes below win.
+
+*
+
+!Server
+!Server/studio_web
+!Server/studio_web/**
+!Server/requirements-web.txt
+!Scripts
+!Scripts/*.py
+!Scripts/coding_web
+!Scripts/coding_web/**
+!Scripts/online_shared
+!Scripts/online_shared/**
+
+# re-exclude what must not reach the image
+Scripts/coding_web/dist
+Scripts/coding_web/tests_static
+Scripts/coding_web/online/tests
+Scripts/online_shared/tests
+Server/studio_web/tests
+**/__pycache__
+**/*.pyc
+**/.pytest_cache

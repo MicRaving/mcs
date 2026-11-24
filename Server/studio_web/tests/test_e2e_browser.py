@@ -18,6 +18,7 @@ Run with::
 
 from __future__ import annotations
 
+import contextlib
 import http.cookiejar
 import json
 import os
@@ -101,8 +102,20 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 @pytest.fixture(scope="module")
 def bw():
-    os.makedirs(SCRATCH_ROOT, exist_ok=True)
-    scratch = tempfile.mkdtemp(prefix="run-", dir=SCRATCH_ROOT)
+    with browser_world() as w:
+        yield w
+
+
+@contextlib.contextmanager
+def browser_world(prefix="run-", scratch_root=SCRATCH_ROOT):
+    """Start one real server, one real gateway and its workers on the synthetic project.
+
+    Shared by the parity suite (``test_e2e_browser.py``) and the blinding leak
+    sweep (``test_leak_sweep.py``); each module gets its own scratch directory,
+    server and gateway.
+    """
+    os.makedirs(scratch_root, exist_ok=True)
+    scratch = tempfile.mkdtemp(prefix=prefix, dir=scratch_root)
     data_dir = os.path.join(scratch, "server-data")
     source = os.path.join(scratch, "source-project")
     build_source(source)
@@ -114,6 +127,7 @@ def bw():
 
     w = W()
     w.scratch = scratch
+    w.source = source
     try:
         server.create_admin(*OWNER)
         server.start()
@@ -161,6 +175,7 @@ def bw():
         w.web = os.path.join(scratch, "web")
         w.anna = Browser(base)
         w.bo = Browser(base)
+        w.owner = Browser(base)
         yield w
     finally:
         if gw_proc is not None:

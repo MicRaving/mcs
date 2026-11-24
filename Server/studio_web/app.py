@@ -37,7 +37,7 @@ from .supervisor import SECRET_HEADER, Supervisor
 log = logging.getLogger("studio_web")
 
 HEAVY_HEADER = "X-Studio-Heavy"
-COOKIE_MAX_AGE = 30 * 24 * 3600
+COOKIE_MAX_AGE = 30 * 24 * 3600      # default when STUDIO_WEB_SESSION_DAYS is unset
 _HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
         "trailers", "transfer-encoding", "upgrade", "host", "content-length"}
 _DROP_REQ = _HOP | {"cookie", "authorization", SECRET_HEADER.lower(), HEAVY_HEADER.lower()}
@@ -128,7 +128,8 @@ def create_app(cfg: WebConfig | None = None, *, launcher=None, auth: ServerAuth 
         return request.cookies.get(cfg.cookie_name) or ""
 
     def _set_cookie(resp: Response, token: str) -> None:
-        resp.set_cookie(cfg.cookie_name, token, max_age=COOKIE_MAX_AGE, path="/app",
+        max_age = int(cfg.session_days * 86400) if cfg.session_days else COOKIE_MAX_AGE
+        resp.set_cookie(cfg.cookie_name, token, max_age=max_age, path="/app",
                         httponly=True, secure=cfg.cookie_secure, samesite="strict")
 
     def _clear_cookie(resp: Response) -> None:

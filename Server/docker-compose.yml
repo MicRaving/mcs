@@ -1,6 +1,14 @@
-# Studio server stack. Run from Server/ (the build context is the repo root, one level up).
-#   docker compose up -d --build              # studio only (external proxy, e.g. Caddy on CT 110)
+# Studio stack: the sync server (desktop clients, other services) and the browser
+# mode gateway + workers. Run from Server/ (the build context is the repo root,
+# one level up).
+#   docker compose up -d --build              # studio + web (external proxy, e.g. Caddy on CT 110)
 #   docker compose --profile caddy up -d      # plus the bundled Caddy (no external proxy)
+#
+# One origin serves both (deploy/caddy-browser-mode.txt): /app/... goes to `web`
+# (8780), everything else - /api/... - to `studio` (8770, unchanged for desktop
+# clients).  The memory split follows PLAN_online_only §6.5/§8: measured worst
+# case on Linux is 1.35 GB for the browser side + ~100 MB for the sync server, in
+# a 2 GB CT (2048 MB RAM + 512 MB swap).
 name: studio
 
 services:
@@ -20,9 +28,62 @@ services:
     ports:
       # LAN only: firewall 8770 so that only the proxy host can reach it
       - "8770:8770"
-    mem_limit: 1g
+    # capped so the browser side can never starve the sync server desktops depend on
+    mem_limit: 384m
     security_opt:
       - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    build:
+      context: ../
+      dockerfile: Server/Dockerfile.web
+    image: studio-web:local
+    restart: unless-stopped
+    depends_on:
+      - studio
+    environment:
+      STUDIO_WEB_DATA: /srv/studio/web          # mirrors + per-user homes (mp1, rootfs-free)
+      STUDIO_WEB_SERVER: http://studio:8770     # the compose network, never the public name
+      STUDIO_WEB_LOCAL_BLOBS: /blobs            # symlink instead of download (read-only)
+      STUDIO_WEB_PUBLIC_ORIGIN: ${STUDIO_WEB_PUBLIC_ORIGIN:-https://meta.home.mfendt.de}
+      STUDIO_WEB_COOKIE_SECURE: ${STUDIO_WEB_COOKIE_SECURE:-1}
+      STUDIO_WEB_SESSION_DAYS: ${STUDIO_WEB_SESSION_DAYS:-30}
+      # worker lifecycle (§6.2): all figures are PSS, see the logs of a load run
+      STUDIO_WEB_LAUNCHER: ${STUDIO_WEB_LAUNCHER:-forkserver}
+      STUDIO_WEB_SOFT_MB: ${STUDIO_WEB_SOFT_MB:-550}
+      STUDIO_WEB_HARD_MB: ${STUDIO_WEB_HARD_MB:-1100}
+      STUDIO_WEB_PRESSURE_MB: ${STUDIO_WEB_PRESSURE_MB:-1450}
+      STUDIO_WEB_IDLE_SECS: ${STUDIO_WEB_IDLE_SECS:-900}
+      STUDIO_WEB_HEAVY_SLOTS: ${STUDIO_WEB_HEAVY_SLOTS:-1}
+      MALLOC_ARENA_MAX: "2"
+    volumes:
+      - /srv/studio/web:/srv/studio/web     # mirrors, homes, caches (local-lvm, not the extHDD)
+      - /data/blobs:/blobs:ro               # the workers link files; an in-place write fails EROFS
+    ports:
+      # LAN only: firewall 8780 so that only the proxy host can reach it
+      - "8780:8780"
+    # gateway + forkserver + up to three workers share this cgroup.  The gateway's
+    # own pressure ceiling (1450 MB) stops idle workers before the cgroup limit;
+    # memswap gives the allocator high-water the CT's 512 MB swap instead of an OOM.
+    mem_limit: 1500m
+    memswap_limit: 2000m
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8780/app/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     logging:
       driver: json-file
       options:
@@ -35,6 +96,7 @@ services:
     restart: unless-stopped
     depends_on:
       - studio
+      - web
     environment:
       STUDIO_DOMAIN: ${STUDIO_DOMAIN:-localhost}
     ports:

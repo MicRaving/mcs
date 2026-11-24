@@ -3,13 +3,20 @@
 # 192.168.178.10). Do not add a site block with its own certificate: the existing
 # wildcard certificate for *.home.mfendt.de already covers this name.
 #
-# Place the handler inside the existing *.home.mfendt.de block, before any catch-all
+# Place the handlers inside the existing *.home.mfendt.de block, before any catch-all
 # handler. If that block already uses `handle` blocks, put this inside the same
 # arrangement so the directive order stays right. Keep the LAN restriction exactly as
 # the other hosts have it.
 #
+# One origin, two backends (PLAN_online_only §8):
+#   /app, /app/*   -> studio-web :8780   the browser gateway (login, project picker,
+#                                        /app/p/<pid>/... -> that user's worker)
+#   everything else -> studio :8770      the sync API, unchanged for desktop clients
+#   /              -> 302 /app/          the app's UI is the browser client now
+# The precise change to an existing block is in caddy-browser-mode.txt.
+#
 # The server (CT 112) trusts X-Forwarded-For only because STUDIO_TRUST_PROXY=1 and
-# this proxy is the only client allowed through the firewall on 8770.
+# this proxy is the only client allowed through the firewall (8770 and 8780).
 # ---------------------------------------------------------------------------
 
 	@meta host meta.home.mfendt.de
@@ -20,13 +27,33 @@
 	# fail closed: connections from outside the private ranges get no response
 	abort @meta_public
 
-	handle @meta {
+	# the browser app: the gateway owns the session and proxies to a per-user worker
+	@meta_browser {
+		host meta.home.mfendt.de
+		path /app /app/*
+	}
+	handle @meta_browser {
 		# uploads of up to 200 MB (plus margin); the app enforces its own limits too
+		request_body {
+			max_size 250MB
+		}
+		reverse_proxy 192.168.178.12:8780
+	}
+
+	# everything else: the sync server (desktop clients, unchanged)
+	handle @meta {
 		request_body {
 			max_size 250MB
 		}
 		reverse_proxy 192.168.178.12:8770
 	}
+
+	# a bare "/" is not the app any more: send the browser to the gateway
+	@meta_root {
+		host meta.home.mfendt.de
+		path /
+	}
+	redir @meta_root /app/ 302
 
 # ---------------------------------------------------------------------------
 # GO-LIVE (later, NOT active): public name, no LAN restriction. Needs a port forward
@@ -43,6 +70,15 @@
 # 		Referrer-Policy "no-referrer"
 # 		-Server
 # 	}
-# 	reverse_proxy 192.168.178.12:8770
+# 	@meta_browser {
+# 		path /app /app/*
+# 	}
+# 	handle @meta_browser {
+# 		reverse_proxy 192.168.178.12:8780
+# 	}
+# 	handle {
+# 		reverse_proxy 192.168.178.12:8770
+# 	}
+# 	redir / /app/ 302
 # }
 # ---------------------------------------------------------------------------
