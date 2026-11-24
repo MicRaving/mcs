@@ -122,6 +122,18 @@ if ! wait_health "http://127.0.0.1:$WEB_PORT/app/health" "browser gateway"; then
   log "     logs: cd $APP_DIR/Server && docker compose logs web"
 fi
 
+# docker's own healthcheck needs a few intervals before it reports "healthy";
+# wait for it so the health check below does not report a fresh start as FAIL.
+log "waiting for the containers' docker health status"
+for _ in $(seq 1 60); do
+  pending=0
+  for c in $(cd "$APP_DIR/Server" && docker compose ps -q); do
+    st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c" 2>/dev/null || echo none)"
+    [ "$st" = "starting" ] && pending=1
+  done
+  [ "$pending" = "0" ] && break
+  sleep 2
+done
 log "running the health check"
 bash "$APP_DIR/Server/deploy/health-check.sh" || true
 
