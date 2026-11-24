@@ -10,5 +10,12 @@
   "path": "Scripts/coding_web/schema.json",
   "schema_version": "3.1",
   "sha256": "26e22276ac4025cc1c7626781f14fac678c224d7882a576c6580de604f8206ff"
+ },
+ "agreement": {
+  "anchor_rater": "DS",
+  "span_raters": [
+   "MM",
+   "SB"
+  ]
  }
 }
