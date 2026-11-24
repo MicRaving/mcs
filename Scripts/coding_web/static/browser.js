@@ -22,7 +22,8 @@
     "#home-new-toggle",        // create a folder on disk
     "#home-new-form",
     "#an-full-top",            // run the analysis pipeline
-    "#rp-runbar",              // generate / harmonize / reproduce
+    "#rp-runbar",              // generate / harmonize / reproduce / dossier / cancel
+    "#rp-rerun-btn",           // per-study re-run (executes the study's scripts)
     "#rp-runlog",
     "[data-view=\"scheme\"]",  // scheme editor entry
     "#view-scheme",

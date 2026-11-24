@@ -54,7 +54,8 @@
   const FILTERS = ["all", "reproduced", "partial", "not_reproduced",
                    "reported_only", "not_reproducible", "crashed", "not_run"];
   const KIND_LABEL = { generate: "Generating scripts…", harmonizers: "Running harmonizers…",
-                       reproducers: "Running reproducers…" };
+                       reproducers: "Running reproducers…", dossier: "Rebuilding the dossier…",
+                       study: "Re-running the study…" };
   const DTABS = [
     ["results", "Results"],
     ["files", "File inventory"],
@@ -125,6 +126,25 @@
   }
 
   // ---------------------------------------------------------------- run
+  const RUN_BTN_IDS = ["rp-gen", "rp-harm", "rp-repro", "rp-dossier"];
+
+  /* POST JSON and surface the server's own error text (and the status, so a
+     409 "already running" can attach to the run instead of failing) */
+  async function postJSON(path, data) {
+    const r = await fetch(path, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data || {}),
+    });
+    let body = null;
+    try { body = await r.json(); } catch { body = null; }
+    if (!r.ok || (body && body.ok === false)) {
+      const err = new Error((body && body.error) || `${path} → HTTP ${r.status}`);
+      err.status = r.status;
+      throw err;
+    }
+    return body;
+  }
+
   function setRunning(on, title) {
     S.runActive = !!on;
     const pill = $("#rp-status-pill");
@@ -132,7 +152,13 @@
       pill.className = "pill " + (on ? "accent" : "");
       pill.textContent = on ? (title || "Running…") : "Idle";
     }
-    $$("#rp-runbar .btn").forEach((b) => { b.disabled = on; });
+    RUN_BTN_IDS.forEach((id) => {
+      const b = $("#" + id);
+      if (b) b.disabled = on || b.dataset.unavailable === "1";
+    });
+    $$("[data-rerun]").forEach((b) => { b.disabled = on; });
+    const cancel = $("#rp-cancel");
+    if (cancel) { cancel.hidden = !on; cancel.disabled = false; }
     if (on) {
       const log = $("#rp-runlog");
       if (log) log.hidden = false;
@@ -141,53 +167,98 @@
     }
   }
 
-  async function pollRun() {
-    let s;
-    try { s = await api("api/repro/run/status"); } catch { return; }
-    const body = $("#rp-runlog-body");
-    if (body) {
-      body.textContent = s.log || "(starting…)";
-      body.scrollTop = body.scrollHeight;
-    }
-    if (s.finished || !s.running) {
-      if (S.polling) { clearInterval(S.polling); S.polling = null; }
-      setRunning(false);
-      const t = $("#rp-runlog-title");
-      if (t) t.textContent = s.ok === false ? "Run failed" : "Run complete";
-      const pill = $("#rp-status-pill");
-      if (pill) {
-        pill.className = "pill " + (s.ok === false ? "danger" : "ok");
-        pill.textContent = s.ok === false ? "Run failed" : "Run complete";
-      }
-      toast(s.ok === false ? "Run failed" : "Run complete",
-            s.ok === false ? "err" : "ok",
-            s.error || (s.kind ? String(s.kind) : ""));
-      try { await loadOverview(); } catch { /* keep the last view */ }
-      if (S.study) openStudy(S.study, true);
-      return;
-    }
+  function startPolling() {
+    if (S.polling) clearInterval(S.polling);
+    S.pollFails = 0;
+    S.polling = setInterval(pollRun, 1500);
+    pollRun();
   }
 
-  async function startRun(kind) {
-    if (lockedNow()) return;
-    const onlyEl = $("#rp-only");
-    const only = onlyEl ? onlyEl.value.trim() : "";
-    let res;
+  function stopPolling() {
+    if (S.polling) { clearInterval(S.polling); S.polling = null; }
+  }
+
+  async function pollRun() {
+    let s;
     try {
-      res = await api("api/repro/run", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind, only }),
-      });
+      s = await api("api/repro/run/status");
+      S.pollFails = 0;
     } catch (e) {
-      toast("Could not start the run", "err", String(e.message || e));
+      // the server went away (app closed / re-rooted): stop instead of polling forever
+      S.pollFails = (S.pollFails || 0) + 1;
+      if (S.pollFails >= 20) {
+        stopPolling();
+        setRunning(false);
+        toast("Lost contact with the run", "err", String(e.message || e));
+      }
       return;
     }
-    if (res && res.ok === false) { toast("Could not start the run", "err", res.error || ""); return; }
+    if (!S.polling) return;  // a late response after the run already finished
+    const body = $("#rp-runlog-body");
+    if (body) {
+      const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+      body.textContent = s.log || "(starting…)";
+      if (atEnd) body.scrollTop = body.scrollHeight;
+    }
+    const t = $("#rp-runlog-title");
+    if (s.running) {
+      if (t && s.steps && s.steps.length > 1 && s.step)
+        t.textContent = `${KIND_LABEL[s.kind] || "Run"} - step ${(s.step_index || 0) + 1}/${s.steps.length}: ${s.step}`;
+      return;
+    }
+    stopPolling();
+    setRunning(false);
+    const failed = s.ok === false;
+    const warned = (s.warnings || []).length > 0;
+    const label = s.cancelled ? "Run cancelled" : (failed ? "Run failed"
+      : (warned ? "Run complete (with warnings)" : "Run complete"));
+    if (t) t.textContent = label + (s.log_file ? ` - full log: ${s.log_file}` : "");
+    const pill = $("#rp-status-pill");
+    if (pill) {
+      pill.className = "pill " + (failed ? (s.cancelled ? "warn" : "danger") : (warned ? "warn" : "ok"));
+      pill.textContent = label;
+    }
+    const sub = [s.error, ...(s.warnings || []), ...(s.notes || [])].filter(Boolean).join(" · ");
+    toast(label, failed && !s.cancelled ? "err" : "ok", sub || (s.kind ? String(s.kind) : ""));
+    try { await loadOverview(); } catch { /* keep the last view */ }
+    if (S.study) openStudy(S.study, true);
+  }
+
+  async function startRun(kind, onlyOverride) {
+    if (lockedNow()) return;
+    const onlyEl = $("#rp-only");
+    const only = onlyOverride !== undefined ? onlyOverride : (onlyEl ? onlyEl.value.trim() : "");
+    if (!only && kind !== "generate" && kind !== "study") {
+      const what = {
+        harmonizers: "every harmonizer and rewrite harmonization_mapping.xlsx",
+        reproducers: "every reproducer (can take hours) and rewrite reproduction_summary.xlsx",
+        dossier: "the reproduction dossier for every study",
+      }[kind];
+      if (what && !window.confirm(`Run ${what}?`)) return;
+    }
+    try {
+      await postJSON("api/repro/run", { kind, only });
+    } catch (e) {
+      toast("Could not start the run", "err", String(e.message || e));
+      if (e.status === 409) { setRunning(true, "Running…"); startPolling(); }
+      return;
+    }
     setRunning(true, KIND_LABEL[kind] || "Running…");
     const body = $("#rp-runlog-body");
     if (body) body.textContent = "starting…";
-    S.polling = setInterval(pollRun, 1500);
-    pollRun();
+    startPolling();
+  }
+
+  async function cancelRun() {
+    const b = $("#rp-cancel");
+    if (b) b.disabled = true;
+    try {
+      await postJSON("api/repro/run/cancel", {});
+      toast("Cancelling the run…", "ok", "the running step and its child processes are killed");
+    } catch (e) {
+      if (b) b.disabled = false;
+      toast("Could not cancel", "err", String(e.message || e));
+    }
   }
 
   // ---------------------------------------------------------------- overview
@@ -344,6 +415,8 @@
         (t === "files" ? ` <span class="cnt">${(S.files || d.file_inventory || []).length}</span>` : "") +
         `</button>`).join("") +
       `</div><span class="grow"></span>` +
+      `<button class="btn ghost" id="rp-rerun-btn" data-rerun="1"${S.runActive ? " disabled" : ""} ` +
+      `title="Re-run this study's reproducer and rebuild its dossier">Re-run study</button>` +
       `<button class="btn ghost" id="rp-report-btn"${d.report_available ? "" : " disabled"}>` +
       `Report${d.report_available ? " ▸" : " — none"}</button>` +
       `</div>`;
@@ -790,6 +863,12 @@
 
   // ---------------------------------------------------------------- wiring
   function wireDetail() {
+    const rr = $("#rp-rerun-btn");
+    if (rr) rr.addEventListener("click", () => {
+      if (!S.study) return;
+      if (!window.confirm(`Re-run ${S.study} and rebuild its dossier?`)) return;
+      startRun("study", S.study);
+    });
     const vs = $("#rp-varsearch");
     if (vs) {
       vs.addEventListener("input", () => {
@@ -1003,11 +1082,16 @@
     };
     runBtn($("#rp-harm"), sa.harmonizers, "Scripts/analysis/run_harmonizers.py is missing");
     runBtn($("#rp-repro"), sa.reproducers, "Scripts/analysis/run_reproducers.py is missing");
+    runBtn($("#rp-dossier"), sa.dossier, "Scripts/build_repro_dossier.py is missing");
+    ["rp-harm", "rp-repro", "rp-dossier"].forEach((id) => {
+      const b = $("#" + id);
+      if (b) b.dataset.unavailable = b.disabled ? "1" : "";
+    });
     if (!pyOk && !S.pyWarned) { S.pyWarned = true; toast("Harmonizers/reproducers cannot run", "err", pyWhy); }
     if (runbar) runbar.title = `dossier index: ${(d.dossier || {}).index_present ? "yes" : "no"} · mapping: ${d.mapping_xlsx ? "yes" : "no"} · summary: ${d.reproduction_xlsx ? "yes" : "no"}`;
     if (d.run && d.run.running && !S.polling) {
       setRunning(true, KIND_LABEL[d.run.kind] || "Running…");
-      S.polling = setInterval(pollRun, 1500);
+      startPolling();
     }
   }
 
@@ -1031,6 +1115,8 @@
     const g = $("#rp-gen"); if (g) g.onclick = () => startRun("generate");
     const h = $("#rp-harm"); if (h) h.onclick = () => startRun("harmonizers");
     const r = $("#rp-repro"); if (r) r.onclick = () => startRun("reproducers");
+    const d = $("#rp-dossier"); if (d) d.onclick = () => startRun("dossier");
+    const c = $("#rp-cancel"); if (c) c.onclick = () => cancelRun();
   }
 
   async function ensureStarted() {

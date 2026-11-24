@@ -202,6 +202,7 @@ CLASSIFICATION: dict[str, str] = {
     "repro.api_repro_dossier_log": ALLOW,
     "repro.api_repro_overview": ALLOW,
     "repro.api_repro_run": DESKTOP_ONLY,              # executes Datasets/*.py
+    "repro.api_repro_run_cancel": DESKTOP_ONLY,       # kills the desktop run's processes
     "repro.api_repro_run_status": ALLOW,              # reading the result is fine
     "repro.api_repro_study": ALLOW,
 

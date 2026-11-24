@@ -79,7 +79,7 @@ _STATUS_NORM = {
     "yes": "reproduced",
     "no": "not_reproduced",
 }
-RUN_KINDS = ("generate", "harmonizers", "reproducers")
+RUN_KINDS = ("generate", "harmonizers", "reproducers", "dossier", "study")
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +951,8 @@ def api_repro_overview():
         "scripts_available": {
             "harmonizers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")),
             "reproducers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_reproducers.py")),
+            "dossier": bool(_runner("dossier")),
+            "validate": bool(_runner("validate")),
         },
         "counts": {
             "studies": len(studies),
@@ -1258,6 +1260,10 @@ def api_repro_dossier_edit():
     reason = _s(payload.get("reason"))
     if not _safe_key(key) or not cid:
         return jsonify({"ok": False, "error": "key and contrast_id are required"}), 400
+    if _run_busy_for_edits():
+        # a dossier rebuild rewrites the flat results CSV this edit appends to
+        return jsonify({"ok": False, "error": "the dossier is being rebuilt; save again "
+                                              "when the run has finished"}), 409
     path = _flat_csv_path(key)
     if not os.path.isfile(path):
         return jsonify({"ok": False,
@@ -1320,9 +1326,64 @@ def api_repro_dossier_edit():
 # ---------------------------------------------------------------------------
 _repro_lock = threading.Lock()
 
-_repro_run = {"running": False, "kind": None, "log": "", "ok": None,
-              "started": None, "finished": None, "error": "", "only": "",
-              "cached": False}
+#: Wall-clock ceiling per step (the runner scripts themselves have none).
+RUN_TIMEOUT_S = 6 * 3600
+#: Characters of streamed output kept in memory for the poller (the full output
+#: goes to temp/codingstudio_repro/runs/<stamp> <kind>.log).
+LOG_CAP = 40000
+RUN_LOG_KEEP = 20       # full run logs kept in temp/codingstudio_repro/runs
+BACKUP_KEEP = 8         # aggregate backups kept in temp/codingstudio_repro/backup
+
+
+class _LogTail:
+    """Bounded, thread-safe output buffer for the poller."""
+
+    def __init__(self, cap=LOG_CAP):
+        from collections import deque
+
+        self.cap = cap
+        self._chunks = deque()
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def append(self, s):
+        if not s:
+            return
+        with self._lock:
+            self._chunks.append(s)
+            self._n += len(s)
+            while len(self._chunks) > 1 and self._n - len(self._chunks[0]) >= self.cap:
+                self._n -= len(self._chunks.popleft())
+
+    def clear(self):
+        with self._lock:
+            self._chunks.clear()
+            self._n = 0
+
+    def text(self):
+        with self._lock:
+            return "".join(self._chunks)[-self.cap:]
+
+
+_repro_run = {"running": False, "kind": None, "ok": None, "started": None,
+              "finished": None, "error": "", "only": "", "cached": False,
+              "cancelled": False, "steps": [], "step": None, "step_index": None,
+              "warnings": [], "notes": [], "log_file": ""}
+_run_log = _LogTail()
+_run_proc = {"proc": None, "cancel": False}
+
+
+def _run_snapshot():
+    with _repro_lock:
+        out = {k: (list(v) if isinstance(v, list) else v) for k, v in _repro_run.items()}
+    out["log"] = _run_log.text()
+    return out
+
+
+def _run_busy_for_edits():
+    """A dossier rebuild rewrites the flat results CSVs the edit endpoint writes."""
+    with _repro_lock:
+        return bool(_repro_run["running"] and _repro_run["kind"] in ("dossier", "study"))
 
 
 _INTERP_CACHE = {"at": 0.0, "value": (None, "")}
@@ -1427,46 +1488,382 @@ def _run_generator_inprocess(mod, only, emit):
         return 1
 
 
+#: The runner scripts a step can run (relative to the project root).
+_RUNNERS = {
+    "harmonizers": ("Scripts", "analysis", "run_harmonizers.py"),
+    "reproducers": ("Scripts", "analysis", "run_reproducers.py"),
+    "dossier": ("Scripts", "build_repro_dossier.py"),
+    "validate": ("Scripts", "validate_repro_dossier.py"),
+}
+
+
+def _runner(name):
+    p = os.path.join(S.ROOT, *_RUNNERS[name])
+    return p if os.path.isfile(p) else None
+
+
 def _run_plan(kind, only):
-    """(argv-without-interpreter, cwd, error) for a run kind."""
-    if kind == "generate":
-        gen = _generator_script()
-        if not gen:
-            return None, None, ("the reproduction-script generator is not available "
-                                "(Scripts/generate_repro_wrappers.py is missing)")
-        args = [gen, "--root", S.ROOT]
-        # The legacy temp/ copy predates --only; passing it would be an argparse error.
-        if only and os.path.dirname(gen) != S.TEMP:
-            args += ["--only=" + only]
-        return args, S.ROOT, None
-    if kind == "harmonizers":
-        script = os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")
-    elif kind == "reproducers":
-        script = os.path.join(S.ROOT, "Scripts", "analysis", "run_reproducers.py")
+    """``([(label, runner, argv-without-interpreter, soft)], error)``.
+
+    ``soft`` steps (the dossier validator) may fail without failing the run;
+    their exit code is reported as a warning.
+    """
+    def step(label, runner, extra=(), soft=False):
+        script = _runner(runner)
+        if not script:
+            raise LookupError(f"missing runner: {'/'.join(_RUNNERS[runner])}")
+        return (label, runner, [script] + list(extra), soft)
+
+    # "--only=<v>" so a filter that starts with "-" is not read as an option
+    flt = ["--only=" + only] if only else []
+    try:
+        if kind == "generate":
+            gen = _generator_script()
+            if not gen:
+                return None, ("the reproduction-script generator is not available "
+                              "(Scripts/generate_repro_wrappers.py is missing)")
+            args = [gen, "--root", S.ROOT]
+            # The legacy temp/ copy predates --only; passing it would be an argparse error.
+            if only and os.path.dirname(gen) != S.TEMP:
+                args += ["--only=" + only]
+            return [("generate wrappers", "generate", args, False)], None
+        if kind == "harmonizers":
+            return [step("run harmonizers", "harmonizers", flt)], None
+        if kind == "reproducers":
+            return [step("run reproducers", "reproducers", flt)], None
+        if kind == "dossier":
+            return [step("build dossier", "dossier", flt),
+                    step("validate dossier", "validate", soft=True)], None
+        if kind == "study":
+            return [step("run reproducer", "reproducers", flt),
+                    step("build dossier", "dossier", flt),
+                    step("validate dossier", "validate", soft=True)], None
+    except LookupError as e:
+        return None, str(e)
+    return None, "unknown run kind"
+
+
+def _child_env():
+    env = dict(os.environ)
+    if FROZEN:
+        # the packaged app's own interpreter settings must not leak into a system Python
+        for k in list(env):
+            if k in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP") or k.startswith("_PYI"):
+                env.pop(k, None)
+        env.pop("_MEIPASS2", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONPYCACHEPREFIX"] = os.path.join(S.TEMP, "pycache")
+    return env
+
+
+def _kill_tree(proc):
+    """Terminate ``proc`` and every child it spawned (run_reproducers starts one
+    Python per study; killing only the parent would orphan the running study)."""
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL, timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        else:
+            import signal  # noqa: PLC0415
+
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGKILL)
+    except Exception as e:  # noqa: BLE001
+        log(f"repro run: tree kill failed ({e!r}); killing the parent only")
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except OSError:
+        pass
+
+
+def _kill_on_exit():
+    _kill_tree(_run_proc.get("proc"))
+
+
+import atexit  # noqa: E402
+
+atexit.register(_kill_on_exit)
+
+
+# ------------------------------------------------------------------ aggregates
+#: The Results summaries a runner rewrites, and the column that names the study
+#: in each sheet (``""`` for a CSV).  A filtered run rebuilds them for the
+#: matching studies only; the worker backs them up first and merges the rows of
+#: every study outside the filter back in afterwards.
+_AGGREGATES = {
+    "harmonizers": [(("Results", HARM_XLSX), {"Mapping": "study_key", "Summary": "study_key"})],
+    "reproducers": [(("Results", REPRO_XLSX), {"Reproduction": "key", "Domains": "key"})],
+    "dossier": [(("Results", "repro_dossier_index.csv"), {"": "study_key"})],
+}
+
+
+def _only_matcher(runner, only):
+    """The runner's own ``--only`` rule: run_harmonizers matches one substring,
+    run_reproducers / build_repro_dossier split on commas (case-insensitive)."""
+    if runner == "harmonizers":
+        o = only.lower()
+        return lambda k: o in str(k).lower()
+    parts = [p.strip().lower() for p in only.split(",") if p.strip()]
+    return lambda k: any(p in str(k).lower() for p in parts)
+
+
+def _file_sig(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _backup_dir():
+    return os.path.join(S.TEMP, "codingstudio_repro", "backup")
+
+
+def _prune(folder, keep):
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return
+    for n in names[:-keep] if len(names) > keep else []:
+        p = os.path.join(folder, n)
+        try:
+            shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+        except OSError:
+            pass
+
+
+def _backup_aggregates(runner, stamp):
+    """Copy the aggregates this runner rewrites: ``[(path, backup, sig_before, sheets)]``."""
+    out = []
+    for parts, sheets in _AGGREGATES.get(runner, []):
+        path = os.path.join(S.ROOT, *parts)
+        sig = _file_sig(path)
+        if sig is None:
+            out.append((path, "", None, sheets))
+            continue
+        dst_dir = os.path.join(_backup_dir(), stamp)
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, os.path.basename(path))
+        shutil.copy2(path, dst)
+        out.append((path, dst, sig, sheets))
+    _prune(_backup_dir(), BACKUP_KEEP)
+    return out
+
+
+def _readable(path):
+    try:
+        if path.lower().endswith(".xlsx"):
+            import openpyxl  # noqa: PLC0415
+
+            openpyxl.load_workbook(path, read_only=True).close()
+        else:
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                next(csv.reader(fh))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _merge_rows(header, new_rows, old_header, old_rows, keycol, matches):
+    """New rows + the old rows of every study the filter did not touch, aligned on
+    the new header and ordered by key (stable, so per-study row order survives)."""
+    if keycol not in header or keycol not in old_header:
+        return new_rows, 0
+    pos = {h: i for i, h in enumerate(old_header)}
+    oki = pos[keycol]
+    kept = []
+    for r in old_rows:
+        k = r[oki] if oki < len(r) else None
+        if k is None or str(k).strip() == "" or matches(str(k)):
+            continue
+        kept.append([r[pos[h]] if h in pos and pos[h] < len(r) else None for h in header])
+    ki = header.index(keycol)
+    rows = list(new_rows) + kept
+    rows.sort(key=lambda r: str(r[ki] if ki < len(r) and r[ki] is not None else "").lower())
+    return rows, len(kept)
+
+
+def _merge_xlsx(path, backup, sheets, matches):
+    import openpyxl  # noqa: PLC0415
+
+    new = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    old = openpyxl.load_workbook(backup, read_only=True, data_only=True)
+    try:
+        out = openpyxl.Workbook(write_only=True)
+        n_kept = 0
+        for name in new.sheetnames:
+            rows = [list(r) for r in new[name].iter_rows(values_only=True)]
+            header = [("" if c is None else str(c)) for c in (rows[0] if rows else [])]
+            body = rows[1:]
+            keycol = sheets.get(name)
+            if keycol and name in old.sheetnames:
+                orows = [list(r) for r in old[name].iter_rows(values_only=True)]
+                if orows:
+                    oh = [("" if c is None else str(c)) for c in orows[0]]
+                    body, k = _merge_rows(header, body, oh, orows[1:], keycol, matches)
+                    n_kept += k
+            ws = out.create_sheet(name)
+            ws.append(header)
+            for r in body:
+                ws.append(r)
+    finally:
+        new.close()
+        old.close()
+    tmp = os.path.join(S.TEMP, os.path.basename(path) + ".merge.tmp.xlsx")
+    out.save(tmp)
+    atomic_replace(tmp, path)
+    return n_kept
+
+
+def _merge_csv(path, backup, sheets, matches):
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.reader(fh))
+    with open(backup, encoding="utf-8-sig", newline="") as fh:
+        orows = list(csv.reader(fh))
+    if not rows or not orows:
+        return 0
+    body, n_kept = _merge_rows(rows[0], rows[1:], orows[0], orows[1:],
+                               sheets.get(""), matches)
+    tmp = os.path.join(S.TEMP, os.path.basename(path) + ".merge.tmp")
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(rows[0])
+        for r in body:
+            w.writerow(["" if v is None else v for v in r])
+    atomic_replace(tmp, path)
+    return n_kept
+
+
+def _settle_aggregates(backups, runner, only, emit):
+    """After a step: restore an aggregate the runner left unreadable, and merge the
+    untouched studies back into one a filtered run truncated."""
+    notes = []
+    for path, backup, sig_before, sheets in backups:
+        name = os.path.basename(path)
+        if not backup or _file_sig(path) == sig_before:
+            continue
+        if not os.path.isfile(path) or not _readable(path):
+            try:
+                shutil.copy2(backup, path)
+                notes.append(f"{name}: unreadable after the run -> restored the backup")
+            except OSError as e:
+                notes.append(f"{name}: unreadable and the restore failed ({e}); "
+                             f"backup at {backup}")
+            continue
+        if not only:
+            continue
+        try:
+            fn = _merge_xlsx if path.lower().endswith(".xlsx") else _merge_csv
+            n = fn(path, backup, sheets, _only_matcher(runner, only))
+            notes.append(f"{name}: merged back {n} row(s) of the studies outside the filter")
+        except Exception as e:  # noqa: BLE001
+            try:
+                shutil.copy2(backup, path)
+                notes.append(f"{name}: merge failed ({e!r}) -> restored the full pre-run "
+                             "backup (the filtered results are in the log)")
+            except OSError as e2:
+                notes.append(f"{name}: merge failed ({e!r}) and the restore failed "
+                             f"({e2}); backup at {backup}")
+    for n in notes:
+        emit(f"NOTE: {n}\n")
+    return notes
+
+
+# ------------------------------------------------------------------ worker
+def _run_step(cmd, cwd, env, emit, timeout_s):
+    """Run one step; returns ``(rc, timed_out)``.  Output streams into ``emit``."""
+    popen_kw = {"stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        # A windowed (console-less) parent must not pop a cmd window for the child.
+        popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
     else:
-        return None, None, "unknown run kind"
-    if not os.path.isfile(script):
-        return None, None, f"missing runner: {os.path.basename(script)}"
-    args = [script]
-    if only and kind in ("harmonizers", "reproducers"):
-        # "--only=<v>" so a filter that starts with "-" is not read as an option.
-        args += ["--only=" + only]
-    return args, S.ROOT, None
+        popen_kw["start_new_session"] = True     # own process group -> killpg on cancel
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            errors="replace", bufsize=1, **popen_kw)
+    with _repro_lock:
+        _run_proc["proc"] = proc
+        cancel_now = _run_proc["cancel"]
+    if cancel_now:                               # cancelled while the step was starting
+        _kill_tree(proc)
+    timed_out = {"v": False}
+
+    def _expire():
+        timed_out["v"] = True
+        _kill_tree(proc)
+
+    timer = threading.Timer(timeout_s, _expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        while True:
+            # bounded readline: a child printing one huge line cannot exhaust memory
+            chunk = proc.stdout.readline(8192)
+            if not chunk:
+                break
+            emit(chunk)
+    finally:
+        timer.cancel()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+    rc = proc.wait()
+    with _repro_lock:
+        _run_proc["proc"] = None
+    return rc, timed_out["v"]
 
 
 def _repro_worker(kind, only):
     state = _repro_run
-    lines = []
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    runs_dir = os.path.join(S.TEMP, "codingstudio_repro", "runs")
+    log_fh = None
+    try:
+        os.makedirs(runs_dir, exist_ok=True)
+        log_file = os.path.join(runs_dir, f"{stamp} {kind}.log")
+        log_fh = open(log_file, "w", encoding="utf-8", newline="\n")
+        with _repro_lock:
+            state["log_file"] = log_file
+    except OSError as e:
+        log(f"repro run: could not open the run log: {e!r}")
 
-    def emit(line):
-        lines.append(line)
-        state["log"] = "".join(lines)[-20000:]
+    def emit(text):
+        _run_log.append(text)
+        if log_fh is not None:
+            try:
+                log_fh.write(text)
+                log_fh.flush()
+            except (OSError, ValueError):
+                pass
 
     def done(ok, error=""):
-        state.update(ok=ok, error=error)
-        state["running"] = False
-        state["finished"] = datetime.now().isoformat(timespec="seconds")
+        with _repro_lock:
+            state.update(ok=ok, error=error, running=False, step=None,
+                         finished=datetime.now().isoformat(timespec="seconds"))
 
+    try:
+        _repro_steps(kind, only, stamp, emit, done)
+    finally:
+        if log_fh is not None:
+            try:
+                log_fh.close()
+            except OSError:
+                pass
+        _prune(runs_dir, RUN_LOG_KEEP)
+
+
+def _repro_steps(kind, only, stamp, emit, done):
+    state = _repro_run
     if kind == "generate":
         if only and S.online:
             failed = S.ensure_study_local(only)
@@ -1477,6 +1874,9 @@ def _repro_worker(kind, only):
                 return
         mod = _generator_module()
         if mod is not None:
+            with _repro_lock:
+                state.update(steps=["generate wrappers"], step="generate wrappers",
+                             step_index=0)
             rc = _run_generator_inprocess(mod, only, emit)
             emit(f"[exit {rc}]\n")
             log(f"repro run kind=generate (in-process) only={only!r} rc={rc}")
@@ -1491,7 +1891,7 @@ def _repro_worker(kind, only):
     if note:
         emit(note + "\n")
 
-    args, cwd, err = _run_plan(kind, only)
+    plan, err = _run_plan(kind, only)
     if err:
         emit("! " + err + "\n")
         done(False, err)
@@ -1500,7 +1900,7 @@ def _repro_worker(kind, only):
     # An online project's mirror holds only the core slice of a dataset: a
     # harmonizer/reproducer reads every file of Datasets/<Key>/, so fetch that
     # whole folder before the subprocess starts (audit §8).
-    if S.online and only and kind in ("harmonizers", "reproducers"):
+    if S.online and only and kind in ("harmonizers", "reproducers", "study"):
         emit(f"fetching the dataset of {only}...\n")
         failed = S.ensure_study_local(only)
         if failed:
@@ -1509,54 +1909,78 @@ def _repro_worker(kind, only):
             done(False, "dataset not fully downloaded")
             return
 
-    cmd = [exe, "-X", "utf8"] + args
-    shown = " ".join([os.path.basename(cmd[0])] + [os.path.basename(a) if i == 0 else a
-                                                   for i, a in enumerate(cmd[1:])])
-    emit(f"$ {shown}\n")
-    if only and kind in ("harmonizers", "reproducers"):
-        book = HARM_XLSX if kind == "harmonizers" else REPRO_XLSX
-        emit(f"NOTE: a filtered run rebuilds {book} for the matching studies only; "
-             "run without a filter to restore the full summary.\n")
-
-    env = dict(os.environ)
-    env["PYTHONIOENCODING"] = "utf-8"
-    env["PYTHONUNBUFFERED"] = "1"
-    env["PYTHONPYCACHEPREFIX"] = os.path.join(S.TEMP, "pycache")
-    try:
-        popen_kw = {"stdin": subprocess.DEVNULL}
-        if os.name == "nt":
-            # A windowed (console-less) parent must not pop a cmd window for the child.
-            popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                                errors="replace", bufsize=1, **popen_kw)
-    except OSError as e:
-        emit(f"! could not start: {e}\n")
-        done(False, str(e))
-        return
-    try:
-        for line in proc.stdout:
-            emit(line)
-    finally:
-        if proc.stdout:
-            proc.stdout.close()
-    rc = proc.wait()
-    emit(f"[exit {rc}]\n")
-    log(f"repro run kind={kind} only={only!r} rc={rc}")
-    done(rc == 0, "" if rc == 0 else f"runner exited {rc}")
+    with _repro_lock:
+        state["steps"] = [p[0] for p in plan]
+    env = _child_env()
+    for i, (label, runner, args, soft) in enumerate(plan):
+        with _repro_lock:
+            if _run_proc["cancel"]:
+                break
+            state.update(step=label, step_index=i)
+        cmd = [exe, "-X", "utf8"] + args
+        shown = " ".join([os.path.basename(cmd[0]), "-X", "utf8", os.path.basename(args[0])]
+                         + [f'"{a}"' if " " in a else a for a in args[1:]])
+        emit(f"\n=== [{i + 1}/{len(plan)}] {label} ===\n$ {shown}\n")
+        backups = []
+        try:
+            backups = _backup_aggregates(runner, f"{stamp}-{i}")
+        except OSError as e:
+            emit(f"! could not back up the aggregate ({e})\n")
+            if only:
+                # without the backup a filtered run would truncate the summary
+                done(False, f"backup failed: {e}")
+                return
+        t0 = time.time()
+        try:
+            rc, timed_out = _run_step(cmd, S.ROOT, env, emit, RUN_TIMEOUT_S)
+        except OSError as e:
+            emit(f"! could not start: {e}\n")
+            done(False, str(e))
+            return
+        emit(f"[exit {rc} after {time.time() - t0:.1f}s]\n")
+        log(f"repro run kind={kind} step={label!r} only={only!r} rc={rc}")
+        notes = _settle_aggregates(backups, runner, only, emit)
+        with _repro_lock:
+            state["notes"].extend(notes)
+            cancelled = _run_proc["cancel"]
+        if cancelled:
+            with _repro_lock:
+                state["cancelled"] = True
+            emit("! cancelled by the operator\n")
+            done(False, f"cancelled during '{label}'")
+            return
+        if timed_out:
+            done(False, f"'{label}' exceeded {RUN_TIMEOUT_S}s and was killed")
+            return
+        if rc != 0:
+            if soft:
+                with _repro_lock:
+                    state["warnings"].append(f"{label} exited {rc}")
+                continue
+            done(False, f"'{label}' exited {rc}")
+            return
+    with _repro_lock:
+        cancelled = _run_proc["cancel"]
+        if cancelled:
+            state["cancelled"] = True
+    done(not cancelled, "cancelled" if cancelled else "")
 
 
 def start_repro_run(kind, only=""):
-    """Start a runner in a daemon thread.  Returns "running" when one is already in
+    """Start a run in a daemon thread.  Returns "running" when one is already in
     progress, else "started"."""
     with _repro_lock:
         if _repro_run["running"]:
             return "running"
-        _repro_run.update(running=True, kind=kind, log="", ok=None, error="",
-                          only=only or "", cached=False,
+        _repro_run.update(running=True, kind=kind, ok=None, error="", only=only or "",
+                          cached=False, cancelled=False, steps=[], step=None,
+                          step_index=None, warnings=[], notes=[], log_file="",
                           started=datetime.now().isoformat(timespec="seconds"),
                           finished=None)
-    threading.Thread(target=_repro_worker_guarded, args=(kind, only or ""), daemon=True).start()
+        _run_proc.update(proc=None, cancel=False)
+        _run_log.clear()
+    threading.Thread(target=_repro_worker_guarded, args=(kind, only or ""), daemon=True,
+                     name=f"repro-run-{kind}").start()
     return "started"
 
 
@@ -1567,24 +1991,51 @@ def _repro_worker_guarded(kind, only):
         _repro_worker(kind, only)
     except Exception as e:  # noqa: BLE001
         log(f"repro run kind={kind} crashed: {e}")
-        _repro_run["log"] = (_repro_run.get("log") or "") + f"! run crashed: {e}\n"
-        _repro_run.update(ok=False, error=f"run crashed: {e}", running=False,
-                          finished=datetime.now().isoformat(timespec="seconds"))
+        _run_log.append(f"! run crashed: {e}\n")
+        with _repro_lock:
+            _repro_run.update(ok=False, error=f"run crashed: {e}", running=False,
+                              finished=datetime.now().isoformat(timespec="seconds"))
+
+
+_ONLY_OK = re.compile(r"^[^\x00-\x1f]{1,240}$")
 
 
 @bp.post("/api/repro/run")
 def api_repro_run():
-    payload = request.get_json(force=True, silent=True) or {}
-    kind = (payload.get("kind") or "harmonizers").strip()
-    only = (payload.get("only") or "").strip()
+    # JSON only: a cross-site form/text POST to the local app must not start a run
+    if not request.is_json:
+        return jsonify({"ok": False, "error": "expected an application/json body"}), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "expected a JSON object"}), 400
+    kind = str(payload.get("kind") or "harmonizers").strip()
+    only = str(payload.get("only") or "").strip()
     if kind not in RUN_KINDS:
         return jsonify({"ok": False, "error": "unknown run kind"}), 400
+    if only and not _ONLY_OK.match(only):
+        return jsonify({"ok": False, "error": "invalid study filter"}), 400
+    if kind == "study" and not (_safe_key(only) and _known_key(only)):
+        return jsonify({"ok": False, "error": "kind 'study' needs a known study key"}), 400
     status = start_repro_run(kind, only)
     if status == "running":
         return jsonify({"ok": False, "error": "a run is already in progress"}), 409
     return jsonify({"ok": True, "running": True, "kind": kind, "only": only})
 
 
+@bp.post("/api/repro/run/cancel")
+def api_repro_run_cancel():
+    if not request.is_json:
+        return jsonify({"ok": False, "error": "expected an application/json body"}), 415
+    with _repro_lock:
+        if not _repro_run["running"]:
+            return jsonify({"ok": False, "error": "no run in progress"}), 409
+        _run_proc["cancel"] = True
+        proc = _run_proc["proc"]
+    _kill_tree(proc)
+    log("repro run: cancel requested")
+    return jsonify({"ok": True, "cancelling": True})
+
+
 @bp.get("/api/repro/run/status")
 def api_repro_run_status():
-    return jsonify(_repro_run)
+    return jsonify(_run_snapshot())
