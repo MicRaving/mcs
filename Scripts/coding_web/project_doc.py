@@ -60,12 +60,14 @@ working here should follow the conventions rather than invent its own.
 | `Extraction/` | the **reference** coding, `<Key>.json`, one object per experiment |
 | `Codings/` | one file per person who coded: `<Key> - <Initials>.json` |
 | `Screening/` | abstract decisions, one file per screener |
+| `Fulltext/` | full-text decisions, one file per screener |
 | `Datasets/` | a study's public data, its `harmonizer.py` and the outputs |
 | `Reproduction/` | `<Key>.md` — what was re-run and whether the numbers came back |
 | `Supplements/` | the paper's supplementary material |
 | `Project/project.json` | this project's name and the scheme it uses |
+| `Project/master_base.xlsx` | the record list the compiled workbook is built from |
 | `Results/` | every product the analysis writes |
-| `master_dataset.xlsx` | the screening workbook (abstracts and full-text verdicts) |
+| `master_dataset.xlsx` | the screening workbook, **compiled** from `Screening/` + `Fulltext/` |
 | `temp/` | intermediates; never evidence |
 
 A study's **key** is its file name everywhere — the PDF, its text, its reference

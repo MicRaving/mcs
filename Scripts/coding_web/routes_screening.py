@@ -9,6 +9,7 @@ from screening_lib import (ScreeningFileError, _SCREEN_MERGE, _SCREEN_MERGE_LOCK
                            ai_screen_decision, human_screen_decision, load_screening_decisions,
                            record_screening_decision, screening_criteria, screening_index,
                            screening_master_path)
+import master_job
 
 bp = Blueprint("screening", __name__)
 
@@ -139,8 +140,12 @@ def api_screening_decision():
         return jsonify({"ok": False, "error": str(exc)}), 409
     except OSError as exc:
         return jsonify({"ok": False, "error": f"could not write the decision file: {exc}"}), 500
+    # The master is a derived product: a saved decision schedules a rebuild
+    # (debounced, background) so the PRISMA numbers follow the decision files.
+    compiled = master_job.schedule("screening decision")
     return jsonify({"ok": True, "id": str(uid), "decision": record["decision"],
-                    "screened": screened, "overwrote": existed})
+                    "screened": screened, "overwrote": existed,
+                    "master": "scheduled" if compiled else "legacy"})
 
 
 @bp.post("/api/screening/merge")
@@ -149,6 +154,13 @@ def api_screening_merge():
     coder = (payload.get("coder") or "").strip()
     if not coder:
         return jsonify({"ok": False, "error": "coder name is required"}), 400
+    # In a compiled project there is nothing to merge into the workbook: the
+    # compiler writes every coder's decisions into the derived master at once.
+    if master_job.enabled():
+        master_job.schedule("screening merge", delay=0)
+        return jsonify({"ok": True, "running": False, "compiled": True,
+                        "coder": coder,
+                        "message": "the master is derived; a recompile was scheduled"})
     with _SCREEN_MERGE_LOCK:
         if _SCREEN_MERGE["running"]:
             return jsonify({"ok": False, "error": "a merge is already in progress"}), 409

@@ -1,11 +1,19 @@
 """Full-text exclusion decided by the coders.
 
 Each coder records, for a study, whether the full text must be excluded and why.
-Decisions live one file per coder in ``Screening/fulltext - <coder>.json``.  When
-``AGREE_MIN`` distinct coders agree on exclusion the study is marked in the master
-screening workbook (``Fulltext_Verdict = Exclude`` + ``Fulltext_Exclusion_Criterion``)
-and listed in ``Screening/fulltext_agreed.json``; the coding tab hides it and the
-analysis pipeline drops it.
+Decisions live one file per coder tag in ``Fulltext/<Tag>.json`` (owned class:
+only that coder writes it; see ``Scripts/online_shared/protocol.py``).  A legacy
+``Screening/fulltext - <Tag>.json`` is still read, so an existing project keeps
+working; a save always writes the ``Fulltext/`` file.
+
+When ``AGREE_MIN`` distinct coders agree on exclusion the study is listed in
+``Screening/fulltext_agreed.json`` (derived); the coding tab hides it and the
+analysis pipeline drops it.  In a *compiled* project (``Project/master_base.xlsx``
+exists, see ``Scripts/compile_master.py``) the master workbook is no longer
+written here: the decisions are the source and the compiler builds the workbook
+from them (the union rule of ``Scripts/homogenize_fulltext_exclusions.py``).  In
+a legacy project the newly-agreed studies are still marked in
+``master_dataset.xlsx``.
 
 The canonical agreed list is also what ``Scripts/study_exclusions.py`` reads so the
 exclusion reaches ``metaanalysis.py`` / ``reanalysis.py`` / ``publication_bias.py``.
@@ -122,35 +130,54 @@ def criteria():
 
 
 # ---------------------------------------------------------------- per-coder store
+def fulltext_dir():
+    """The folder of the per-tag decision files (``Fulltext/``, created on save)."""
+    return getattr(S, "FULLTEXT", None) or os.path.join(S.ROOT, "Fulltext")
+
+
 def decision_path(coder):
+    """The canonical decision file of one coder tag."""
+    return os.path.join(fulltext_dir(), f"{safe_token(coder)}.json")
+
+
+def legacy_decision_path(coder):
+    """The pre-`Fulltext/` decision file (read-only fallback)."""
     return os.path.join(S.SCREENING, f"fulltext - {safe_token(coder)}.json")
 
 
 def load_decisions(coder, strict=False):
     """The coder's decisions; *strict* raises instead of returning ``{}`` for
-    an unreadable file, so a writer never replaces a file it could not read."""
+    an unreadable file, so a writer never replaces a file it could not read.
+
+    The canonical ``Fulltext/<Tag>.json`` wins over a legacy
+    ``Screening/fulltext - <Tag>.json`` per key; both are read so a project that
+    has not migrated yet keeps its decisions.
+    """
     if not coder or not str(coder).strip():
         return {}
-    path = decision_path(coder)
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-    except Exception as exc:  # noqa: BLE001
-        if strict:
-            raise ValueError(f"{os.path.basename(path)} cannot be read ({exc}); fix or move "
-                             "it before recording more decisions") from exc
-        return {}
-    if not isinstance(data, dict):
-        if strict:
-            raise ValueError(f"{os.path.basename(path)} does not hold a JSON object")
-        return {}
-    return data
+    merged = {}
+    for path in (legacy_decision_path(coder), decision_path(coder)):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception as exc:  # noqa: BLE001
+            if strict:
+                raise ValueError(f"{os.path.basename(path)} cannot be read ({exc}); fix or move "
+                                 "it before recording more decisions") from exc
+            continue
+        if not isinstance(data, dict):
+            if strict:
+                raise ValueError(f"{os.path.basename(path)} does not hold a JSON object")
+            continue
+        merged.update(data)
+    return merged
 
 
 def save_decisions(coder, decisions):
-    os.makedirs(S.SCREENING, exist_ok=True)
+    folder = fulltext_dir()
+    os.makedirs(folder, exist_ok=True)
     path = decision_path(coder)
     fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
     try:
@@ -165,11 +192,15 @@ def save_decisions(coder, decisions):
 
 
 def all_decisions():
-    """{study_key: {coder: decision}} across every coder file."""
+    """{study_key: {coder: decision}} across every coder file (new + legacy)."""
     out = {}
+    tags = []
+    for path in glob.glob(os.path.join(fulltext_dir(), "*.json")):
+        tags.append(os.path.basename(path)[: -len(".json")])
     for path in glob.glob(os.path.join(S.SCREENING, "fulltext - *.json")):
         base = os.path.basename(path)[: -len(".json")]
-        coder = base[len("fulltext - "):]
+        tags.append(base[len("fulltext - "):])
+    for coder in dict.fromkeys(tags):          # one pass per tag (both files merge)
         for key, dec in load_decisions(coder).items():
             if isinstance(dec, dict):
                 out.setdefault(str(key), {})[coder] = dec
@@ -304,9 +335,9 @@ def _norm_doi(s):
     return re.sub(r"^https?://(dx\.)?doi\.org/", "", str(s or "").strip().lower())
 
 
-def _extraction_info():
+def _extraction_info(folder=None):
     info = {}
-    for path in glob.glob(os.path.join(S.EXTRACTION, "*.json")):
+    for path in glob.glob(os.path.join(folder or S.EXTRACTION, "*.json")):
         key = os.path.splitext(os.path.basename(path))[0]
         try:
             with open(path, encoding="utf-8") as fh:
@@ -319,17 +350,23 @@ def _extraction_info():
     return info
 
 
-def master_mapping():
-    """{study_key: (row_index)} into master_dataset.xlsx (DOI, then filename, then title)."""
+def master_mapping(master_path=None, extraction_dir=None):
+    """{study_key: (row_index)} into a master workbook (DOI, then filename, then title).
+
+    *master_path*/*extraction_dir* default to the app's project (``S.ROOT``); the
+    compiler (``Scripts/compile_master.py``) passes its own base and
+    ``Extraction`` folder, so a compile never depends on the app being
+    configured for the same root.
+    """
     import openpyxl
 
-    master = os.path.join(S.ROOT, "master_dataset.xlsx")
+    master = master_path or os.path.join(S.ROOT, "master_dataset.xlsx")
     if not os.path.exists(master):
         return {}
-    mtime = int(os.path.getmtime(master))
-    if _MAP_CACHE["map"] is not None and _MAP_CACHE["mtime"] == mtime:
+    key = (os.path.abspath(master), int(os.path.getmtime(master)))
+    if _MAP_CACHE["map"] is not None and _MAP_CACHE["mtime"] == key:
         return _MAP_CACHE["map"]
-    info = _extraction_info()
+    info = _extraction_info(extraction_dir)
     by_doi, by_title, by_fn = {}, {}, {}
     wb = openpyxl.load_workbook(master, read_only=True, data_only=True)
     try:
@@ -358,17 +395,17 @@ def master_mapping():
     finally:
         wb.close()
     mapping = {}
-    for key, (doi, title) in info.items():
+    for study, (doi, title) in info.items():
         row = None
         if doi and doi in by_doi:
             row = by_doi[doi]
-        elif key in by_fn:
-            row = by_fn[key]
+        elif study in by_fn:
+            row = by_fn[study]
         elif title and title in by_title:
             row = by_title[title]
         if row is not None:
-            mapping[key] = row
-    _MAP_CACHE.update(mtime=mtime, map=mapping, info=info)
+            mapping[study] = row
+    _MAP_CACHE.update(mtime=key, map=mapping, info=info)
     return mapping
 
 
@@ -383,6 +420,31 @@ def _mark_worker(keys):
         state.update(running=False, finished=datetime.now().isoformat(timespec="seconds"))
 
 
+def master_is_derived():
+    """Whether this project builds its master from decision files (plan §11).
+
+    True when ``Project/master_base.xlsx`` exists: the workbook is then a
+    derived product (``Scripts/compile_master.py``), never written by a route.
+    """
+    try:
+        import compile_master
+
+        return compile_master.enabled(S.ROOT)
+    except Exception:  # noqa: BLE001 - a legacy project must keep marking the workbook
+        return False
+
+
+def request_compile(reason="fulltext"):
+    """Ask the app to rebuild the derived master (debounced, background)."""
+    try:
+        import master_job
+
+        return master_job.schedule(reason)
+    except Exception as exc:  # noqa: BLE001 - the decision is saved either way
+        log(f"fulltext: master recompile not scheduled: {exc}")
+        return False
+
+
 def _mark_master(keys):
     import openpyxl
 
@@ -392,6 +454,22 @@ def _mark_master(keys):
     marked, missing = [], []
     if not os.path.exists(master):
         _MARK_STATE.update(error="master_dataset.xlsx not found")
+        return
+    if master_is_derived():
+        # The derived master is rebuilt from the decision files; there is no
+        # cell to write here (and writing one would be overwritten anyway).
+        with _DECISIONS_LOCK:
+            cur = load_agreed()
+            now = datetime.now().isoformat(timespec="seconds")
+            for key in keys:
+                if key in cur:
+                    cur[key]["master"] = "derived"
+                    cur[key]["marked_at"] = now
+            save_agreed(cur)
+        _MARK_STATE.update(marked=[], derived=True,
+                           note="the master is derived from the decision files; recompile scheduled")
+        request_compile("fulltext")
+        log(f"fulltext decisions recorded for {len(keys)} study/studies (derived master)")
         return
     backup_dir = os.path.join(S.ROOT, "archive", "coding_app_ui_backups",
                               "fulltext_merge_" + datetime.now().strftime("%Y%m%d_%H%M%S"))

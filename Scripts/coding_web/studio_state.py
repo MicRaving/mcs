@@ -318,13 +318,16 @@ def reset_root_caches(temp_dir=None):
     _clear_mapping("studio_lib", "_pdf_search")
     _clear_mapping("studio_lib", "_pdf_spans")
     _clear_mapping("studio_cache", "_INDEX", {"root": None, "stamps": None, "papers": None})
-    _clear_mapping("screening_lib", "_SCREEN_INDEX")
+    # Shaped caches are reset to their template, never emptied: their readers
+    # index the keys directly (an emptied _SCREEN_INDEX raised KeyError 'rows').
+    _clear_mapping("screening_lib", "_SCREEN_INDEX",
+                   {"stamp": None, "rows": None, "by_id": None, "info": None})
     _clear_mapping("screening_lib", "_DECISIONS_CACHE")
-    _clear_mapping("fulltext_lib", "_MAP_CACHE")
+    _clear_mapping("fulltext_lib", "_MAP_CACHE", {"mtime": None, "map": None, "info": None})
     _clear_mapping("routes_harmonizer", "_HARM_MISSING_CACHE", {"mtime": None, "data": None})
     _clear_mapping("routes_apa", "_APA_PRISMA_CACHE", {"mtime": None, "data": None})
     _clear_mapping("routes_project", "_SCREEN_CACHE", {"stamp": None, "ids": 0})
-    _clear_mapping("routes_repro", "_INTERP_CACHE")
+    _clear_mapping("routes_repro", "_INTERP_CACHE", {"at": 0.0, "value": (None, "")})
 
     agreement = sys.modules.get("agreement_lib")
     if agreement is not None:
@@ -363,6 +366,7 @@ class State:
         self.PDFIMG = None
         self.DATASETS = None
         self.SCREENING = None
+        self.FULLTEXT = None
         self.SUPPLEMENTS = None
         self.KEYS = set()
         # --- online project (routes_online) -------------------------------
@@ -604,6 +608,7 @@ class State:
         self.TEMP = os.path.join(root, "temp")
         self.DATASETS = os.path.join(root, "Datasets")
         self.SCREENING = os.path.join(root, "Screening")
+        self.FULLTEXT = os.path.join(root, "Fulltext")
         self.SUPPLEMENTS = os.path.join(root, "Supplements")
         try:
             os.makedirs(self.CODINGS, exist_ok=True)
@@ -615,6 +620,7 @@ class State:
             self.CODINGS = os.path.join(fallback, "Codings")
             self.TEMP = os.path.join(fallback, "temp")
             self.SCREENING = os.path.join(fallback, "Screening")
+            self.FULLTEXT = os.path.join(fallback, "Fulltext")
             os.makedirs(self.CODINGS, exist_ok=True)
             os.makedirs(self.TEMP, exist_ok=True)
             os.makedirs(self.SCREENING, exist_ok=True)

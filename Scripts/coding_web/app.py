@@ -47,15 +47,16 @@ from routes_agreement import bp as agreement_bp  # noqa: E402
 from harmonizer_agreement import bp as harm_agreement_bp  # noqa: E402
 from routes_analysis import bp as analysis_bp    # noqa: E402
 from routes_apa import bp as apa_bp              # noqa: E402
-from routes_fulltext import bp as fulltext_bp    # noqa: E402
-from routes_repro import bp as repro_bp          # noqa: E402
+from routes_fulltext import bp as fulltext_bp        # noqa: E402
+from routes_master import bp as master_bp            # noqa: E402
+from routes_repro import bp as repro_bp              # noqa: E402
 from routes_settings import bp as settings_bp      # noqa: E402
 from routes_online import bp as online_bp          # noqa: E402
 
 for _bp in (core_bp, scheme_bp, criteria_bp, project_bp, harmonizer_bp,
             coverage_bp, summary_bp, screening_bp, agreement_bp,
-            harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, repro_bp,
-            settings_bp, online_bp):
+            harm_agreement_bp, analysis_bp, apa_bp, fulltext_bp, master_bp,
+            repro_bp, settings_bp, online_bp):
     app.register_blueprint(_bp)
 
 # The corpus-wide GETs are answered from a file-stamp cache: they are pure

@@ -47,8 +47,14 @@ def api_fulltext_set(key):
                       payload.get("criterion"), payload.get("note"))
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+    # A derived master is rebuilt from the decision files (debounced, background);
+    # a legacy project was marked directly by save_decision().
+    import master_job
+
+    compiled = master_job.schedule("fulltext decision")
     return jsonify({"ok": True, "key": key, "mine": load_decisions(coder).get(key),
-                    "agreed": load_agreed().get(key)})
+                    "agreed": load_agreed().get(key),
+                    "master": "scheduled" if compiled else "legacy"})
 
 
 @bp.post("/api/fulltext/merge")

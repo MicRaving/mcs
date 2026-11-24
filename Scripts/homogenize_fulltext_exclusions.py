@@ -586,6 +586,25 @@ def main() -> int:
                  for k, kind, d in plan.anomalies]
     write_csv(args.anomalies, anom_rows, ANOMALY_FIELDS)
 
+    # A compiled project derives master_dataset.xlsx from the decision files
+    # (Scripts/compile_master.py): a master cell written here would be dropped by
+    # the next compile, so rule 3 must go through a Fulltext/<Tag>.json decision.
+    if args.apply and plan.flip:
+        try:
+            import compile_master
+            derived = compile_master.enabled(ROOT)
+        except Exception:  # noqa: BLE001 - no compiler module: a legacy project
+            derived = False
+        if derived:
+            print()
+            print(f"REFUSING rule 3: {ROOT} builds master_dataset.xlsx from the decision")
+            print("files (Project/master_base.xlsx exists). Record the coding-route")
+            print("exclusions in Fulltext/<Tag>.json instead; a compile then writes")
+            print("them into the master. Rules 2 (master -> coding field) can still be")
+            print("applied by moving the base aside, but they would normally have run")
+            print("before the switch.")
+            return 2
+
     if not args.apply:
         print()
         print(f"DRY RUN - nothing written. --apply would: mark "

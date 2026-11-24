@@ -26,6 +26,12 @@ from studio_state import S, log
 # the focused criterion without overwriting an existing verdict and advances;
 # once the last criterion is done, the next Tab saves the record and loads the
 # next abstract in the same DOM position.
+#
+# In a *compiled* project (``Project/master_base.xlsx`` exists) the workbook is
+# not written by this merge any more: ``Scripts/compile_master.py`` rebuilds it
+# from every coder's file, and the per-cell rule below (``screening_merge_plan``
+# / ``apply_screening_decision``) is the core that compiler reuses - so the
+# manual merge and the compiled master can never disagree.
 
 SCREENING_CRITERIA = [
     {"label": "C1", "kind": "verdict", "title": "Misinformation intervention",
@@ -602,6 +608,83 @@ def record_screening_decision(coder, uid, record, alt=None):
     return len(decisions), existed
 
 
+# ---------------------------------------------------------------- merge core
+# The cell rule of "merge a coder's decisions into the workbook" lives here, in
+# ONE place: the app's manual merge below and the compiler
+# (``Scripts/compile_master.py``) both call these helpers, so the derived master
+# can never drift from what the app's merge would have written.
+def screening_row_uid(row, rownum, seen, cols):
+    """The record uid of a workbook row (``_unique_uid`` on the id column)."""
+    return _unique_uid(_id_text(_cell(row, cols.get("id"))), rownum, seen)
+
+
+def screening_merge_plan(header, criteria_keys, extra_keys=()):
+    """The merge's column plan: which cells every criterion is written to.
+
+    *header* is a list and is **extended in place** with the columns the merge
+    needs, exactly as the workbook write always did: the criteria keys of the
+    project's scheme, plus every key the decisions carry that already has a
+    ``<key>_verdict`` column (a legacy classification such as ``Intervention``),
+    then ``Screened_By`` / ``Screened_At``.
+
+    Returns ``{"header", "cols", "target", "by", "at"}``: ``cols`` is the
+    screening field map (``id``/``title``/...), ``target[key]`` the three cell
+    indexes of a criterion, ``by``/``at`` the provenance columns.
+    """
+    cols, crit_cols = _locate_columns(header)
+    normed = {_norm(h): i for i, h in reversed(list(enumerate(header))) if h}
+
+    def column(name):
+        i = normed.get(_norm(name))
+        if i is None:
+            i = len(header)
+            header.append(name)
+            normed[_norm(name)] = i
+        return i
+
+    existing = {_norm(k): k for k in crit_cols}
+    keys = list(criteria_keys)
+    for key in sorted(extra_keys):
+        if key not in keys and _norm(key) in existing:
+            keys.append(key)
+    target = {}
+    for key in keys:
+        base = existing.get(_norm(key), key)
+        target[key] = {part: column(f"{base}_{part}")
+                       for part in ("verdict", "certainty", "rationale")}
+    return {"header": header, "cols": cols, "target": target,
+            "by": column("Screened_By"), "at": column("Screened_At")}
+
+
+def screening_decision_for(decisions, uid, rownum):
+    """A coder's decision for a row, under its id or its ``row-<n>`` alias."""
+    dec = decisions.get(uid)
+    if dec is None and "#" in uid:
+        dec = decisions.get(f"row-{rownum}")     # the row alias, see decision_for()
+    return dec
+
+
+def apply_screening_decision(vals, decision, coder, plan):
+    """Write one coder's decision into *vals*; True when it matched a row.
+
+    Only non-empty values are written, so a criterion the coder left blank keeps
+    whatever the workbook already held - the rule the manual merge has always
+    had.  *vals* must already be padded to ``len(plan["header"])``.
+    """
+    if not decision:
+        return False
+    crits = decision.get("criteria") or {}
+    for key, where in plan["target"].items():
+        entry = crits.get(key) or {}
+        for part, i in where.items():
+            value = str(entry.get(part) or "").strip()
+            if value:
+                vals[i] = value
+    vals[plan["by"]] = str(coder).strip()
+    vals[plan["at"]] = decision.get("saved_at") or datetime.now().isoformat(timespec="seconds")
+    return True
+
+
 def _screen_merge_worker(coder):
     state = _SCREEN_MERGE
     matched = 0
@@ -628,6 +711,17 @@ def _screen_merge_worker(coder):
         state.update(running=False, ok=False, error="master_dataset.xlsx not found",
                      finished=datetime.now().isoformat(timespec="seconds"))
         return
+    try:
+        import compile_master
+
+        if compile_master.enabled(S.ROOT):
+            state.update(running=False, ok=False,
+                         error="the master is derived from the decision files; "
+                               "a recompile does this, not a per-coder merge",
+                         finished=datetime.now().isoformat(timespec="seconds"))
+            return
+    except Exception:  # noqa: BLE001 - a legacy project always merges
+        pass
     MASTER_WRITE_LOCK.acquire()
     try:
         backup_dir = os.path.join(S.ROOT, "archive", "coding_app_ui_backups",
@@ -640,9 +734,7 @@ def _screen_merge_worker(coder):
 
         # The criteria written back: the scheme's, plus any other criterion the
         # coder's decisions carry that already has a column (e.g. the legacy
-        # "Intervention" classification).
-        scheme_keys = [c["key"] for c in screening_criteria()]
-
+        # "Intervention" classification) - see screening_merge_plan().
         wb_in = openpyxl.load_workbook(master, read_only=True, data_only=False)
         ws_in, header_row = _pick_sheet(wb_in)
         wb_out = Workbook(write_only=True)
@@ -651,51 +743,23 @@ def _screen_merge_worker(coder):
         for _ in range(header_row):
             ws_out.append(list(next(it, None) or ()))       # rows above the header, verbatim
         header = [str(h).strip() if h is not None else "" for h in (next(it, None) or ())]
-        cols, crit_cols = _locate_columns(header)
-        normed = {_norm(h): i for i, h in reversed(list(enumerate(header))) if h}
-
-        def column(name):
-            i = normed.get(_norm(name))
-            if i is None:
-                i = len(header)
-                header.append(name)
-                normed[_norm(name)] = i
-            return i
-
-        existing = {_norm(k): k for k in crit_cols}
-        dec_keys = {k for d in decisions.values() for k in ((d or {}).get("criteria") or {})}
-        keys = list(scheme_keys) + sorted(k for k in dec_keys
-                                          if k not in scheme_keys and _norm(k) in existing)
-        target = {}
-        for key in keys:
-            base = existing.get(_norm(key), key)
-            target[key] = {part: column(f"{base}_{part}")
-                           for part in ("verdict", "certainty", "rationale")}
-        by_col = column("Screened_By")
-        at_col = column("Screened_At")
+        # The criteria written back: the scheme's, plus any other criterion the
+        # coder's decisions carry that already has a column (e.g. the legacy
+        # "Intervention" classification).
+        plan = screening_merge_plan(header, [c["key"] for c in screening_criteria()],
+                                    {k for d in decisions.values()
+                                     for k in ((d or {}).get("criteria") or {})})
         ws_out.append(header)
         seen = {}
         for r, row in enumerate(it, start=header_row + 2):
-            vals = list(row) + [None] * (len(header) - len(row))
+            vals = list(row) + [None] * (len(plan["header"]) - len(row))
             if not any(v not in (None, "") for v in row):
                 ws_out.append(vals)
                 continue
-            an = _id_text(_cell(row, cols.get("id")))
-            uid = _unique_uid(an, r, seen)
-            dec = decisions.get(uid)
-            if dec is None and "#" in uid:
-                dec = decisions.get(f"row-{r}")      # the row alias, see decision_for()
-            if dec:
+            uid = screening_row_uid(row, r, seen, plan["cols"])
+            dec = screening_decision_for(decisions, uid, r)
+            if apply_screening_decision(vals, dec, coder, plan):
                 matched += 1
-                crits = dec.get("criteria") or {}
-                for key, where in target.items():
-                    entry = crits.get(key) or {}
-                    for part, i in where.items():
-                        value = str(entry.get(part) or "").strip()
-                        if value:
-                            vals[i] = value
-                vals[by_col] = str(coder).strip()
-                vals[at_col] = dec.get("saved_at") or datetime.now().isoformat(timespec="seconds")
             ws_out.append(vals)
         os.makedirs(S.TEMP, exist_ok=True)
         tmp = os.path.join(S.TEMP, "master_dataset.merge.xlsx")

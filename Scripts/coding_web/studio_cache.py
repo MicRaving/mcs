@@ -398,6 +398,8 @@ def response_stamp(path=None):
         _sorted_listing(S.EXTRACTION, ".json"),
         _sorted_listing(S.CODINGS, ".json"),
         _sorted_listing(S.SCREENING, ".json"),
+        # the full-text decisions live in their own folder (one file per tag)
+        _sorted_listing(getattr(S, "FULLTEXT", "") or os.path.join(S.ROOT, "Fulltext"), ".json"),
     ]
     if path == "/api/papers":
         stamp += [

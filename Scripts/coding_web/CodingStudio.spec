@@ -101,7 +101,9 @@ hiddenimports += [
     "routes_online",
     "online", "online.client", "online.store", "online.mirror", "online.outbox",
     "online.syncer", "online.cache", "online.conflicts", "online.keyring_store",
-    "online.errors",
+    "online.errors", "online.webdav", "online.nextcloud",
+    # derived master: the compile job and its route
+    "routes_master", "master_job", "compile_master",
     "online_shared", "online_shared.protocol", "online_shared.merge",
 ]
 

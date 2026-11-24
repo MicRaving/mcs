@@ -222,9 +222,27 @@ from online_shared.protocol import classify as _cl, is_core as _core
     ("Codings/x - harmonizer - _y.json", "admin", None, None, None, True),
     ("Screening/fulltext - MM.json", "owned", None, "MM", "fulltext", True),
     ("Screening/fulltext_agreed.json", "derived", None, None, None, True),
+    ("Fulltext/MF.json", "owned", None, "MF", "fulltext", True),
+    ("Fulltext/OG.json", "owned", None, "OG", "fulltext", True),
     ("Results/metaanalysis.xlsx", "derived", None, None, None, False),
 ])
 def test_audit_rules(path, kind, key, tag, stage, core):
     fc = _cl(path)
     assert (fc.kind, fc.key, fc.tag, fc.stage) == (kind, key, tag, stage)
     assert _core(path, fc) is core
+
+
+def test_fulltext_decision_file_is_owned_by_its_tag():
+    """``Fulltext/<Tag>.json`` is the full-text stage's owned decision file.
+
+    Only the owner of the tag may write it (no lock), it is always mirrored (a
+    coder needs it offline), and nothing else in ``Fulltext/`` is a decision
+    file - an arbitrary file there falls back to the administrative class.
+    """
+    fc = classify("Fulltext/MF.json")
+    assert fc == FileClass("owned", tag="MF", stage="fulltext")
+    assert is_core("Fulltext/MF.json", fc) is True
+    assert classify("Fulltext/notes.txt") == FileClass("admin")
+    # the legacy location stays owned too, so a half-migrated project keeps working
+    assert classify("Screening/fulltext - MF.json") == FileClass(
+        "owned", tag="MF", stage="fulltext")
