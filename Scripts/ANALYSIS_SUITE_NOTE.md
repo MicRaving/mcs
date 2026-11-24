@@ -3,7 +3,7 @@
 <!-- META-SECTION:START -->
 ## Meta (reported-effects) layer
 
-_Generated 2026-09-23 20:29 by `Scripts/analysis_multiverse_meta.py`._
+_Generated 2026-11-23 16:28 by `Scripts/analysis_multiverse_meta.py`._
 
 This is the **meta (reported-effects)** section of `ANALYSIS_SUITE_SPEC.md`; the signal-detection (SDT) section is produced by the SDT-layer session.
 
@@ -27,90 +27,90 @@ This is the **meta (reported-effects)** section of `ANALYSIS_SUITE_SPEC.md`; the
 
 - **Skipped** 0 extraction files changed in the last 15 min.
 
-- **DiD quality guard**: 1 contrasts with |standardised DiD| > 3.0 were dropped (coded SDs behaving like SEs) and listed in `temp/meta_did_excluded.csv`.
+- **DiD quality guard**: 2 contrasts with |standardised DiD| > 3.0 were dropped (coded SDs behaving like SEs) and listed in `temp/meta_did_excluded.csv`.
 
 ## Effects per spec (meta layer)
 
 | spec | exclusions | scope | k | est | lo | hi | i2 | two_level_est | two_level_lo | two_level_hi | cr_se | cr_lo | cr_hi |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| did_all | ON | unrestricted | 355 | 0.4452 | 0.3960 | 0.4944 | 94.3614 | 0.4757 | 0.3654 | 0.5860 | 0.0676 | 0.3127 | 0.5777 |
-| did_all | ON | restricted | 196 | 0.4328 | 0.3641 | 0.5015 | 95.0529 | 0.4324 | 0.3120 | 0.5529 | 0.0655 | 0.3045 | 0.5611 |
-| did_all | OFF | unrestricted | 355 | 0.4333 | 0.3847 | 0.4819 | 94.2900 | 0.4652 | 0.3559 | 0.5746 | 0.0665 | 0.3029 | 0.5637 |
-| did_all | OFF | restricted | 196 | 0.4151 | 0.3478 | 0.4823 | 94.9321 | 0.4189 | 0.3011 | 0.5368 | 0.0633 | 0.2911 | 0.5391 |
-| did_cred | ON | unrestricted | 180 | 0.4498 | 0.3741 | 0.5255 | 95.2074 | 0.4406 | 0.3147 | 0.5665 | 0.0687 | 0.3151 | 0.5845 |
-| did_cred | ON | restricted | 180 | 0.4498 | 0.3741 | 0.5255 | 95.2074 | 0.4406 | 0.3147 | 0.5665 | 0.0687 | 0.3151 | 0.5845 |
-| did_cred | OFF | unrestricted | 180 | 0.4304 | 0.3563 | 0.5045 | 95.0989 | 0.4265 | 0.3033 | 0.5497 | 0.0665 | 0.3001 | 0.5607 |
-| did_cred | OFF | restricted | 180 | 0.4304 | 0.3563 | 0.5045 | 95.0989 | 0.4265 | 0.3033 | 0.5497 | 0.0665 | 0.3001 | 0.5607 |
-| post_all | ON | unrestricted | 3088 | 0.2073 | 0.2000 | 0.2147 | 94.7648 | 0.2848 | 0.2552 | 0.3144 | 0.0155 | 0.1769 | 0.2377 |
-| post_all | ON | restricted | 1959 | 0.2060 | 0.1979 | 0.2141 | 94.5757 | 0.2813 | 0.2465 | 0.3162 | 0.0189 | 0.1689 | 0.2431 |
-| post_all | OFF | unrestricted | 3088 | 0.2020 | 0.1945 | 0.2094 | 94.8718 | 0.2813 | 0.2516 | 0.3111 | 0.0155 | 0.1715 | 0.2324 |
-| post_all | OFF | restricted | 1959 | 0.1975 | 0.1893 | 0.2057 | 94.7027 | 0.2774 | 0.2424 | 0.3124 | 0.0191 | 0.1600 | 0.2350 |
-| post_cred | ON | unrestricted | 1606 | 0.2264 | 0.2135 | 0.2393 | 94.1054 | 0.2832 | 0.2448 | 0.3215 | 0.0229 | 0.1815 | 0.2713 |
-| post_cred | ON | restricted | 1606 | 0.2264 | 0.2135 | 0.2393 | 94.1054 | 0.2832 | 0.2448 | 0.3215 | 0.0229 | 0.1815 | 0.2713 |
-| post_cred | OFF | unrestricted | 1606 | 0.2178 | 0.2042 | 0.2313 | 94.5961 | 0.2778 | 0.2391 | 0.3165 | 0.0231 | 0.1724 | 0.2631 |
-| post_cred | OFF | restricted | 1606 | 0.2178 | 0.2042 | 0.2313 | 94.5961 | 0.2778 | 0.2391 | 0.3165 | 0.0231 | 0.1724 | 0.2631 |
-| persistence_all | ON | unrestricted | 489 | 0.2203 | 0.2015 | 0.2392 | 87.9336 | 0.2238 | 0.1655 | 0.2821 | 0.0298 | 0.1620 | 0.2787 |
-| persistence_all | ON | restricted | 303 | 0.2437 | 0.2205 | 0.2670 | 90.0082 | 0.2348 | 0.1643 | 0.3052 | 0.0382 | 0.1688 | 0.3187 |
-| persistence_all | OFF | unrestricted | 489 | 0.2186 | 0.1998 | 0.2375 | 87.9247 | 0.2204 | 0.1620 | 0.2788 | 0.0297 | 0.1604 | 0.2768 |
-| persistence_all | OFF | restricted | 303 | 0.2418 | 0.2186 | 0.2650 | 89.9645 | 0.2312 | 0.1609 | 0.3016 | 0.0381 | 0.1671 | 0.3165 |
-| persistence_cred | ON | unrestricted | 256 | 0.2519 | 0.2264 | 0.2773 | 91.0699 | 0.2475 | 0.1693 | 0.3257 | 0.0451 | 0.1635 | 0.3402 |
-| persistence_cred | ON | restricted | 256 | 0.2519 | 0.2264 | 0.2773 | 91.0699 | 0.2475 | 0.1693 | 0.3257 | 0.0451 | 0.1635 | 0.3402 |
-| persistence_cred | OFF | unrestricted | 256 | 0.2495 | 0.2241 | 0.2749 | 91.0285 | 0.2437 | 0.1656 | 0.3218 | 0.0449 | 0.1616 | 0.3375 |
-| persistence_cred | OFF | restricted | 256 | 0.2495 | 0.2241 | 0.2749 | 91.0285 | 0.2437 | 0.1656 | 0.3218 | 0.0449 | 0.1616 | 0.3375 |
+| did_all | ON | unrestricted | 529 | 0.3990 | 0.3609 | 0.4371 | 92.9383 | 0.4334 | 0.3407 | 0.5261 | 0.0508 | 0.2995 | 0.4985 |
+| did_all | ON | restricted | 168 | 0.5123 | 0.4242 | 0.6004 | 95.2846 | 0.5092 | 0.3585 | 0.6598 | 0.0733 | 0.3687 | 0.6559 |
+| did_all | OFF | unrestricted | 529 | 0.3852 | 0.3474 | 0.4230 | 92.9377 | 0.4132 | 0.3241 | 0.5023 | 0.0506 | 0.2860 | 0.4843 |
+| did_all | OFF | restricted | 168 | 0.4657 | 0.3761 | 0.5553 | 95.5656 | 0.4589 | 0.3068 | 0.6110 | 0.0757 | 0.3173 | 0.6141 |
+| did_cred | ON | unrestricted | 155 | 0.5148 | 0.4224 | 0.6073 | 95.4526 | 0.4992 | 0.3446 | 0.6538 | 0.0783 | 0.3614 | 0.6682 |
+| did_cred | ON | restricted | 155 | 0.5148 | 0.4224 | 0.6073 | 95.4526 | 0.4992 | 0.3446 | 0.6538 | 0.0783 | 0.3614 | 0.6682 |
+| did_cred | OFF | unrestricted | 155 | 0.4703 | 0.3764 | 0.5641 | 95.7073 | 0.4300 | 0.2749 | 0.5850 | 0.0803 | 0.3128 | 0.6277 |
+| did_cred | OFF | restricted | 155 | 0.4703 | 0.3764 | 0.5641 | 95.7073 | 0.4300 | 0.2749 | 0.5850 | 0.0803 | 0.3128 | 0.6277 |
+| post_all | ON | unrestricted | 3294 | 0.2144 | 0.2073 | 0.2216 | 94.5794 | 0.2922 | 0.2630 | 0.3215 | 0.0151 | 0.1848 | 0.2440 |
+| post_all | ON | restricted | 1816 | 0.2098 | 0.2014 | 0.2181 | 94.7077 | 0.2874 | 0.2501 | 0.3248 | 0.0203 | 0.1700 | 0.2496 |
+| post_all | OFF | unrestricted | 3294 | 0.2073 | 0.2001 | 0.2146 | 94.7015 | 0.2870 | 0.2580 | 0.3160 | 0.0151 | 0.1778 | 0.2369 |
+| post_all | OFF | restricted | 1816 | 0.1977 | 0.1893 | 0.2061 | 94.8541 | 0.2802 | 0.2433 | 0.3170 | 0.0203 | 0.1579 | 0.2375 |
+| post_cred | ON | unrestricted | 1518 | 0.2224 | 0.2104 | 0.2344 | 94.5475 | 0.2830 | 0.2421 | 0.3238 | 0.0236 | 0.1761 | 0.2687 |
+| post_cred | ON | restricted | 1518 | 0.2224 | 0.2104 | 0.2344 | 94.5475 | 0.2830 | 0.2421 | 0.3238 | 0.0236 | 0.1761 | 0.2687 |
+| post_cred | OFF | unrestricted | 1518 | 0.2099 | 0.1975 | 0.2224 | 94.9546 | 0.2749 | 0.2347 | 0.3151 | 0.0236 | 0.1637 | 0.2562 |
+| post_cred | OFF | restricted | 1518 | 0.2099 | 0.1975 | 0.2224 | 94.9546 | 0.2749 | 0.2347 | 0.3151 | 0.0236 | 0.1637 | 0.2562 |
+| persistence_all | ON | unrestricted | 445 | 0.1736 | 0.1600 | 0.1871 | 86.8114 | 0.2248 | 0.1662 | 0.2834 | 0.0323 | 0.1103 | 0.2368 |
+| persistence_all | ON | restricted | 210 | 0.1827 | 0.1651 | 0.2002 | 89.3225 | 0.2259 | 0.1474 | 0.3045 | 0.0444 | 0.0956 | 0.2697 |
+| persistence_all | OFF | unrestricted | 445 | 0.1707 | 0.1572 | 0.1842 | 86.6836 | 0.2197 | 0.1607 | 0.2786 | 0.0322 | 0.1076 | 0.2338 |
+| persistence_all | OFF | restricted | 210 | 0.1836 | 0.1661 | 0.2011 | 89.1419 | 0.2241 | 0.1459 | 0.3023 | 0.0448 | 0.0958 | 0.2715 |
+| persistence_cred | ON | unrestricted | 158 | 0.1761 | 0.1569 | 0.1953 | 90.9542 | 0.2415 | 0.1484 | 0.3345 | 0.0543 | 0.0696 | 0.2826 |
+| persistence_cred | ON | restricted | 158 | 0.1761 | 0.1569 | 0.1953 | 90.9542 | 0.2415 | 0.1484 | 0.3345 | 0.0543 | 0.0696 | 0.2826 |
+| persistence_cred | OFF | unrestricted | 158 | 0.1773 | 0.1581 | 0.1965 | 90.7832 | 0.2393 | 0.1468 | 0.3318 | 0.0550 | 0.0695 | 0.2851 |
+| persistence_cred | OFF | restricted | 158 | 0.1773 | 0.1581 | 0.1965 | 90.7832 | 0.2393 | 0.1468 | 0.3318 | 0.0550 | 0.0695 | 0.2851 |
 
 ## Credibility fallbacks (sharing_intention used where no credibility contrast)
 
-Fallback contrasts: **1830** across 53 studies.
+Fallback contrasts: **1820** across 56 studies.
 
 ## Exclusions ON vs OFF
 
-- Harmonized re-derivations (no exclusion filters): **283** contrast-runs.
+- Harmonized re-derivations (no exclusion filters): **294** contrast-runs.
 - `paper_only`: no usable data, coded effect retained (author sample embedded).
 - `harmonized_unmatched`: data exist but no confident DV match, coded effect retained.
 
 | spec | exclusions | category | n |
 | --- | --- | --- | --- |
-| did_all | OFF | derived:components | 10 |
-| did_all | OFF | harmonized_rederived | 20 |
-| did_all | OFF | harmonized_unmatched | 115 |
-| did_all | OFF | paper_only | 210 |
-| did_cred | OFF | derived:components | 9 |
-| did_cred | OFF | harmonized_rederived | 15 |
-| did_cred | OFF | harmonized_unmatched | 67 |
-| did_cred | OFF | paper_only | 89 |
+| did_all | OFF | derived:components | 11 |
+| did_all | OFF | harmonized_rederived | 30 |
+| did_all | OFF | harmonized_unmatched | 161 |
+| did_all | OFF | paper_only | 327 |
+| did_cred | OFF | derived:components | 10 |
+| did_cred | OFF | harmonized_rederived | 16 |
+| did_cred | OFF | harmonized_unmatched | 74 |
+| did_cred | OFF | paper_only | 55 |
 | persistence_all | OFF | derived:components | 21 |
-| persistence_all | OFF | harmonized_rederived | 35 |
-| persistence_all | OFF | harmonized_unmatched | 168 |
-| persistence_all | OFF | paper_only | 265 |
-| persistence_cred | OFF | derived:components | 21 |
-| persistence_cred | OFF | harmonized_rederived | 26 |
-| persistence_cred | OFF | harmonized_unmatched | 102 |
-| persistence_cred | OFF | paper_only | 107 |
-| post_all | OFF | derived:components | 232 |
-| post_all | OFF | harmonized_rederived | 111 |
-| post_all | OFF | harmonized_unmatched | 1175 |
-| post_all | OFF | paper_only | 1570 |
-| post_cred | OFF | derived:components | 185 |
-| post_cred | OFF | harmonized_rederived | 76 |
-| post_cred | OFF | harmonized_unmatched | 578 |
-| post_cred | OFF | paper_only | 767 |
+| persistence_all | OFF | harmonized_rederived | 26 |
+| persistence_all | OFF | harmonized_unmatched | 153 |
+| persistence_all | OFF | paper_only | 245 |
+| persistence_cred | OFF | derived:components | 20 |
+| persistence_cred | OFF | harmonized_rederived | 19 |
+| persistence_cred | OFF | harmonized_unmatched | 73 |
+| persistence_cred | OFF | paper_only | 46 |
+| post_all | OFF | derived:components | 275 |
+| post_all | OFF | harmonized_rederived | 125 |
+| post_all | OFF | harmonized_unmatched | 1620 |
+| post_all | OFF | paper_only | 1274 |
+| post_cred | OFF | derived:components | 219 |
+| post_cred | OFF | harmonized_rederived | 78 |
+| post_cred | OFF | harmonized_unmatched | 785 |
+| post_cred | OFF | paper_only | 436 |
 
 ## Moderator: data_available vs paper_only
 
 | layer | spec | exclusions | coef | se | lo | hi | p | k | n_studies | data_available_est | data_available_k | paper_only_est | paper_only_k |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| meta | did_all | ON | 0.0214 | 0.1240 | -0.2217 | 0.2645 | 0.8629 | 355 | 70 | 0.4545 | 139 | 0.4403 | 216 |
-| meta | did_all | OFF | -0.0068 | 0.1220 | -0.2459 | 0.2322 | 0.9553 | 355 | 70 | 0.4261 | 139 | 0.4403 | 216 |
-| meta | did_cred | ON | 0.0547 | 0.1351 | -0.2100 | 0.3195 | 0.6854 | 180 | 52 | 0.4774 | 86 | 0.4245 | 94 |
-| meta | did_cred | OFF | 0.0157 | 0.1322 | -0.2434 | 0.2749 | 0.9054 | 180 | 52 | 0.4392 | 86 | 0.4245 | 94 |
-| meta | post_all | ON | -0.0276 | 0.0310 | -0.0883 | 0.0330 | 0.3719 | 3088 | 385 | 0.1987 | 1491 | 0.2194 | 1597 |
-| meta | post_all | OFF | -0.0385 | 0.0310 | -0.0993 | 0.0223 | 0.2141 | 3088 | 385 | 0.1895 | 1491 | 0.2194 | 1597 |
-| meta | post_cred | ON | -0.0423 | 0.0454 | -0.1313 | 0.0466 | 0.3507 | 1606 | 323 | 0.2035 | 821 | 0.2531 | 785 |
-| meta | post_cred | OFF | -0.0606 | 0.0457 | -0.1502 | 0.0291 | 0.1855 | 1606 | 323 | 0.1868 | 821 | 0.2531 | 785 |
-| meta | persistence_all | ON | 0.0767 | 0.0584 | -0.0378 | 0.1912 | 0.1894 | 489 | 89 | 0.2671 | 224 | 0.1757 | 265 |
-| meta | persistence_all | OFF | 0.0728 | 0.0584 | -0.0416 | 0.1872 | 0.2123 | 489 | 89 | 0.2631 | 224 | 0.1757 | 265 |
-| meta | persistence_cred | ON | 0.1549 | 0.0762 | 0.0055 | 0.3042 | 0.0421 | 256 | 72 | 0.3259 | 149 | 0.1395 | 107 |
-| meta | persistence_cred | OFF | 0.1510 | 0.0761 | 0.0018 | 0.3003 | 0.0473 | 256 | 72 | 0.3212 | 149 | 0.1395 | 107 |
+| meta | did_all | ON | 0.0400 | 0.0966 | -0.1493 | 0.2292 | 0.6790 | 529 | 101 | 0.4232 | 199 | 0.3824 | 330 |
+| meta | did_all | OFF | 0.0057 | 0.0967 | -0.1839 | 0.1953 | 0.9530 | 529 | 101 | 0.3888 | 199 | 0.3824 | 330 |
+| meta | did_cred | ON | 0.0131 | 0.1753 | -0.3306 | 0.3567 | 0.9406 | 155 | 50 | 0.5194 | 98 | 0.5057 | 57 |
+| meta | did_cred | OFF | -0.0545 | 0.1776 | -0.4026 | 0.2937 | 0.7592 | 155 | 50 | 0.4515 | 98 | 0.5057 | 57 |
+| meta | post_all | ON | -0.0645 | 0.0303 | -0.1240 | -0.0051 | 0.0333 | 3294 | 438 | 0.1908 | 1973 | 0.2683 | 1321 |
+| meta | post_all | OFF | -0.0763 | 0.0303 | -0.1356 | -0.0169 | 0.0118 | 3294 | 438 | 0.1797 | 1973 | 0.2683 | 1321 |
+| meta | post_cred | ON | -0.0804 | 0.0440 | -0.1665 | 0.0058 | 0.0676 | 1518 | 324 | 0.1996 | 1048 | 0.2833 | 470 |
+| meta | post_cred | OFF | -0.1000 | 0.0439 | -0.1860 | -0.0140 | 0.0227 | 1518 | 324 | 0.1816 | 1048 | 0.2833 | 470 |
+| meta | persistence_all | ON | 0.0792 | 0.0587 | -0.0358 | 0.1942 | 0.1772 | 445 | 83 | 0.2120 | 200 | 0.1607 | 245 |
+| meta | persistence_all | OFF | 0.0732 | 0.0590 | -0.0425 | 0.1889 | 0.2148 | 445 | 83 | 0.2059 | 200 | 0.1607 | 245 |
+| meta | persistence_cred | ON | 0.1207 | 0.0944 | -0.0644 | 0.3058 | 0.2012 | 158 | 56 | 0.2098 | 112 | 0.1552 | 46 |
+| meta | persistence_cred | OFF | 0.1245 | 0.0945 | -0.0606 | 0.3096 | 0.1875 | 158 | 56 | 0.2128 | 112 | 0.1552 | 46 |
 
 ## Publication bias
 
@@ -118,46 +118,46 @@ Egger:
 
 | layer | spec | exclusions | k | intercept | se | t | p | slope |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| meta | did_all | ON | 355 | 3.9963 | 0.4559 | 8.7659 | 0.0000 | -0.0587 |
-| meta | did_all | OFF | 355 | 3.9276 | 0.4554 | 8.6254 | 0.0000 | -0.0574 |
-| meta | did_cred | ON | 180 | 5.8142 | 0.8773 | 6.6276 | 0.0000 | -0.1822 |
-| meta | did_cred | OFF | 180 | 5.7202 | 0.8760 | 6.5297 | 0.0000 | -0.1789 |
-| meta | post_all | ON | 3088 | 5.7357 | 0.2599 | 22.0664 | 0.0000 | -0.0130 |
-| meta | post_all | OFF | 3088 | 4.8407 | 0.2610 | 18.5468 | 0.0000 | -0.0108 |
-| meta | post_cred | ON | 1606 | 3.2573 | 0.1752 | 18.5969 | 0.0000 | 0.0008 |
-| meta | post_cred | OFF | 1606 | 1.7044 | 0.1684 | 10.1192 | 0.0000 | 0.0043 |
-| meta | persistence_all | ON | 489 | 2.2057 | 0.2459 | 8.9709 | 0.0000 | 0.0184 |
-| meta | persistence_all | OFF | 489 | 2.2000 | 0.2456 | 8.9557 | 0.0000 | 0.0185 |
-| meta | persistence_cred | ON | 256 | 2.5682 | 0.4210 | 6.1005 | 0.0000 | 0.0149 |
-| meta | persistence_cred | OFF | 256 | 2.5729 | 0.4210 | 6.1116 | 0.0000 | 0.0149 |
+| meta | did_all | ON | 529 | 3.0658 | 0.4272 | 7.1765 | 0.0000 | 0.0283 |
+| meta | did_all | OFF | 529 | 2.8715 | 0.4323 | 6.6416 | 0.0000 | 0.0357 |
+| meta | did_cred | ON | 155 | 5.6779 | 0.9589 | 5.9215 | 0.0000 | -0.0459 |
+| meta | did_cred | OFF | 155 | 4.9962 | 0.9943 | 5.0248 | 0.0000 | -0.0243 |
+| meta | post_all | ON | 3294 | 5.4768 | 0.2390 | 22.9149 | 0.0000 | -0.0122 |
+| meta | post_all | OFF | 3294 | 4.6948 | 0.2404 | 19.5303 | 0.0000 | -0.0102 |
+| meta | post_cred | ON | 1518 | 2.9777 | 0.2151 | 13.8404 | 0.0000 | 0.0097 |
+| meta | post_cred | OFF | 1518 | 1.7103 | 0.2172 | 7.8738 | 0.0000 | 0.0145 |
+| meta | persistence_all | ON | 445 | -0.0653 | 0.4462 | -0.1463 | 0.8838 | 0.0279 |
+| meta | persistence_all | OFF | 445 | -0.0558 | 0.4464 | -0.1250 | 0.9006 | 0.0279 |
+| meta | persistence_cred | ON | 158 | -1.2159 | 1.0501 | -1.1579 | 0.2487 | 0.0331 |
+| meta | persistence_cred | OFF | 158 | -1.1700 | 1.0541 | -1.1100 | 0.2687 | 0.0328 |
 
 PET-PEESE:
 
 | layer | spec | exclusions | k | pet_int | pet_se | pet_p | pet_slope | peese_int | peese_se | peese_p | peese_slope | prefer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| meta | did_all | ON | 355 | 0.0406 | 0.0490 | 0.4072 | 2.8536 | 0.2263 | 0.0295 | 0.0000 | 7.4292 | PET |
-| meta | did_all | OFF | 355 | 0.0413 | 0.0488 | 0.3982 | 2.7910 | 0.2231 | 0.0292 | 0.0000 | 7.2467 | PET |
-| meta | did_cred | ON | 180 | 0.1163 | 0.0835 | 0.1651 | 2.4518 | 0.3055 | 0.0463 | 0.0000 | 4.3930 | PET |
-| meta | did_cred | OFF | 180 | 0.1237 | 0.0829 | 0.1374 | 2.2967 | 0.3014 | 0.0453 | 0.0000 | 4.0073 | PET |
-| meta | post_all | ON | 3088 | 0.0199 | 0.0034 | 0.0000 | 1.9468 | 0.0472 | 0.0031 | 0.0000 | 8.2795 | PEESE |
-| meta | post_all | OFF | 3088 | 0.0132 | 0.0035 | 0.0002 | 1.9322 | 0.0399 | 0.0032 | 0.0000 | 8.7471 | PEESE |
-| meta | post_cred | ON | 1606 | 0.0365 | 0.0081 | 0.0000 | 1.8720 | 0.0901 | 0.0063 | 0.0000 | 7.2456 | PEESE |
-| meta | post_cred | OFF | 1606 | -0.0020 | 0.0087 | 0.8205 | 2.1489 | 0.0596 | 0.0067 | 0.0000 | 8.9733 | PET |
-| meta | persistence_all | ON | 489 | 0.0300 | 0.0101 | 0.0031 | 1.6733 | 0.0756 | 0.0084 | 0.0000 | 6.5814 | PEESE |
-| meta | persistence_all | OFF | 489 | 0.0302 | 0.0101 | 0.0029 | 1.6612 | 0.0757 | 0.0084 | 0.0000 | 6.5105 | PEESE |
-| meta | persistence_cred | ON | 256 | 0.0212 | 0.0120 | 0.0787 | 2.0708 | 0.0601 | 0.0104 | 0.0000 | 10.5524 | PET |
-| meta | persistence_cred | OFF | 256 | 0.0219 | 0.0120 | 0.0702 | 2.0468 | 0.0606 | 0.0104 | 0.0000 | 10.3149 | PET |
+| meta | did_all | ON | 529 | 0.1560 | 0.0384 | 0.0001 | 1.6166 | 0.2689 | 0.0224 | 0.0000 | 3.7763 | PEESE |
+| meta | did_all | OFF | 529 | 0.1477 | 0.0385 | 0.0001 | 1.5884 | 0.2552 | 0.0223 | 0.0000 | 3.9780 | PEESE |
+| meta | did_cred | ON | 155 | 0.3791 | 0.0947 | 0.0001 | 1.0324 | 0.4818 | 0.0550 | 0.0000 | 0.4422 | PEESE |
+| meta | did_cred | OFF | 155 | 0.3438 | 0.0984 | 0.0006 | 0.9402 | 0.4299 | 0.0567 | 0.0000 | 0.8976 | PEESE |
+| meta | post_all | ON | 3294 | 0.0194 | 0.0033 | 0.0000 | 1.9728 | 0.0483 | 0.0030 | 0.0000 | 8.1127 | PEESE |
+| meta | post_all | OFF | 3294 | 0.0131 | 0.0034 | 0.0001 | 1.9426 | 0.0409 | 0.0030 | 0.0000 | 8.5990 | PEESE |
+| meta | post_cred | ON | 1518 | 0.0316 | 0.0069 | 0.0000 | 1.9225 | 0.0780 | 0.0056 | 0.0000 | 7.2797 | PEESE |
+| meta | post_cred | OFF | 1518 | 0.0076 | 0.0074 | 0.3012 | 2.0117 | 0.0542 | 0.0059 | 0.0000 | 8.8691 | PET |
+| meta | persistence_all | ON | 445 | 0.0147 | 0.0044 | 0.0008 | 1.5882 | 0.0322 | 0.0042 | 0.0000 | 6.6877 | PEESE |
+| meta | persistence_all | OFF | 445 | 0.0151 | 0.0044 | 0.0006 | 1.5605 | 0.0323 | 0.0042 | 0.0000 | 6.5390 | PEESE |
+| meta | persistence_cred | ON | 158 | 0.0132 | 0.0054 | 0.0152 | 1.9847 | 0.0270 | 0.0052 | 0.0000 | 10.3236 | PEESE |
+| meta | persistence_cred | OFF | 158 | 0.0136 | 0.0053 | 0.0117 | 1.9801 | 0.0274 | 0.0052 | 0.0000 | 9.9385 | PEESE |
 
 Trim-and-fill (L0-style linear rank estimator):
 
 | layer | spec | exclusions | k_obs | k0_missing | side | orig_est | adjusted_est |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| meta | did_all | ON | 355 | 8 | left | 0.4452 | 0.4041 |
-| meta | did_cred | ON | 180 | 7 | left | 0.4498 | 0.3893 |
-| meta | post_all | ON | 3088 | 74 | left | 0.2073 | 0.1837 |
-| meta | post_cred | ON | 1606 | 0 | left | 0.2264 | 0.2264 |
-| meta | persistence_all | ON | 489 | 0 | left | 0.2203 | 0.2203 |
-| meta | persistence_cred | ON | 256 | 0 | left | 0.2519 | 0.2519 |
+| meta | did_all | ON | 529 | 10 | left | 0.3990 | 0.3649 |
+| meta | did_cred | ON | 155 | 6 | left | 0.5148 | 0.4419 |
+| meta | post_all | ON | 3294 | 80 | left | 0.2144 | 0.1917 |
+| meta | post_cred | ON | 1518 | 4 | left | 0.2224 | 0.2179 |
+| meta | persistence_all | ON | 445 | 0 | left | 0.1736 | 0.1736 |
+| meta | persistence_cred | ON | 158 | 0 | left | 0.1761 | 0.1761 |
 
 ## Limitations (meta layer)
 
@@ -229,15 +229,16 @@ control/ctrl/kontrol/placebo/baseline/no_*/assessment_only/...; a secondary set
 such contrast carries `cond_ambiguous = 1`. Single-arm designs are skipped and
 listed in `temp/sdt_skips.csv`.
 
-Studies/artifacts skipped: **258** rows in `temp/sdt_skips.csv`.
+Studies/artifacts skipped: **279** rows in `temp/sdt_skips.csv`.
 
 | reason | rows |
 |---|---:|
-| no true/false veracity DVs | 112 |
-| no identifiable control arm | 83 |
-| no participant with both veracities | 20 |
-| no condition column | 11 |
+| no true/false veracity DVs | 121 |
+| no identifiable control arm | 84 |
+| no participant with both veracities | 26 |
+| no condition column | 13 |
 | 25 rows with unassignable condition dropped | 3 |
+| error: KeyError: 'artifact' | 2 |
 | non-independent experiment | 2 |
 | 217 rows with unassignable condition dropped | 2 |
 | 1 rows with unassignable condition dropped | 2 |
@@ -249,6 +250,7 @@ Studies/artifacts skipped: **258** rows in `temp/sdt_skips.csv`.
 | 117 rows with unassignable condition dropped | 1 |
 | 214 rows with unassignable condition dropped | 1 |
 | 113 rows with unassignable condition dropped | 1 |
+| empty after exclusions | 1 |
 | 1968 rows with unassignable condition dropped | 1 |
 | 22 rows with unassignable condition dropped | 1 |
 | 525 rows with unassignable condition dropped | 1 |
@@ -269,88 +271,88 @@ Studies/artifacts skipped: **258** rows in `temp/sdt_skips.csv`.
 
 | spec | contrasts | studies | median r_used | fallbacks |
 |---|---:|---:|---:|---:|
-| post_all | 240 | 111 | – | 0 |
-| post_cred | 171 | 106 | – | 38 |
+| post_all | 249 | 115 | – | 0 |
+| post_cred | 176 | 110 | – | 40 |
 | persistence_all | 43 | 23 | – | 0 |
 | persistence_cred | 30 | 23 | – | 2 |
-| did_all | 47 | 28 | 0.441 | 0 |
-| did_cred | 35 | 27 | 0.448 | 4 |
+| did_all | 49 | 29 | 0.422 | 0 |
+| did_cred | 36 | 28 | 0.445 | 4 |
 
 ### Pooled results (two-level RE, exclusions ON vs OFF)
 
 | spec | excl | group | k | k studies | est | 95% CI | tau2_between |
 |---|---|---|---:|---:|---:|---|---:|
-| post_all | ON | ALL | 240 | 111 | 0.141 | [0.099, 0.184] | 0.0442 |
-| post_all | ON | domain: credibility | 133 | 88 | 0.125 | [0.063, 0.187] | 0.0796 |
-| post_all | ON | domain: sharing_intention | 80 | 50 | 0.158 | [0.109, 0.206] | 0.0237 |
-| post_all | ON | domain: technique_recognition | 27 | 14 | 0.173 | [0.081, 0.266] | 0.0256 |
-| post_all | OFF | ALL | 242 | 111 | 0.137 | [0.095, 0.179] | 0.0434 |
-| post_all | OFF | domain: credibility | 134 | 88 | 0.119 | [0.058, 0.181] | 0.0771 |
-| post_all | OFF | domain: sharing_intention | 81 | 50 | 0.154 | [0.105, 0.203] | 0.0239 |
-| post_all | OFF | domain: technique_recognition | 27 | 14 | 0.218 | [0.032, 0.403] | 0.1198 |
-| post_cred | ON | ALL | 171 | 106 | 0.149 | [0.094, 0.203] | 0.0736 |
-| post_cred | ON | domain: credibility | 133 | 88 | 0.125 | [0.063, 0.187] | 0.0796 |
-| post_cred | ON | domain: sharing_intention | 38 | 21 | 0.269 | [0.184, 0.353] | 0.0318 |
-| post_cred | OFF | ALL | 172 | 106 | 0.143 | [0.090, 0.197] | 0.0713 |
-| post_cred | OFF | domain: credibility | 134 | 88 | 0.119 | [0.058, 0.181] | 0.0771 |
-| post_cred | OFF | domain: sharing_intention | 38 | 21 | 0.266 | [0.182, 0.350] | 0.0317 |
-| persistence_all | ON | ALL | 43 | 23 | 0.182 | [0.082, 0.283] | 0.0519 |
-| persistence_all | ON | domain: credibility | 28 | 22 | 0.181 | [0.075, 0.287] | 0.0542 |
+| post_all | ON | ALL | 249 | 115 | 0.145 | [0.102, 0.187] | 0.0459 |
+| post_all | ON | domain: credibility | 136 | 91 | 0.128 | [0.067, 0.188] | 0.0773 |
+| post_all | ON | domain: sharing_intention | 84 | 53 | 0.156 | [0.109, 0.203] | 0.0231 |
+| post_all | ON | domain: technique_recognition | 29 | 15 | 0.190 | [0.096, 0.285] | 0.0296 |
+| post_all | OFF | ALL | 252 | 116 | 0.141 | [0.099, 0.184] | 0.0450 |
+| post_all | OFF | domain: credibility | 137 | 91 | 0.123 | [0.063, 0.182] | 0.0749 |
+| post_all | OFF | domain: sharing_intention | 85 | 53 | 0.152 | [0.105, 0.199] | 0.0233 |
+| post_all | OFF | domain: technique_recognition | 30 | 16 | 0.239 | [0.080, 0.398] | 0.0948 |
+| post_cred | ON | ALL | 176 | 110 | 0.149 | [0.096, 0.202] | 0.0710 |
+| post_cred | ON | domain: credibility | 136 | 91 | 0.128 | [0.067, 0.188] | 0.0773 |
+| post_cred | ON | domain: sharing_intention | 40 | 22 | 0.256 | [0.175, 0.338] | 0.0313 |
+| post_cred | OFF | ALL | 177 | 110 | 0.144 | [0.092, 0.197] | 0.0688 |
+| post_cred | OFF | domain: credibility | 137 | 91 | 0.123 | [0.063, 0.182] | 0.0749 |
+| post_cred | OFF | domain: sharing_intention | 40 | 22 | 0.254 | [0.172, 0.335] | 0.0312 |
+| persistence_all | ON | ALL | 43 | 23 | 0.181 | [0.080, 0.281] | 0.0518 |
+| persistence_all | ON | domain: credibility | 28 | 22 | 0.179 | [0.073, 0.286] | 0.0542 |
 | persistence_all | ON | domain: sharing_intention | 9 | 7 | 0.100 | [0.011, 0.188] | 0.0055 |
-| persistence_all | ON | domain: technique_recognition | 6 | 3 | 0.068 | [-0.210, 0.346] | 0.0559 |
-| persistence_all | OFF | ALL | 43 | 23 | 0.180 | [0.080, 0.280] | 0.0515 |
-| persistence_all | OFF | domain: credibility | 28 | 22 | 0.179 | [0.073, 0.285] | 0.0536 |
+| persistence_all | ON | domain: technique_recognition | 6 | 3 | 0.067 | [-0.211, 0.345] | 0.0556 |
+| persistence_all | OFF | ALL | 43 | 23 | 0.178 | [0.078, 0.278] | 0.0515 |
+| persistence_all | OFF | domain: credibility | 28 | 22 | 0.177 | [0.072, 0.283] | 0.0536 |
 | persistence_all | OFF | domain: sharing_intention | 9 | 7 | 0.095 | [0.003, 0.187] | 0.0066 |
-| persistence_all | OFF | domain: technique_recognition | 6 | 3 | 0.071 | [-0.210, 0.352] | 0.0574 |
-| persistence_cred | ON | ALL | 30 | 23 | 0.187 | [0.084, 0.290] | 0.0524 |
-| persistence_cred | ON | domain: credibility | 28 | 22 | 0.181 | [0.075, 0.287] | 0.0542 |
+| persistence_all | OFF | domain: technique_recognition | 6 | 3 | 0.059 | [-0.213, 0.331] | 0.0524 |
+| persistence_cred | ON | ALL | 30 | 23 | 0.185 | [0.083, 0.288] | 0.0524 |
+| persistence_cred | ON | domain: credibility | 28 | 22 | 0.179 | [0.073, 0.286] | 0.0542 |
 | persistence_cred | ON | domain: sharing_intention | 2 | 2 | 0.165 | [0.053, 0.277] | 0.0000 |
-| persistence_cred | OFF | ALL | 30 | 23 | 0.184 | [0.082, 0.287] | 0.0519 |
-| persistence_cred | OFF | domain: credibility | 28 | 22 | 0.179 | [0.073, 0.285] | 0.0536 |
+| persistence_cred | OFF | ALL | 30 | 23 | 0.183 | [0.081, 0.285] | 0.0519 |
+| persistence_cred | OFF | domain: credibility | 28 | 22 | 0.177 | [0.072, 0.283] | 0.0536 |
 | persistence_cred | OFF | domain: sharing_intention | 2 | 2 | 0.165 | [0.053, 0.277] | 0.0000 |
-| did_all | ON | ALL | 47 | 28 | 0.111 | [0.038, 0.183] | 0.0288 |
-| did_all | ON | domain: credibility | 31 | 23 | 0.089 | [-0.008, 0.186] | 0.0439 |
-| did_all | ON | domain: sharing_intention | 14 | 12 | 0.100 | [0.018, 0.181] | 0.0115 |
+| did_all | ON | ALL | 49 | 29 | 0.121 | [0.049, 0.194] | 0.0296 |
+| did_all | ON | domain: credibility | 32 | 24 | 0.102 | [0.006, 0.199] | 0.0449 |
+| did_all | ON | domain: sharing_intention | 15 | 13 | 0.109 | [0.027, 0.191] | 0.0121 |
 | did_all | ON | domain: technique_recognition | 2 | 2 | 0.325 | [-0.182, 0.832] | 0.1255 |
-| did_all | OFF | ALL | 49 | 28 | 0.103 | [0.028, 0.178] | 0.0305 |
-| did_all | OFF | domain: credibility | 32 | 23 | 0.082 | [-0.018, 0.183] | 0.0465 |
-| did_all | OFF | domain: sharing_intention | 15 | 12 | 0.087 | [0.003, 0.171] | 0.0112 |
+| did_all | OFF | ALL | 51 | 29 | 0.114 | [0.039, 0.189] | 0.0313 |
+| did_all | OFF | domain: credibility | 33 | 24 | 0.097 | [-0.003, 0.197] | 0.0477 |
+| did_all | OFF | domain: sharing_intention | 16 | 13 | 0.097 | [0.013, 0.182] | 0.0118 |
 | did_all | OFF | domain: technique_recognition | 2 | 2 | 0.325 | [-0.182, 0.832] | 0.1255 |
-| did_cred | ON | ALL | 35 | 27 | 0.098 | [0.020, 0.176] | 0.0317 |
-| did_cred | ON | domain: credibility | 31 | 23 | 0.089 | [-0.008, 0.186] | 0.0439 |
+| did_cred | ON | ALL | 36 | 28 | 0.108 | [0.030, 0.186] | 0.0324 |
+| did_cred | ON | domain: credibility | 32 | 24 | 0.102 | [0.006, 0.199] | 0.0449 |
 | did_cred | ON | domain: sharing_intention | 4 | 4 | 0.164 | [0.004, 0.325] | 0.0200 |
-| did_cred | OFF | ALL | 36 | 27 | 0.091 | [0.011, 0.171] | 0.0325 |
-| did_cred | OFF | domain: credibility | 32 | 23 | 0.082 | [-0.018, 0.183] | 0.0465 |
+| did_cred | OFF | ALL | 37 | 28 | 0.102 | [0.022, 0.181] | 0.0333 |
+| did_cred | OFF | domain: credibility | 33 | 24 | 0.097 | [-0.003, 0.197] | 0.0477 |
 | did_cred | OFF | domain: sharing_intention | 4 | 4 | 0.156 | [0.000, 0.313] | 0.0190 |
 
 ### Publication bias (study-level, exclusions ON)
 
 | spec | method | est | 95% CI | p | added k |
 |---|---|---:|---|---:|---:|
-| post_all | egger | 0.558 | [-1.187, 2.303] | 0.531 |  |
-| post_all | pet | 0.108 | [0.037, 0.180] | 0.003 |  |
-| post_all | peese | 0.118 | [0.074, 0.162] | 0.000 |  |
-| post_all | trimfill | 0.141 | [0.099, 0.184] |  | 0 |
-| post_cred | egger | 3.198 | [0.516, 5.880] | 0.019 |  |
-| post_cred | pet | 0.036 | [-0.065, 0.137] | 0.486 |  |
-| post_cred | peese | 0.092 | [0.032, 0.151] | 0.002 |  |
-| post_cred | trimfill | 0.012 | [-0.050, 0.074] |  | 31 |
-| persistence_all | egger | 2.379 | [-3.864, 8.622] | 0.455 |  |
-| persistence_all | pet | 0.025 | [-0.144, 0.194] | 0.774 |  |
-| persistence_all | peese | 0.088 | [-0.014, 0.190] | 0.091 |  |
-| persistence_all | trimfill | 0.009 | [-0.103, 0.121] |  | 10 |
-| persistence_cred | egger | -0.632 | [-6.150, 4.885] | 0.822 |  |
-| persistence_cred | pet | 0.144 | [-0.029, 0.318] | 0.103 |  |
-| persistence_cred | peese | 0.155 | [0.049, 0.262] | 0.004 |  |
-| persistence_cred | trimfill | 0.187 | [0.084, 0.290] |  | 0 |
-| did_all | egger | 0.625 | [-1.535, 2.785] | 0.571 |  |
-| did_all | pet | 0.024 | [-0.097, 0.145] | 0.697 |  |
-| did_all | peese | 0.046 | [-0.029, 0.120] | 0.229 |  |
-| did_all | trimfill | 0.063 | [-0.013, 0.140] |  | 3 |
-| did_cred | egger | 0.537 | [-1.437, 2.512] | 0.594 |  |
-| did_cred | pet | 0.021 | [-0.108, 0.150] | 0.754 |  |
-| did_cred | peese | 0.038 | [-0.043, 0.119] | 0.358 |  |
-| did_cred | trimfill | 0.049 | [-0.033, 0.131] |  | 3 |
+| post_all | egger | 0.557 | [-1.187, 2.301] | 0.532 |  |
+| post_all | pet | 0.118 | [0.043, 0.192] | 0.002 |  |
+| post_all | peese | 0.126 | [0.081, 0.170] | 0.000 |  |
+| post_all | trimfill | 0.145 | [0.102, 0.187] |  | 0 |
+| post_cred | egger | 3.150 | [0.573, 5.727] | 0.017 |  |
+| post_cred | pet | 0.047 | [-0.050, 0.144] | 0.345 |  |
+| post_cred | peese | 0.099 | [0.042, 0.156] | 0.001 |  |
+| post_cred | trimfill | 0.046 | [-0.015, 0.107] |  | 22 |
+| persistence_all | egger | 2.334 | [-3.912, 8.579] | 0.464 |  |
+| persistence_all | pet | 0.025 | [-0.144, 0.195] | 0.768 |  |
+| persistence_all | peese | 0.088 | [-0.014, 0.189] | 0.092 |  |
+| persistence_all | trimfill | 0.012 | [-0.100, 0.125] |  | 10 |
+| persistence_cred | egger | -0.680 | [-6.199, 4.839] | 0.809 |  |
+| persistence_cred | pet | 0.145 | [-0.029, 0.318] | 0.102 |  |
+| persistence_cred | peese | 0.155 | [0.048, 0.261] | 0.004 |  |
+| persistence_cred | trimfill | 0.185 | [0.083, 0.288] |  | 0 |
+| did_all | egger | 0.741 | [-1.350, 2.832] | 0.487 |  |
+| did_all | pet | 0.017 | [-0.101, 0.135] | 0.776 |  |
+| did_all | peese | 0.044 | [-0.029, 0.117] | 0.239 |  |
+| did_all | trimfill | 0.064 | [-0.012, 0.139] |  | 4 |
+| did_cred | egger | 0.613 | [-1.300, 2.525] | 0.530 |  |
+| did_cred | pet | 0.013 | [-0.112, 0.138] | 0.839 |  |
+| did_cred | peese | 0.036 | [-0.043, 0.114] | 0.370 |  |
+| did_cred | trimfill | 0.049 | [-0.032, 0.131] |  | 4 |
 
 **Small-study caveat (SDT).** Discrimination is variance-dependent by construction
 (it subtracts two condition means), so funnel asymmetry / Egger intercepts are
@@ -392,6 +394,8 @@ belongs to the reported-effects / paper layer only.
 - Basol et al. (2021) / study2 / post_cred: sharing_intention fallback (no credibility DV)
 - Basol et al. (2021) / study2 / persistence_cred: sharing_intention fallback (no credibility DV)
 - Basol et al. (2021) / study2 / did_cred: sharing_intention fallback (no credibility DV)
+- Biddlestone et al. (2025 a) / study1 / post_cred: sharing_intention fallback (no credibility DV)
+- Biddlestone et al. (2025 a) / study2 / post_cred: sharing_intention fallback (no credibility DV)
 - Capewell et al. (2024) / study2 / post_cred: sharing_intention fallback (no credibility DV)
 - Capewell et al. (2024) / study2 / persistence_cred: sharing_intention fallback (no credibility DV)
 - Capraro & Celadin (2023) / Experiment1 / post_cred: sharing_intention fallback (no credibility DV)
@@ -431,7 +435,7 @@ belongs to the reported-effects / paper layer only.
 - Rentschler & Samad (2025) / main / post_cred: sharing_intention fallback (no credibility DV)
 - Roozenbeek et al. (2021) / Stage2 / post_cred: sharing_intention fallback (no credibility DV)
 
-Total fallback contrasts: 44 (recorded per contrast in `temp/sdt_specs.csv` via `fallback = sharing_intention`).
+Total fallback contrasts: 46 (recorded per contrast in `temp/sdt_specs.csv` via `fallback = sharing_intention`).
 
 ### Outputs
 

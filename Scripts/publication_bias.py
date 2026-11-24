@@ -84,6 +84,13 @@ def select_raw(specs, layer, spec, exclusions):
               & (specs["exclusions"] == exclusions)].copy()
     if layer == "meta" and "r_used" in d.columns:
         d = d[d["r_used"].isna() | np.isclose(d["r_used"], PRIMARY_R)]
+    if "fully_within" in d.columns and not SC.include_fully_within():
+        fw = d["fully_within"].fillna(False)
+        try:
+            fw = fw.astype(bool)
+        except (TypeError, ValueError):
+            fw = fw.map(lambda v: str(v).strip().lower() in ("1", "true", "yes"))
+        d = d[~fw]
     return d[np.isfinite(d["effect"]) & np.isfinite(d["var"]) & (d["var"] > 0)]
 
 

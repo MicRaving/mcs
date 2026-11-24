@@ -56,7 +56,7 @@ def enumerate_keys(only=None):
                 out[d]["dataset_backed"] = True
     if os.path.isdir(L.REPRO):
         for fn in sorted(os.listdir(L.REPRO)):
-            if not fn.endswith(".md") or fn.startswith("_BATCH") or fn.endswith(" - SB.md"):
+            if not fn.endswith(".md") or fn.startswith("_BATCH") or fn.endswith((" - SB.md", " - MM.md")):
                 continue
             k = os.path.splitext(fn)[0]
             if _want(k):

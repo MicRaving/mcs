@@ -23,23 +23,39 @@ GET  /api/repro/study/<key>/dossier  the reproduction dossier (schema v1 JSON;
                                   the report markdown, the validation rows and the
                                   staleness verdict
 GET  /api/repro/dossier/files/<key>  the file inventory (path, role, bytes,
-                                  provenance, read_by)
+                                  provenance, read_by); ``?live=1`` rescans the folder
 GET  /api/repro/dossier/log/<key>    the run log tail + its resolved path (taken
                                   from the dossier's run.log_path, never re-derived)
 POST /api/repro/dossier/edit      narrow coder write: source_location/source_quote,
                                   verdict override + reason, gap note -> the per-study
                                   results CSV + Results/repro_dossier_edits.jsonl
-POST /api/repro/run               {kind: generate|harmonizers|reproducers, only?}
-GET  /api/repro/run/status        streamed log + ok/finished flags
+POST /api/repro/run               {kind: generate|harmonizers|reproducers|dossier|study,
+                                  only?}
+POST /api/repro/run/cancel        kill the running step (whole process tree)
+GET  /api/repro/run/status        streamed log + ok/finished/cancelled flags
+
+Coder edits are durable: ``build_repro_dossier.py`` rewrites the flat results CSV
+with the machine columns only, so every read replays
+``Results/repro_dossier_edits.jsonl`` on top of it.
+
+A filtered run (``only``) makes the pipeline runners rewrite their aggregate
+(``harmonization_mapping.xlsx`` / ``reproduction_summary.xlsx`` /
+``repro_dossier_index.csv``) with the matching studies ONLY.  The run therefore
+backs the aggregate up to ``temp/codingstudio_repro/backup/`` first and merges
+the rows of every other study back afterwards (and restores the backup when the
+runner left an unreadable file behind).
 """
 
+from collections import deque
 from datetime import datetime
 from flask import Blueprint, abort, jsonify, request
+import atexit
 import csv
-import glob
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -63,7 +79,6 @@ _STATUS_NORM = {
     "crashed": "crashed",
     "not run": "not_run",
 }
-RUN_KINDS = ("generate", "harmonizers", "reproducers")
 
 
 # ---------------------------------------------------------------------------
@@ -139,15 +154,35 @@ def _report_path(key):
     return os.path.join(S.ROOT, "Reproduction", key + ".md")
 
 
+#: the SB / MM reliability routes are additive and ignored by the pipeline
+#: (``parse_reproduction_reports.parse_all``, ``build_repro_dossier.enumerate_keys``).
+_ROUTE_SUFFIX = re.compile(r" - (SB|MM)$", re.IGNORECASE)
+_ROUTE_ARTEFACT = re.compile(r" - (SB|MM)(\.[^.]+)?$", re.IGNORECASE)
+_BAD_KEY_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
 def _safe_key(key):
-    """Reject path-traversal / separator keys before any filesystem join."""
-    if not key or key in (".", ".."):
+    """Reject path-traversal / separator keys (and route artefacts) before any join."""
+    if not key or key in (".", "..") or len(key) > 240:
+        return False
+    if key != key.strip() or _BAD_KEY_CHARS.search(key):
         return False
     if key != os.path.basename(key) or os.path.isabs(key):
         return False
     if ".." in key:
         return False
+    if _ROUTE_SUFFIX.search(key):
+        return False
     return True
+
+
+def _is_route_artefact(fn):
+    """``<Key> - harmonized - SB.csv``, ``harmonizer - SB.py``, ``<Key> - MM.json``..."""
+    low = fn.lower()
+    if " - sb" not in low and " - mm" not in low:  # fast path (~14k files/overview)
+        return False
+    stem = os.path.splitext(fn)[0]
+    return bool(_ROUTE_SUFFIX.search(stem) or _ROUTE_ARTEFACT.search(fn))
 
 
 def _resolve_rel(rel):
@@ -160,24 +195,42 @@ def _resolve_rel(rel):
     return os.path.join(S.ROOT, rel.replace("/", os.sep))
 
 
-_INDEX_CACHE = {"mtime": None, "rows": {}}
+def _inside_root(path):
+    """True when ``path`` resolves inside the data root (no reads elsewhere)."""
+    try:
+        root = os.path.realpath(S.ROOT)
+        return os.path.commonpath([root, os.path.realpath(path)]) == root
+    except ValueError:  # different drive
+        return False
+
+
+def _sig(path):
+    """(abs path, mtime, size) cache signature; None when the file is absent."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (os.path.abspath(path), st.st_mtime, st.st_size)
+
+
+# Every cache is keyed by the absolute path + mtime + size, so a re-root
+# (POST /api/root) can never serve another root's rows.
+_INDEX_CACHE = {"sig": None, "rows": {}}
 
 
 def _dossier_index():
     """study_key -> index row, mtime-cached (one CSV read per change)."""
-    p = _index_path()
-    try:
-        mtime = os.path.getmtime(p)
-    except OSError:
+    sig = _sig(_index_path())
+    if sig is None:
         return {}
-    if _INDEX_CACHE["mtime"] == mtime:
+    if _INDEX_CACHE["sig"] == sig:
         return _INDEX_CACHE["rows"]
     rows = {}
-    for r in _read_csv_rows(p):
+    for r in _read_csv_rows(sig[0]):
         k = _s(r.get("study_key"))
         if k:
             rows[k] = r
-    _INDEX_CACHE.update(mtime=mtime, rows=rows)
+    _INDEX_CACHE.update(sig=sig, rows=rows)
     return rows
 
 
@@ -186,35 +239,34 @@ _DOSSIER_CACHE = {}
 
 def _load_dossier_cached(key):
     """Dossier JSON, mtime-cached; None when absent/unreadable."""
-    p = _dossier_path(key)
-    try:
-        mtime = os.path.getmtime(p)
-    except OSError:
+    sig = _sig(_dossier_path(key))
+    if sig is None:
         return None
-    cached = _DOSSIER_CACHE.get(key)
-    if cached and cached[0] == mtime:
+    cached = _DOSSIER_CACHE.get(sig[0])
+    if cached and cached[0] == sig:
         return cached[1]
     try:
-        with open(p, encoding="utf-8") as fh:
+        with open(sig[0], encoding="utf-8") as fh:
             data = json.load(fh)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        log(f"repro: unreadable dossier {sig[0]}: {e!r}")
         data = None
-    _DOSSIER_CACHE[key] = (mtime, data)
+    if not isinstance(data, dict):
+        data = None
+    _DOSSIER_CACHE[sig[0]] = (sig, data)
     return data
 
 
-_VAL_CACHE = {"mtime": None, "data": None}
+_VAL_CACHE = {"sig": "unset", "data": None}
 
 
 def _validation_summary():
     """validate_repro_dossier.csv -> counts + per-study rows (mtime-cached)."""
     p = _validation_path()
-    try:
-        mtime = os.path.getmtime(p)
-    except OSError:
-        mtime = None
-    if _VAL_CACHE["mtime"] == mtime and _VAL_CACHE["data"] is not None:
+    sig = _sig(p) or (os.path.abspath(p), None, None)
+    if _VAL_CACHE["sig"] == sig and _VAL_CACHE["data"] is not None:
         return _VAL_CACHE["data"]
+    mtime = sig[1]
     rows = _read_csv_rows(p) if mtime is not None else []
     by_key = {}
     n_err = n_warn = 0
@@ -231,8 +283,10 @@ def _validation_summary():
             "severity": sev,
         })
     data = {"n_problems": len(rows), "n_error": n_err, "n_warning": n_warn,
+            "present": mtime is not None,
+            "generated_at": _stamp(p) if mtime is not None else None,
             "by_key": by_key}
-    _VAL_CACHE.update(mtime=mtime, data=data)
+    _VAL_CACHE.update(sig=sig, data=data)
     return data
 
 
@@ -255,6 +309,8 @@ def _newest_file(key):
     newest, name = None, ""
     for root, _dirs, files in os.walk(folder):
         for fn in files:
+            if _is_route_artefact(fn):  # SB/MM writes must not mark the dossier stale
+                continue
             p = os.path.join(root, fn)
             try:
                 m = os.path.getmtime(p)
@@ -296,8 +352,11 @@ def _staleness(key, generated_at):
 # file inventory (dossier snapshot, with a filesystem-scan fallback)
 # ---------------------------------------------------------------------------
 def _role_of(fn, key):
-    """Filename-contract role (mirrors repro_dossier_lib._role_of)."""
+    """Filename-contract role (mirrors repro_dossier_lib._role_of, plus the SB/MM
+    route artefacts, which the pipeline ignores and which are not raw data)."""
     low = fn.lower()
+    if _is_route_artefact(fn):
+        return "reliability route (SB/MM)"
     if low == "harmonizer.py":
         return "harmonizer"
     if low == key.lower() + " - reproduction.py":
@@ -348,6 +407,7 @@ def _scan_inventory(key):
                     scripts.append((fn, fh.read()))
             except OSError:
                 pass
+    prov = "SOURCE.md" if os.path.isfile(os.path.join(folder, "SOURCE.md")) else ""
     out = []
     for root, _dirs, files in os.walk(folder):
         for fn in sorted(files):
@@ -358,17 +418,30 @@ def _scan_inventory(key):
             except OSError:
                 size = None
             read_by = [s for s, txt in scripts if fn in txt]
-            prov = "SOURCE.md" if os.path.isfile(os.path.join(folder, "SOURCE.md")) else ""
             out.append({"file": rel, "role": _role_of(fn, key), "size_bytes": size,
                         "provenance": prov, "read_by": "; ".join(read_by)})
     return out
 
 
+def _with_route_roles(rows):
+    """Dossier inventory rows with the SB/MM artefacts re-labelled (the pipeline's
+    ``_role_of`` files ``<Key> - harmonized - SB.csv`` as raw data)."""
+    out = []
+    for r in rows or []:
+        fn = os.path.basename(str(r.get("file") or ""))
+        if fn and _is_route_artefact(fn):
+            r = dict(r, role="reliability route (SB/MM)")
+        out.append(r)
+    return out
+
+
 def _file_counts(rows):
-    """(n_raw, n_scripts, n_products) from a file inventory."""
+    """(n_raw, n_scripts, n_products) from a file inventory (SB/MM excluded)."""
     raw = scripts = products = 0
     for r in rows or []:
         fn = str(r.get("file") or "").lower()
+        if _is_route_artefact(os.path.basename(fn)):
+            continue
         role = str(r.get("role") or "").lower()
         if fn.endswith(".py"):
             scripts += 1
@@ -377,6 +450,62 @@ def _file_counts(rows):
         elif role.endswith("(product)") or role.endswith("sidecar") or role.endswith("(d10)"):
             products += 1
     return raw, scripts, products
+
+
+def _folder_facts(folder, key):
+    """One ``os.walk`` (scandir) of ``Datasets/<key>/``: lower-cased top-level names
+    -> mtime, plus the raw/script/product counts.  Replaces ~20 ``stat`` calls per
+    study on the overview (slow on a synced Nextcloud folder)."""
+    top = {}
+    newest = None
+    counts = [0, 0, 0]
+    stack = [(folder, True)]
+    while stack:
+        path, is_top = stack.pop()
+        try:
+            entries = list(os.scandir(path))
+        except OSError:
+            continue
+        for e in entries:
+            try:
+                if e.is_dir():
+                    stack.append((e.path, False))
+                    continue
+                if is_top:
+                    # DirEntry.stat() is free on Windows (FindFirstFile data)
+                    top[e.name.lower()] = e.stat().st_mtime
+            except OSError:
+                continue
+            fn = e.name
+            if _is_route_artefact(fn):
+                continue
+            if is_top and (newest is None or top[fn.lower()] > newest):
+                newest = top[fn.lower()]
+            role = _role_of(fn, key).lower()
+            if fn.lower().endswith(".py"):
+                counts[1] += 1
+            elif role == "raw data":
+                counts[0] += 1
+            elif (role.endswith("(product)") or role.endswith("sidecar")
+                  or role.endswith("(d10)")):
+                counts[2] += 1
+    return {"top": top, "newest": newest, "counts": tuple(counts)}
+
+
+def _listing(folder):
+    """lower-cased file name -> mtime for one directory (one scandir); {} if absent."""
+    out = {}
+    try:
+        with os.scandir(folder) as it:
+            for e in it:
+                try:
+                    if e.is_file():
+                        out[e.name.lower()] = e.stat().st_mtime
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +532,13 @@ _EXTRA_COLS = ["verdict_override", "verdict_override_reason", "coder_gap_note",
                "coder_edit_at", "coder"]
 _CODER_FIELDS = tuple(_EXTRA_COLS)
 
+#: the row-verdict vocabulary of repro_dossier_lib (``_rows_from_lib_facts``) + PARTIAL.
+_VERDICTS = ("REPRODUCED", "reproduced in direction", "PARTIAL", "NOT REPRODUCED",
+             "NOT COMPARABLE", "NOT CHECKABLE")
+_VERDICT_CANON = {v.lower(): v for v in _VERDICTS}
+
+_edit_lock = threading.Lock()
+
 
 def _read_csv_table(path):
     """(fieldnames, rows) for a CSV, preserving order; ([], []) when absent."""
@@ -422,12 +558,19 @@ def _write_csv_table(path, fields, rows):
     """Atomic CSV write (temp in the same folder + os.replace with retries)."""
     d = os.path.dirname(path)
     tmp = os.path.join(d, ".tmp_repro_edit_" + os.path.basename(path))
-    with open(tmp, "w", encoding="utf-8-sig", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=fields)
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k, "") for k in fields})
-    atomic_replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8-sig", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=fields)
+            w.writeheader()
+            for r in rows:
+                w.writerow({k: r.get(k, "") for k in fields})
+        atomic_replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 def _csv_results(key):
@@ -451,16 +594,62 @@ def _flat_results(key):
             if _s(r.get("contrast_id"))}
 
 
-def _merge_coder_edits(results, flat):
-    """Overlay coder-owned fields from the flat twin onto dossier result rows."""
+_EDITS_CACHE = {"sig": None, "by_key": {}}
+
+
+def _edits_replay():
+    """study_key -> contrast_id -> {column: last value} from the edit audit log.
+
+    ``build_repro_dossier.py`` rewrites the flat results CSV with the machine
+    columns only, which silently dropped every coder edit; the JSONL audit log is
+    the durable record, so it is replayed on read (last write wins)."""
+    sig = _sig(_edits_log_path())
+    if sig is None:
+        return {}
+    if _EDITS_CACHE["sig"] == sig:
+        return _EDITS_CACHE["by_key"]
+    by_key = {}
+    try:
+        with open(sig[0], encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    rec = json.loads(ln)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                k, cid, field = (_s(rec.get("study_key")), _s(rec.get("contrast_id")),
+                                 _s(rec.get("field")))
+                if not (k and cid and field):
+                    continue
+                cell = by_key.setdefault(k, {}).setdefault(cid, {})
+                new = rec.get("new")
+                cell[field] = "" if new is None else str(new)
+                cell["coder"] = _s(rec.get("coder"))
+                cell["coder_edit_at"] = _s(rec.get("at"))
+    except OSError as e:
+        log(f"repro: could not read the edit log: {e!r}")
+    _EDITS_CACHE.update(sig=sig, by_key=by_key)
+    return by_key
+
+
+def _merge_coder_edits(results, flat, replay=None):
+    """Overlay coder-owned fields onto dossier result rows: the flat twin first
+    (non-empty values), then the replayed audit log (last value, may clear)."""
+    replay = replay or {}
     for r in results:
-        c = flat.get(_s(r.get("contrast_id")))
-        if not c:
-            continue
-        for f in ("source_location", "source_quote") + _CODER_FIELDS:
-            v = _s(c.get(f))
-            if v:
-                r[f] = v
+        cid = _s(r.get("contrast_id"))
+        c = flat.get(cid)
+        if c:
+            for f in ("source_location", "source_quote") + _CODER_FIELDS:
+                v = _s(c.get(f))
+                if v:
+                    r[f] = v
+        for f, v in (replay.get(cid) or {}).items():
+            r[f] = v
 
 
 def _last_run_for(key):
@@ -476,6 +665,8 @@ def _last_run_for(key):
 
 def _known_key(key):
     """A real study (index / dataset folder / report / extraction), not a bogus path."""
+    if not _safe_key(key):
+        return False
     if key in _dossier_index():
         return True
     if os.path.isdir(os.path.join(_datasets_dir(), key)):
@@ -647,45 +838,65 @@ def _reproduction_domains():
 _FW_CACHE = {}
 
 
-def _is_fully_within(key):
+def _is_fully_within(key, mtime=None):
     """Fully-within (single-arm, no-control) paper?  Mirrors studio_lib.summarise,
-    cached by the extraction JSON's mtime."""
-    path = os.path.join(S.EXTRACTION, key + ".json")
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return False
-    cached = _FW_CACHE.get(key)
+    cached by the extraction JSON's path + mtime (``mtime`` may come from a
+    directory listing so the overview needs no per-study stat)."""
+    path = os.path.abspath(os.path.join(S.EXTRACTION, key + ".json"))
+    if mtime is None:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return False
+    cached = _FW_CACHE.get(path)
     if cached and cached[0] == mtime:
         return cached[1]
     val = False
     try:
         from studio_lib import is_fully_within, load_extraction
         val = bool(is_fully_within(load_extraction(key)))
-    except Exception:  # noqa: BLE001  (best-effort; missing/unreadable coding)
+    except Exception as e:  # noqa: BLE001  (best-effort; missing/unreadable coding)
+        log(f"repro: fully-within check failed for {key!r}: {e!r}")
         val = False
-    _FW_CACHE[key] = (mtime, val)
+    _FW_CACHE[path] = (mtime, val)
     return val
 
 
-def _study_keys():
+def _dataset_folders(ds):
+    """Datasets/ sub-folders that can be studies (same exclusions as run_reproducers)."""
+    out = []
+    try:
+        with os.scandir(ds) as it:
+            for e in it:
+                name = e.name
+                if (name.startswith(".") or name.startswith("_") or name == "temp"
+                        or not e.is_dir()):
+                    continue
+                out.append(name)
+    except OSError:
+        pass
+    return out
+
+
+def _is_contract_folder(name, top):
+    low = name.lower()
+    return ("harmonizer.py" in top or low + " - reproduction.py" in top
+            or low + " - harmonized.csv" in top
+            or low + " - harmonized_variables.csv" in top)
+
+
+def _study_keys(facts=None):
     """Union of the Datasets/ folders that are part of the contract and every key
     named in the two workbooks (so a study whose data folder was removed still
-    shows its reproduction verdict)."""
+    shows its reproduction verdict).  ``facts`` (name -> _folder_facts) avoids a
+    second scan when the caller already walked the folders."""
     keys = set()
     ds = _datasets_dir()
-    if os.path.isdir(ds):
-        for name in os.listdir(ds):
-            folder = os.path.join(ds, name)
-            if (not os.path.isdir(folder) or name.startswith(".")
-                    or name in ("temp", "_meta_analyses")):
-                continue
-            if (os.path.isfile(os.path.join(folder, "harmonizer.py"))
-                    or os.path.isfile(os.path.join(folder, name + " - reproduction.py"))
-                    or os.path.isfile(os.path.join(folder, name + " - harmonized.csv"))
-                    or os.path.isfile(os.path.join(folder,
-                                                    name + " - harmonized_variables.csv"))):
-                keys.add(name)
+    if facts is None:
+        facts = {n: {"top": _listing(os.path.join(ds, n))} for n in _dataset_folders(ds)}
+    for name, f in facts.items():
+        if _is_contract_folder(name, f["top"]):
+            keys.add(name)
     for r in _harmonization_summary():
         k = _s(r.get("study_key"))
         if k:
@@ -697,52 +908,91 @@ def _study_keys():
     return sorted(keys, key=lambda s: (s.lower(), s))
 
 
-def _study_flags(key, ds):
-    folder = os.path.join(ds, key)
+def _study_flags(key, ds, top=None, reports=None, extractions=None):
+    """Presence flags; the optional listings make it stat-free for the overview."""
+    if top is None:
+        top = _listing(os.path.join(ds, key))
+    low = key.lower()
+    if reports is None:
+        reports = {low + ".md": 0} if os.path.isfile(_report_path(key)) else {}
+    if extractions is None:
+        extractions = ({low + ".json": 0}
+                       if os.path.isfile(os.path.join(S.EXTRACTION, key + ".json")) else {})
     return {
-        "has_harmonizer": os.path.isfile(os.path.join(folder, "harmonizer.py")),
-        "has_harmonized": os.path.isfile(os.path.join(folder, key + " - harmonized.csv")),
-        "has_sidecar": os.path.isfile(
-            os.path.join(folder, key + " - harmonized_variables.csv")),
-        "has_reproducer": os.path.isfile(
-            os.path.join(folder, key + " - reproduction.py")),
-        "has_report": os.path.isfile(os.path.join(S.ROOT, "Reproduction", key + ".md")),
-        "has_extraction": os.path.isfile(os.path.join(S.EXTRACTION, key + ".json")),
+        "has_harmonizer": "harmonizer.py" in top,
+        "has_harmonized": low + " - harmonized.csv" in top,
+        "has_sidecar": low + " - harmonized_variables.csv" in top,
+        "has_reproducer": low + " - reproduction.py" in top,
+        "has_report": low + ".md" in reports,
+        "has_extraction": low + ".json" in extractions,
     }
 
 
-def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
-    flags = _study_flags(key, ds)
+def _log_present(rel, durable_logs):
+    """Does a dossier-recorded log path exist?  Uses the Results/repro_logs listing
+    for the common case, a stat only for other locations."""
+    p = _resolve_rel(rel)
+    if not p:
+        return "", False
+    d, fn = os.path.split(p)
+    if os.path.normcase(os.path.abspath(d)) == os.path.normcase(
+            os.path.abspath(os.path.join(_results_dir(), "repro_logs"))):
+        return p, fn.lower() in durable_logs
+    return p, os.path.isfile(p)
+
+
+def _iso(ts):
+    return datetime.fromtimestamp(ts).isoformat(timespec="seconds") if ts else None
+
+
+def _repro_overview_row(key, harm_by_key, repro_by_key, ds, ctx):
+    f = ctx["facts"].get(key) or {"top": {}, "counts": (0, 0, 0)}
+    top = f["top"]
+    flags = _study_flags(key, ds, top, ctx["reports"], ctx["extractions"])
     h = harm_by_key.get(key, {})
     r = repro_by_key.get(key, {})
+    low = key.lower()
 
     raw_status = _s(r.get("status"))
     status = _STATUS_NORM.get(raw_status, raw_status or "not_run")
     if not flags["has_reproducer"] and not raw_status:
         status = "not_run"
 
-    # dossier (Results/repro_dossier/) -- the reproduction source of truth
-    idx = _dossier_index().get(key, {})
-    dossier = _load_dossier_cached(key)
-    if not raw_status and dossier:
-        ds_status = _s(dossier.get("status"))
-        if ds_status:
+    # dossier index (Results/repro_dossier_index.csv): the dossier JSON's own status,
+    # without parsing 300+ dossier JSONs per overview
+    idx = ctx["index"].get(key, {})
+    status_source = "workbook" if raw_status else ""
+    if not raw_status and _s(idx.get("dataset_backed")) == "yes":
+        ds_status = _s(idx.get("reproduced_status"))
+        if ds_status and ds_status != "unknown":
             status = _STATUS_NORM.get(ds_status, ds_status)
+            status_source = "dossier index"
 
-    inv = (dossier or {}).get("file_inventory") or []
-    n_files_raw, n_files_scripts, n_files_products = _file_counts(inv)
+    n_files_raw, n_files_scripts, n_files_products = f["counts"]
     log_rel = _s(idx.get("log_path"))
-    if not log_rel and dossier:
-        log_rel = _s((dossier.get("run") or {}).get("log_path"))
-    log_abs = _resolve_rel(log_rel)
-    log_present = bool(log_abs and os.path.isfile(log_abs))
+    log_abs, log_present = _log_present(log_rel, ctx["durable_logs"])
 
-    sidecar = os.path.join(ds, key, key + " - harmonized_variables.csv")
-    harmonized = os.path.join(ds, key, key + " - harmonized.csv")
+    dossier_mtime = ctx["dossiers"].get(low + ".json")
+    harm_mtime = top.get(low + " - harmonized.csv") or top.get(
+        low + " - harmonized_variables.csv")
+    log_mtime = None
+    if log_present:
+        log_mtime = ctx["durable_logs"].get(os.path.basename(log_abs).lower())
+        if log_mtime is None:
+            try:
+                log_mtime = os.path.getmtime(log_abs)
+            except OSError:
+                log_mtime = None
+    # dossier older than the newest top-level file of its dataset folder
+    newest = f.get("newest")
+    gen = _parse_stamp(idx.get("generated_at"))
+    stale = bool(dossier_mtime and newest and gen
+                 and datetime.fromtimestamp(newest) > gen)
 
     n_reproduced = _int(r.get("n_reproduced"))
     n_not_repro = _int(r.get("n_not_reproduced"))
     n_direction = _int(r.get("n_direction"))
+    ext_mtime = ctx["extractions"].get(low + ".json")
     return {
         "study_key": key,
         "has_harmonizer": flags["has_harmonizer"],
@@ -751,7 +1001,7 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
         "has_reproducer": flags["has_reproducer"],
         "has_report": flags["has_report"],
         "has_extraction": flags["has_extraction"],
-        "fully_within": _is_fully_within(key),
+        "fully_within": _is_fully_within(key, ext_mtime) if ext_mtime else False,
         # harmonization summary (workbook)
         "mapping_vars": _int(h.get("n_mapping_rows")),
         "n_dv": _int(h.get("n_dv")),
@@ -766,6 +1016,7 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
         # reproduction summary (workbook)
         "repro_status": raw_status,
         "status": status,
+        "status_source": status_source,
         "success": _s(r.get("success")),
         "machine_status": _s(r.get("machine_status")),
         "documented_status": _s(r.get("documented_status")),
@@ -779,19 +1030,38 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
         "runtime_s": _num(r.get("runtime_s")),
         "returncode": _int(r.get("returncode")),
         "machine_disagrees": _s(r.get("machine_disagrees")),
-        # dossier (Results/repro_dossier/) -- file/result counts + log indicator
-        "dossier_present": os.path.isfile(_dossier_path(key)),
+        # dossier (Results/repro_dossier/) -- result counts + log indicator; the file
+        # counts are a live scan of Datasets/<Key>/ (SB/MM route artefacts excluded)
+        "dossier_present": dossier_mtime is not None,
         "dossier_generated_at": _s(idx.get("generated_at")),
+        "dossier_status": _s(idx.get("reproduced_status")),
+        "dossier_stale": stale,
         "n_files_raw": n_files_raw,
         "n_files_scripts": n_files_scripts,
         "n_files_products": n_files_products,
         "n_contrasts_dossier": _int(idx.get("n_contrasts")),
         "n_reproduced_dossier": _int(idx.get("n_reproduced")),
+        "n_not_reproduced_dossier": _int(idx.get("n_not_reproduced")),
         "n_gaps_dossier": _int(idx.get("n_gap_rows")),
+        "n_validation": len(ctx["validation"].get(key, [])),
         "log_path": log_rel,
         "log_present": log_present,
-        "last_run": _stamp(log_abs) if log_present else None,
-        "harmonized_modified": _stamp(harmonized) or _stamp(sidecar),
+        "last_run": _iso(log_mtime),
+        "harmonized_modified": _iso(harm_mtime),
+    }
+
+
+def _overview_ctx(ds):
+    """One directory listing per folder the overview needs."""
+    facts = {n: _folder_facts(os.path.join(ds, n), n) for n in _dataset_folders(ds)}
+    return {
+        "facts": facts,
+        "reports": _listing(os.path.join(S.ROOT, "Reproduction")),
+        "extractions": _listing(S.EXTRACTION),
+        "dossiers": _listing(_dossier_dir()),
+        "durable_logs": _listing(os.path.join(_results_dir(), "repro_logs")),
+        "index": _dossier_index(),
+        "validation": _validation_summary()["by_key"],
     }
 
 
@@ -805,12 +1075,17 @@ def api_repro_overview():
     repro = _reproduction_rows()
     harm_by_key = {_s(r.get("study_key")): r for r in harm if _s(r.get("study_key"))}
     repro_by_key = {_s(r.get("key")): r for r in repro if _s(r.get("key"))}
+    ctx = _overview_ctx(ds)
 
-    studies = [_repro_overview_row(k, harm_by_key, repro_by_key, ds)
-               for k in _study_keys()]
+    studies = [_repro_overview_row(k, harm_by_key, repro_by_key, ds, ctx)
+               for k in _study_keys(ctx["facts"])]
 
     def _count(pred):
         return sum(1 for s in studies if pred(s))
+
+    by_status = {}
+    for s in studies:
+        by_status[s["status"]] = by_status.get(s["status"], 0) + 1
 
     generator = _generator_script()
     return jsonify({
@@ -820,12 +1095,11 @@ def api_repro_overview():
         "reproduction_xlsx": os.path.isfile(os.path.join(S.ROOT, "Results", REPRO_XLSX)),
         "mapping_available": bool(harm),
         "reproduction_available": bool(repro),
+        "reproduction_modified": _stamp(os.path.join(S.ROOT, "Results", REPRO_XLSX)),
         "generator_available": bool(generator),
         "generator_name": os.path.basename(generator) if generator else "",
-        "scripts_available": {
-            "harmonizers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")),
-            "reproducers": os.path.isfile(os.path.join(S.ROOT, "Scripts", "analysis", "run_reproducers.py")),
-        },
+        "scripts_available": {k: bool(_runner(k)) for k in
+                              ("harmonizers", "reproducers", "dossier", "validate")},
         "counts": {
             "studies": len(studies),
             "harmonized": _count(lambda s: s["has_harmonized"]),
@@ -833,22 +1107,25 @@ def api_repro_overview():
             "reproducers": _count(lambda s: s["has_reproducer"]),
             "reports": _count(lambda s: s["has_report"]),
             "fully_within": _count(lambda s: s["fully_within"]),
-            "reproduced": _count(lambda s: s["status"] == "reproduced"),
-            "partial": _count(lambda s: s["status"] == "partial"),
-            "not_reproduced": _count(lambda s: s["status"] == "not_reproduced"),
-            "not_reproducible": _count(lambda s: s["status"] == "not_reproducible"),
-            "reported_only": _count(lambda s: s["status"] == "reported_only"),
-            "crashed": _count(lambda s: s["status"] == "crashed"),
-            "not_run": _count(lambda s: s["status"] == "not_run"),
+            "reproduced": by_status.get("reproduced", 0),
+            "partial": by_status.get("partial", 0),
+            "not_reproduced": by_status.get("not_reproduced", 0),
+            "not_reproducible": by_status.get("not_reproducible", 0),
+            "reported_only": by_status.get("reported_only", 0),
+            "crashed": by_status.get("crashed", 0),
+            "not_run": by_status.get("not_run", 0),
             "dossiers": _count(lambda s: s["dossier_present"]),
+            "stale_dossiers": _count(lambda s: s["dossier_stale"]),
             "logs": _count(lambda s: s["log_present"]),
         },
+        "by_status": by_status,
         "dossier": {
             "index_present": os.path.isfile(_index_path()),
-            "n_index_studies": len(_dossier_index()),
+            "index_modified": _stamp(_index_path()),
+            "n_index_studies": len(ctx["index"]),
             "validation": {k: v for k, v in _validation_summary().items() if k != "by_key"},
         },
-        "run": {k: v for k, v in _repro_run.items() if k != "log"},
+        "run": _run_snapshot(with_log=False),
         "studies": studies,
     })
 
@@ -900,10 +1177,12 @@ def _mapping_for(key):
 
 @bp.get("/api/repro/study/<path:key>")
 def api_repro_study(key):
+    if not _safe_key(key):
+        abort(404)
     ds = _datasets_dir()
-    known = key in _study_keys()
     folder = os.path.join(ds, key)
-    if not known and not os.path.isdir(folder):
+    known = _known_key(key) or key in _study_keys()
+    if not known:
         abort(404)
 
     flags = _study_flags(key, ds)
@@ -987,14 +1266,7 @@ def api_repro_study(key):
             "source": _s(d.get("source")),
         })
 
-    report_path = os.path.join(S.ROOT, "Reproduction", key + ".md")
-    report_md = ""
-    if os.path.isfile(report_path):
-        try:
-            with open(report_path, encoding="utf-8", errors="replace") as fh:
-                report_md = fh.read()
-        except OSError:
-            report_md = ""
+    report_md, _report_rel = _read_report(key)
 
     return jsonify({
         "key": key,
@@ -1013,7 +1285,7 @@ def api_repro_study(key):
         "report_available": bool(report_md),
         "report_markdown": report_md,
         "last_run": _last_run_for(key),
-        "run": {k: v for k, v in _repro_run.items() if k != "log"},
+        "run": _run_snapshot(with_log=False),
     })
 
 
@@ -1033,9 +1305,10 @@ def api_repro_dossier(key):
         synthesized = True
     out = dict(dossier)
     out["results"] = [dict(r) for r in (dossier.get("results") or [])]
-    flat = _flat_results(key)
-    if flat:
-        _merge_coder_edits(out["results"], flat)
+    out["file_inventory"] = _with_route_roles(dossier.get("file_inventory"))
+    replay = _edits_replay().get(key, {})
+    _merge_coder_edits(out["results"], _flat_results(key), replay)
+    out["n_coder_edits"] = len(replay)
     report_md, report_rel = _read_report(key)
     out["report_markdown"] = report_md
     out["report_path"] = report_rel
@@ -1059,6 +1332,18 @@ def api_repro_dossier(key):
     out["validation_rows"] = val["by_key"].get(key, [])
     out["staleness"] = _staleness(key, out.get("generated_at"))
     out["fully_within"] = bool(out.get("fully_within")) or _is_fully_within(key)
+    # the campaign workbook's verdict; it moves on every reproducer run while the
+    # dossier only moves when build_repro_dossier.py runs
+    wb = next((r for r in _reproduction_rows() if _s(r.get("key")) == key), {})
+    wb_status = _s(wb.get("status"))
+    out["workbook_status"] = _STATUS_NORM.get(wb_status, wb_status)
+    out["status_norm"] = _STATUS_NORM.get(_s(out.get("status")), _s(out.get("status")))
+    out["workbook_disagrees"] = bool(wb_status and out["status_norm"]
+                                     and out["workbook_status"] != out["status_norm"])
+    out["run_commands"] = {
+        "study": f'python Scripts/analysis/run_reproducers.py --only "{key}"',
+        "dossier": f'python Scripts/build_repro_dossier.py --only "{key}"',
+    }
     return jsonify(out)
 
 
@@ -1069,14 +1354,16 @@ def api_repro_dossier(key):
 def api_repro_dossier_files(key):
     if not _safe_key(key):
         abort(404)
-    dossier = _load_dossier_cached(key)
+    live = request.args.get("live", "").lower() in ("1", "true", "yes")
+    dossier = None if live else _load_dossier_cached(key)
     if dossier and dossier.get("file_inventory"):
-        files = dossier["file_inventory"]
+        files = _with_route_roles(dossier["file_inventory"])
         source = "dossier"
     else:
         files = _scan_inventory(key)
-        source = "filesystem scan (no dossier)"
-    return jsonify({"key": key, "files": files, "count": len(files), "source": source})
+        source = "live scan" if live else "filesystem scan (no dossier)"
+    return jsonify({"key": key, "files": files, "count": len(files), "source": source,
+                    "live": live or source != "dossier"})
 
 
 # ---------------------------------------------------------------------------
@@ -1093,25 +1380,46 @@ def api_repro_dossier_log(key):
         rel = _s(_dossier_index().get(key, {}).get("log_path"))
         source = "index"
     p = _resolve_rel(rel)
+    reason = "no run log recorded for this study"
+    if p and not _inside_root(p):
+        reason = "the recorded log path lies outside the data root; not read"
+        p = ""
     exists = bool(p and os.path.isfile(p))
     tail, size = "", 0
     if exists:
-        try:
-            size = os.path.getsize(p)
-            with open(p, encoding="utf-8", errors="replace") as fh:
-                tail = fh.read()[-20000:]
-        except OSError as e:  # noqa: BLE001
-            tail = f"[could not read log: {e}]"
+        size, tail = _tail_file(p, LOG_TAIL_BYTES)
     return jsonify({
         "key": key,
         "log_path": rel,
         "resolved": p if exists else "",
         "exists": exists,
         "bytes": size,
+        "truncated": size > LOG_TAIL_BYTES,
+        "modified": _stamp(p) if exists else None,
         "tail": tail,
         "source": source,
-        "reason": "" if exists else "no run log recorded for this study",
+        "reason": "" if exists else reason,
     })
+
+
+LOG_TAIL_BYTES = 60000
+
+
+def _tail_file(path, nbytes):
+    """(size, last ``nbytes`` decoded) without reading a huge log into memory."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if size > nbytes:
+                fh.seek(size - nbytes)
+            data = fh.read()
+    except OSError as e:
+        return 0, f"[could not read log: {e}]"
+    txt = data.decode("utf-8", errors="replace")
+    if size > nbytes:
+        nl = txt.find("\n")
+        txt = "[... earlier output truncated ...]\n" + (txt[nl + 1:] if nl >= 0 else txt)
+    return size, txt
 
 
 # ---------------------------------------------------------------------------
@@ -1119,64 +1427,103 @@ def api_repro_dossier_log(key):
 # ---------------------------------------------------------------------------
 @bp.post("/api/repro/dossier/edit")
 def api_repro_dossier_edit():
-    payload = request.get_json(force=True, silent=True) or {}
+    if not request.is_json:  # a cross-site text/plain POST must not reach a writer
+        return jsonify({"ok": False, "error": "expected an application/json body"}), 415
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "expected a JSON object"}), 400
     key = _s(payload.get("key"))
     cid = _s(payload.get("contrast_id"))
-    coder = _s(payload.get("coder")) or "coder"
+    coder = _s(payload.get("coder"))[:80] or "coder"
     reason = _s(payload.get("reason"))
     if not _safe_key(key) or not cid:
         return jsonify({"ok": False, "error": "key and contrast_id are required"}), 400
+    if _run_busy_for_edits():
+        return jsonify({"ok": False, "error": "the dossier is being rebuilt; save again "
+                                              "when the run has finished"}), 409
+    if "verdict_override" in payload:
+        v = _s(payload.get("verdict_override"))
+        if v and v.lower() not in _VERDICT_CANON:
+            return jsonify({"ok": False, "error": f"unknown verdict {v!r}; one of "
+                                                  + ", ".join(_VERDICTS)}), 400
+        payload = dict(payload, verdict_override=_VERDICT_CANON.get(v.lower(), ""))
     path = _flat_csv_path(key)
     if not os.path.isfile(path):
         return jsonify({"ok": False,
                         "error": "no per-study results CSV for this study"}), 404
-    fields, rows = _read_csv_table(path)
-    if not fields:
-        return jsonify({"ok": False, "error": "results CSV is unreadable"}), 500
-    for c in _EXTRA_COLS:
-        if c not in fields:
-            fields.append(c)
-    target = next((r for r in rows if _s(r.get("contrast_id")) == cid), None)
-    if target is None:
-        return jsonify({"ok": False,
-                        "error": "contrast_id not found in the results CSV"}), 404
 
-    at = datetime.now().isoformat(timespec="seconds")
-    changes = []
-    for src, col in _EDIT_COLS.items():
-        if src not in payload:
-            continue
-        new = payload.get(src)
-        new = "" if new is None else str(new).strip()
-        old = _s(target.get(col))
-        if new == old:
-            continue
-        target[col] = new
-        changes.append({"field": col, "old": old, "new": new})
-    if reason:
-        old = _s(target.get("verdict_override_reason"))
-        if reason != old:
-            target["verdict_override_reason"] = reason
-            changes.append({"field": "verdict_override_reason", "old": old, "new": reason})
-    if not changes:
-        return jsonify({"ok": True, "changed": 0, "row": target,
-                        "message": "nothing to change"})
+    with _edit_lock:
+        fields, rows = _read_csv_table(path)
+        if not fields:
+            return jsonify({"ok": False, "error": "results CSV is unreadable"}), 500
+        for c in _EXTRA_COLS:
+            if c not in fields:
+                fields.append(c)
+        target = next((r for r in rows if _s(r.get("contrast_id")) == cid), None)
+        if target is None:
+            return jsonify({"ok": False,
+                            "error": "contrast_id not found in the results CSV"}), 404
+        # the effective values: a dossier rebuild drops the coder columns from the
+        # CSV, the audit log still holds them
+        restored = False
+        for col, v in (_edits_replay().get(key, {}).get(cid) or {}).items():
+            if _s(target.get(col)) != v:
+                target[col] = v
+                restored = True
 
-    target["coder"] = coder
-    target["coder_edit_at"] = at
-    _write_csv_table(path, fields, rows)
+        at = datetime.now().isoformat(timespec="seconds")
+        changes = []
+        for src, col in _EDIT_COLS.items():
+            if src not in payload:
+                continue
+            new = payload.get(src)
+            new = "" if new is None else str(new).strip()
+            old = _s(target.get(col))
+            if new == old:
+                continue
+            target[col] = new
+            changes.append({"field": col, "old": old, "new": new})
+        if reason:
+            old = _s(target.get("verdict_override_reason"))
+            if reason != old:
+                target["verdict_override_reason"] = reason
+                changes.append({"field": "verdict_override_reason", "old": old,
+                                "new": reason})
+        if (_s(target.get("verdict_override"))
+                and not _s(target.get("verdict_override_reason"))
+                and any(c["field"] == "verdict_override" for c in changes)):
+            return jsonify({"ok": False,
+                            "error": "a verdict override needs a reason"}), 400
+        if not changes:
+            if restored:
+                _write_csv_table(path, fields, rows)
+            return jsonify({"ok": True, "changed": 0, "row": target,
+                            "message": "nothing to change"})
 
-    try:
-        os.makedirs(os.path.dirname(_edits_log_path()), exist_ok=True)
-        with open(_edits_log_path(), "a", encoding="utf-8") as fh:
-            for ch in changes:
-                fh.write(json.dumps({
-                    "at": at, "study_key": key, "contrast_id": cid,
-                    "field": ch["field"], "old": ch["old"], "new": ch["new"],
-                    "coder": coder, "reason": reason,
-                }, ensure_ascii=False) + "\n")
-    except OSError as e:  # noqa: BLE001
-        log(f"repro dossier edit: audit append failed: {e!r}")
+        target["coder"] = coder
+        target["coder_edit_at"] = at
+        try:
+            _write_csv_table(path, fields, rows)
+        except OSError as e:
+            log(f"repro dossier edit: write failed for {key!r}: {e!r}")
+            return jsonify({"ok": False, "error": f"could not write the results CSV: {e}"}), 500
+
+        try:
+            os.makedirs(os.path.dirname(_edits_log_path()), exist_ok=True)
+            with open(_edits_log_path(), "a", encoding="utf-8") as fh:
+                for ch in changes:
+                    fh.write(json.dumps({
+                        "at": at, "study_key": key, "contrast_id": cid,
+                        "field": ch["field"], "old": ch["old"], "new": ch["new"],
+                        "coder": coder, "reason": reason,
+                    }, ensure_ascii=False) + "\n")
+        except OSError as e:  # noqa: BLE001
+            log(f"repro dossier edit: audit append failed: {e!r}")
+            return jsonify({"ok": True, "changed": len(changes), "changes": changes,
+                            "row": target,
+                            "warning": "saved to the results CSV, but the audit log "
+                                       "could not be appended; the edit will be lost "
+                                       "on the next dossier rebuild"})
     log(f"repro dossier edit key={key!r} cid={cid!r} "
         f"fields={[c['field'] for c in changes]}")
     return jsonify({"ok": True, "changed": len(changes), "changes": changes,
@@ -1186,11 +1533,64 @@ def api_repro_dossier_edit():
 # ---------------------------------------------------------------------------
 # background runners (mirrors the Analysis tab's start/poll pattern)
 # ---------------------------------------------------------------------------
+RUN_KINDS = ("generate", "harmonizers", "reproducers", "dossier", "study")
+RUN_TIMEOUT_S = 6 * 3600          # wall-clock ceiling per step (the runners have none)
+LOG_CAP = 40000                   # chars of streamed output kept for the poller
+RUN_LOG_KEEP = 20                 # full app-run logs kept in temp/codingstudio_repro/runs
+BACKUP_KEEP = 8                   # aggregate backups kept in temp/codingstudio_repro/backup
+
 _repro_lock = threading.Lock()
 
-_repro_run = {"running": False, "kind": None, "log": "", "ok": None,
-              "started": None, "finished": None, "error": "", "only": "",
-              "cached": False}
+
+class _LogTail:
+    """Bounded, thread-safe output buffer (the old worker re-joined the whole
+    output on every line: quadratic time, unbounded memory)."""
+
+    def __init__(self, cap=LOG_CAP):
+        self.cap = cap
+        self._chunks = deque()
+        self._n = 0
+        self._lock = threading.Lock()
+
+    def append(self, s):
+        if not s:
+            return
+        with self._lock:
+            self._chunks.append(s)
+            self._n += len(s)
+            while self._n - len(self._chunks[0]) >= self.cap and len(self._chunks) > 1:
+                self._n -= len(self._chunks.popleft())
+
+    def clear(self):
+        with self._lock:
+            self._chunks.clear()
+            self._n = 0
+
+    def text(self):
+        with self._lock:
+            return "".join(self._chunks)[-self.cap:]
+
+
+_repro_run = {"running": False, "kind": None, "ok": None, "started": None,
+              "finished": None, "error": "", "only": "", "cancelled": False,
+              "steps": [], "step": None, "step_index": None, "warnings": [],
+              "notes": [], "log_file": ""}
+_run_log = _LogTail()
+_run_proc = {"proc": None, "cancel": False}
+
+
+def _run_snapshot(with_log=True):
+    with _repro_lock:
+        out = {k: (list(v) if isinstance(v, list) else v) for k, v in _repro_run.items()}
+    if with_log:
+        out["log"] = _run_log.text()
+    return out
+
+
+def _run_busy_for_edits():
+    """A dossier rebuild rewrites the flat results CSVs the edit endpoint writes."""
+    with _repro_lock:
+        return bool(_repro_run["running"] and _repro_run["kind"] in ("dossier", "study"))
 
 
 def _interpreter():
@@ -1203,127 +1603,495 @@ def _interpreter():
     return None
 
 
-def _generator_script():
-    for p in (os.path.join(S.TEMP, "generate_repro_wrappers.py"),
-              os.path.join(S.ROOT, "Scripts", "generate_repro_wrappers.py"),
-              os.path.join(S.ROOT, "generate_repro_wrappers.py")):
+def _generator_script(root=None):
+    """The wrapper generator; the Scripts/ copy wins over a scratch copy in temp/."""
+    root = root or S.ROOT
+    for p in (os.path.join(root, "Scripts", "generate_repro_wrappers.py"),
+              os.path.join(root, "generate_repro_wrappers.py"),
+              os.path.join(root, "temp", "generate_repro_wrappers.py")):
         if os.path.isfile(p):
             return p
     return None
 
 
-def _run_plan(kind, only):
-    """(argv-without-interpreter, cwd, error) for a run kind."""
-    if kind == "generate":
-        gen = _generator_script()
-        if not gen:
-            return None, None, ("the reproduction-script generator is not available "
-                                "(expected temp/generate_repro_wrappers.py)")
-        return [gen], S.ROOT, None
-    if kind == "harmonizers":
-        script = os.path.join(S.ROOT, "Scripts", "analysis", "run_harmonizers.py")
-    elif kind == "reproducers":
-        script = os.path.join(S.ROOT, "Scripts", "analysis", "run_reproducers.py")
-    else:
-        return None, None, "unknown run kind"
-    if not os.path.isfile(script):
-        return None, None, f"missing runner: {os.path.basename(script)}"
-    args = [script]
-    if only and kind in ("harmonizers", "reproducers"):
-        args += ["--only", only]
-    return args, S.ROOT, None
+_RUNNERS = {
+    "harmonizers": ("Scripts", "analysis", "run_harmonizers.py"),
+    "reproducers": ("Scripts", "analysis", "run_reproducers.py"),
+    "dossier": ("Scripts", "build_repro_dossier.py"),
+    "validate": ("Scripts", "validate_repro_dossier.py"),
+}
 
 
-def _repro_worker(kind, only):
-    state = _repro_run
-    lines = []
+def _runner(name, root=None):
+    p = os.path.join(root or S.ROOT, *_RUNNERS[name])
+    return p if os.path.isfile(p) else None
 
-    def emit(line):
-        lines.append(line)
-        state["log"] = "".join(lines)[-20000:]
 
-    def done(ok, error=""):
-        state.update(ok=ok, error=error)
-        state["running"] = False
-        state["finished"] = datetime.now().isoformat(timespec="seconds")
+def _only_matcher(runner, only):
+    """The runner's own ``--only`` rule: run_harmonizers matches one substring,
+    run_reproducers / build_repro_dossier split on commas (case-insensitive)."""
+    if runner == "harmonizers":
+        o = only.lower()
+        return lambda k: o in str(k).lower()
+    parts = [p.strip().lower() for p in only.split(",") if p.strip()]
+    return lambda k: any(p in str(k).lower() for p in parts)
 
-    exe = _interpreter()
-    if exe is None:
-        emit("! no Python interpreter found (packaged app); run the runner scripts "
-             "from a Python environment\n")
-        done(False, "no Python interpreter found")
-        return
 
-    args, cwd, err = _run_plan(kind, only)
-    if err:
-        emit("! " + err + "\n")
-        done(False, err)
-        return
+#: aggregates a filtered run truncates: runner -> [(path parts, {sheet: key column})]
+_AGGREGATES = {
+    "harmonizers": [(("Results", HARM_XLSX), {"Mapping": "study_key",
+                                              "Summary": "study_key"})],
+    "reproducers": [(("Results", REPRO_XLSX), {"Reproduction": "key", "Domains": "key"})],
+    "dossier": [(("Results", "repro_dossier_index.csv"), {"": "study_key"})],
+}
 
-    cmd = [exe, "-X", "utf8"] + args
-    shown = " ".join([os.path.basename(cmd[0])] + [os.path.basename(a) if i == 0 else a
-                                                   for i, a in enumerate(cmd[1:])])
-    emit(f"$ {shown}\n")
-    if only and kind in ("harmonizers", "reproducers"):
-        book = HARM_XLSX if kind == "harmonizers" else REPRO_XLSX
-        emit(f"NOTE: a filtered run rebuilds {book} for the matching studies only; "
-             "run without a filter to restore the full summary.\n")
 
+def _run_plan(kind, only, root):
+    """[(label, runner, argv-without-interpreter, soft)] or (None, error)."""
+    def step(label, runner, extra=(), soft=False):
+        script = _runner(runner, root)
+        if not script:
+            raise LookupError(f"missing runner: {'/'.join(_RUNNERS[runner])}")
+        return (label, runner, [script] + list(extra), soft)
+
+    # ``--only=VALUE``: a value that starts with "-" must not be read as a flag
+    flt = [f"--only={only}"] if only else []
+    try:
+        if kind == "generate":
+            gen = _generator_script(root)
+            if not gen:
+                return None, ("the reproduction-script generator is not available "
+                              "(expected Scripts/generate_repro_wrappers.py)")
+            return [("generate wrappers", "generate", [gen, "--root", root], False)], None
+        if kind == "harmonizers":
+            return [step("run harmonizers", "harmonizers", flt)], None
+        if kind == "reproducers":
+            return [step("run reproducers", "reproducers", flt)], None
+        if kind == "dossier":
+            return [step("build dossier", "dossier", flt),
+                    step("validate dossier", "validate", soft=True)], None
+        if kind == "study":
+            return [step("run reproducer", "reproducers", flt),
+                    step("build dossier", "dossier", flt),
+                    step("validate dossier", "validate", soft=True)], None
+    except LookupError as e:
+        return None, str(e)
+    return None, "unknown run kind"
+
+
+def _child_env():
     env = dict(os.environ)
+    if FROZEN:
+        # the packaged app's own interpreter settings must not leak into a
+        # system Python
+        for k in list(env):
+            if k in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP") or k.startswith("_PYI"):
+                env.pop(k, None)
+        env.pop("_MEIPASS2", None)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONPYCACHEPREFIX"] = os.path.join(S.TEMP, "pycache")
-    try:
-        popen_kw = {"stdin": subprocess.DEVNULL}
-        if os.name == "nt":
-            # A windowed (console-less) parent must not pop a cmd window for the child.
-            popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, encoding="utf-8",
-                                errors="replace", bufsize=1, **popen_kw)
-    except OSError as e:
-        emit(f"! could not start: {e}\n")
-        done(False, str(e))
+    return env
+
+
+def _kill_tree(proc):
+    """Terminate ``proc`` and every child it spawned (run_reproducers starts one
+    Python per study; killing only the parent would orphan the running study)."""
+    if proc is None or proc.poll() is not None:
         return
     try:
-        for line in proc.stdout:
-            emit(line)
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL, timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, ProcessLookupError, PermissionError):
+                os.killpg(proc.pid, signal.SIGKILL)
+    except Exception as e:  # noqa: BLE001
+        log(f"repro run: tree kill failed ({e!r}); killing the parent only")
+    try:
+        if proc.poll() is None:
+            proc.kill()
+    except OSError:
+        pass
+
+
+@atexit.register
+def _kill_on_exit():
+    _kill_tree(_run_proc.get("proc"))
+
+
+# ------------------------------------------------------------------ aggregates
+def _backup_dir():
+    return os.path.join(S.TEMP, "codingstudio_repro", "backup")
+
+
+def _prune(folder, keep):
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return
+    for n in names[:-keep] if len(names) > keep else []:
+        p = os.path.join(folder, n)
+        try:
+            shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+        except OSError:
+            pass
+
+
+def _backup_aggregates(runner, root, stamp):
+    """Copy the aggregates this runner rewrites; [(path, backup, sig_before, sheets)]."""
+    out = []
+    for parts, sheets in _AGGREGATES.get(runner, []):
+        path = os.path.join(root, *parts)
+        sig = _sig(path)
+        if sig is None:
+            out.append((path, "", None, sheets))
+            continue
+        dst_dir = os.path.join(_backup_dir(), stamp)
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, os.path.basename(path))
+        shutil.copy2(path, dst)
+        out.append((path, dst, sig, sheets))
+    _prune(_backup_dir(), BACKUP_KEEP)
+    return out
+
+
+def _readable(path):
+    try:
+        if path.lower().endswith(".xlsx"):
+            import openpyxl
+            wb = openpyxl.load_workbook(path, read_only=True)
+            wb.close()
+        else:
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                next(csv.reader(fh))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _merge_rows(header, new_rows, old_header, old_rows, keycol, matches):
+    """New rows + the old rows of every study the filter did not touch, aligned on
+    the new header and ordered by key (stable, so per-study row order survives)."""
+    if keycol not in header or keycol not in old_header:
+        return new_rows, 0
+    pos = {h: i for i, h in enumerate(old_header)}
+    oki = pos[keycol]
+    kept = []
+    for r in old_rows:
+        k = r[oki] if oki < len(r) else None
+        if k is None or str(k).strip() == "" or matches(str(k)):
+            continue
+        kept.append([r[pos[h]] if h in pos and pos[h] < len(r) else None for h in header])
+    ki = header.index(keycol)
+    rows = list(new_rows) + kept
+    rows.sort(key=lambda r: str(r[ki] if ki < len(r) and r[ki] is not None else "").lower())
+    return rows, len(kept)
+
+
+def _merge_xlsx(path, backup, sheets, matches):
+    import openpyxl
+    new = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    old = openpyxl.load_workbook(backup, read_only=True, data_only=True)
+    try:
+        out = openpyxl.Workbook(write_only=True)
+        n_kept = 0
+        for name in new.sheetnames:
+            rows = [list(r) for r in new[name].iter_rows(values_only=True)]
+            header = [("" if c is None else str(c)) for c in (rows[0] if rows else [])]
+            body = rows[1:]
+            keycol = sheets.get(name)
+            if keycol and name in old.sheetnames:
+                orows = [list(r) for r in old[name].iter_rows(values_only=True)]
+                if orows:
+                    oh = [("" if c is None else str(c)) for c in orows[0]]
+                    body, k = _merge_rows(header, body, oh, orows[1:], keycol, matches)
+                    n_kept += k
+            ws = out.create_sheet(name)
+            ws.append(header)
+            for r in body:
+                ws.append(r)
     finally:
-        if proc.stdout:
+        new.close()
+        old.close()
+    tmp = path + ".codingstudio_merge.tmp"
+    out.save(tmp)
+    atomic_replace(tmp, path)
+    return n_kept
+
+
+def _merge_csv(path, backup, sheets, matches):
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.reader(fh))
+    with open(backup, encoding="utf-8-sig", newline="") as fh:
+        orows = list(csv.reader(fh))
+    if not rows or not orows:
+        return 0
+    body, n_kept = _merge_rows(rows[0], rows[1:], orows[0], orows[1:],
+                               sheets.get(""), matches)
+    tmp = path + ".codingstudio_merge.tmp"
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(rows[0])
+        for r in body:
+            w.writerow(["" if v is None else v for v in r])
+    atomic_replace(tmp, path)
+    return n_kept
+
+
+def _settle_aggregates(backups, runner, only, emit):
+    """After a step: restore an aggregate the runner left unreadable, and merge the
+    untouched studies back into one a filtered run truncated."""
+    notes = []
+    for path, backup, sig_before, sheets in backups:
+        name = os.path.basename(path)
+        if not backup or _sig(path) == sig_before:
+            continue
+        if not os.path.isfile(path) or not _readable(path):
+            try:
+                shutil.copy2(backup, path)
+                notes.append(f"{name}: unreadable after the run -> restored the backup")
+            except OSError as e:
+                notes.append(f"{name}: unreadable and the restore failed ({e}); "
+                             f"backup at {backup}")
+            continue
+        if not only:
+            continue
+        try:
+            fn = _merge_xlsx if path.lower().endswith(".xlsx") else _merge_csv
+            n = fn(path, backup, sheets, _only_matcher(runner, only))
+            notes.append(f"{name}: merged back {n} row(s) of the studies outside "
+                         f"the filter")
+        except Exception as e:  # noqa: BLE001
+            try:
+                shutil.copy2(backup, path)
+                notes.append(f"{name}: merge failed ({e!r}) -> restored the full "
+                             "pre-run backup (the filtered results are in the log)")
+            except OSError as e2:
+                notes.append(f"{name}: merge failed ({e!r}) and the restore failed "
+                             f"({e2}); backup at {backup}")
+    for n in notes:
+        emit(f"NOTE: {n}\n")
+    return notes
+
+
+# ------------------------------------------------------------------ worker
+def _run_step(cmd, cwd, env, emit, timeout_s):
+    """Run one step; returns (rc, timed_out).  Output streams into ``emit``."""
+    popen_kw = {"stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        # A windowed (console-less) parent must not pop a cmd window for the child.
+        popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    else:
+        popen_kw["start_new_session"] = True  # own process group -> killpg on cancel
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            errors="replace", bufsize=1, **popen_kw)
+    with _repro_lock:
+        _run_proc["proc"] = proc
+        cancel_now = _run_proc["cancel"]
+    if cancel_now:  # cancelled between the steps' start and here
+        _kill_tree(proc)
+    timed_out = {"v": False}
+
+    def _expire():
+        timed_out["v"] = True
+        _kill_tree(proc)
+
+    timer = threading.Timer(timeout_s, _expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        while True:
+            # bounded readline: a child printing one huge line cannot exhaust memory
+            chunk = proc.stdout.readline(8192)
+            if not chunk:
+                break
+            emit(chunk)
+    finally:
+        timer.cancel()
+        try:
             proc.stdout.close()
+        except OSError:
+            pass
     rc = proc.wait()
-    emit(f"[exit {rc}]\n")
-    log(f"repro run kind={kind} only={only!r} rc={rc}")
-    done(rc == 0, "" if rc == 0 else f"runner exited {rc}")
+    with _repro_lock:
+        _run_proc["proc"] = None
+    return rc, timed_out["v"]
+
+
+def _repro_worker(kind, only, root):
+    state = _repro_run
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    runs_dir = os.path.join(S.TEMP, "codingstudio_repro", "runs")
+    log_fh = None
+    try:
+        os.makedirs(runs_dir, exist_ok=True)
+        log_file = os.path.join(runs_dir, f"{stamp} {kind}.log")
+        log_fh = open(log_file, "w", encoding="utf-8", newline="\n")
+        with _repro_lock:
+            state["log_file"] = log_file
+    except OSError as e:
+        log(f"repro run: could not open the run log: {e!r}")
+
+    def emit(text):
+        _run_log.append(text)
+        if log_fh is not None:
+            try:
+                log_fh.write(text)
+                log_fh.flush()
+            except (OSError, ValueError):
+                pass
+
+    def done(ok, error=""):
+        with _repro_lock:
+            state.update(ok=ok, error=error, running=False, step=None,
+                         finished=datetime.now().isoformat(timespec="seconds"))
+
+    try:
+        exe = _interpreter()
+        if exe is None:
+            emit("! no Python interpreter found (packaged app); run the runner scripts "
+                 "from a Python environment\n")
+            done(False, "no Python interpreter found")
+            return
+        plan, err = _run_plan(kind, only, root)
+        if err:
+            emit("! " + err + "\n")
+            done(False, err)
+            return
+        with _repro_lock:
+            state["steps"] = [p[0] for p in plan]
+        env = _child_env()
+        for i, (label, runner, args, soft) in enumerate(plan):
+            with _repro_lock:
+                if _run_proc["cancel"]:
+                    break
+                state.update(step=label, step_index=i)
+            cmd = [exe, "-X", "utf8"] + args
+            shown = " ".join([os.path.basename(cmd[0]), "-X", "utf8",
+                              os.path.basename(args[0])]
+                             + [f'"{a}"' if " " in a else a for a in args[1:]])
+            emit(f"\n=== [{i + 1}/{len(plan)}] {label} ===\n$ {shown}\n")
+            backups = []
+            try:
+                backups = _backup_aggregates(runner, root, f"{stamp}-{i}")
+            except OSError as e:
+                emit(f"! could not back up the aggregate ({e}); a filtered run is "
+                     "not safe without it - step skipped\n")
+                if only:
+                    done(False, f"backup failed: {e}")
+                    return
+            t0 = time.time()
+            try:
+                rc, timed_out = _run_step(cmd, root, env, emit, RUN_TIMEOUT_S)
+            except OSError as e:
+                emit(f"! could not start: {e}\n")
+                done(False, str(e))
+                return
+            emit(f"[exit {rc} after {time.time() - t0:.1f}s]\n")
+            log(f"repro run kind={kind} step={label!r} only={only!r} rc={rc}")
+            notes = _settle_aggregates(backups, runner, only, emit)
+            with _repro_lock:
+                state["notes"].extend(notes)
+                cancelled = _run_proc["cancel"]
+            if cancelled:
+                with _repro_lock:
+                    state["cancelled"] = True
+                emit("! cancelled by the operator\n")
+                done(False, f"cancelled during '{label}'")
+                return
+            if timed_out:
+                done(False, f"'{label}' exceeded {RUN_TIMEOUT_S}s and was killed")
+                return
+            if rc != 0:
+                if soft:
+                    with _repro_lock:
+                        state["warnings"].append(f"{label} exited {rc}")
+                    continue
+                done(False, f"'{label}' exited {rc}")
+                return
+        with _repro_lock:
+            cancelled = _run_proc["cancel"]
+            if cancelled:
+                state["cancelled"] = True
+        done(not cancelled, "cancelled" if cancelled else "")
+    except Exception as e:  # noqa: BLE001  (never leave the tab stuck on "running")
+        log(f"repro run crashed: {e!r}")
+        emit(f"! internal error: {e!r}\n")
+        done(False, f"internal error: {e}")
+    finally:
+        if log_fh is not None:
+            try:
+                log_fh.close()
+            except OSError:
+                pass
+        _prune(runs_dir, RUN_LOG_KEEP)
 
 
 def start_repro_run(kind, only=""):
-    """Start a runner in a daemon thread.  Returns "running" when one is already in
+    """Start a run in a daemon thread.  Returns "running" when one is already in
     progress, else "started"."""
     with _repro_lock:
         if _repro_run["running"]:
             return "running"
-        _repro_run.update(running=True, kind=kind, log="", ok=None, error="",
-                          only=only or "", cached=False,
+        _repro_run.update(running=True, kind=kind, ok=None, error="", only=only or "",
+                          cancelled=False, steps=[], step=None, step_index=None,
+                          warnings=[], notes=[], log_file="",
                           started=datetime.now().isoformat(timespec="seconds"),
                           finished=None)
-    threading.Thread(target=_repro_worker, args=(kind, only or ""), daemon=True).start()
+        _run_proc.update(proc=None, cancel=False)
+        _run_log.clear()
+    threading.Thread(target=_repro_worker, args=(kind, only or "", S.ROOT),
+                     daemon=True, name=f"repro-run-{kind}").start()
     return "started"
+
+
+_ONLY_OK = re.compile(r"^[^\x00-\x1f]{1,240}$")
 
 
 @bp.post("/api/repro/run")
 def api_repro_run():
-    payload = request.get_json(force=True, silent=True) or {}
-    kind = (payload.get("kind") or "harmonizers").strip()
-    only = (payload.get("only") or "").strip()
+    if not request.is_json:  # a cross-site text/plain POST must not start a run
+        return jsonify({"ok": False, "error": "expected an application/json body"}), 415
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "expected a JSON object"}), 400
+    kind = str(payload.get("kind") or "harmonizers").strip()
+    only = str(payload.get("only") or "").strip()
     if kind not in RUN_KINDS:
         return jsonify({"ok": False, "error": "unknown run kind"}), 400
+    if kind == "generate":
+        only = ""
+    if only and not _ONLY_OK.match(only):
+        return jsonify({"ok": False, "error": "invalid study filter"}), 400
+    if kind == "study" and not (_safe_key(only) and _known_key(only)):
+        return jsonify({"ok": False, "error": "kind 'study' needs a known study key"}), 400
     status = start_repro_run(kind, only)
     if status == "running":
         return jsonify({"ok": False, "error": "a run is already in progress"}), 409
     return jsonify({"ok": True, "running": True, "kind": kind, "only": only})
 
 
+@bp.post("/api/repro/run/cancel")
+def api_repro_run_cancel():
+    if not request.is_json:
+        return jsonify({"ok": False, "error": "expected an application/json body"}), 415
+    with _repro_lock:
+        if not _repro_run["running"]:
+            return jsonify({"ok": False, "error": "no run in progress"}), 409
+        _run_proc["cancel"] = True
+        proc = _run_proc["proc"]
+    _kill_tree(proc)
+    log("repro run: cancel requested")
+    return jsonify({"ok": True, "cancelling": True})
+
+
 @bp.get("/api/repro/run/status")
 def api_repro_run_status():
-    return jsonify(_repro_run)
+    return jsonify(_run_snapshot(with_log=True))

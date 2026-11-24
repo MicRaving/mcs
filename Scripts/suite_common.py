@@ -1450,13 +1450,35 @@ def build_primary_composite(df, effect_col="effect", var_col="var", src_col=None
         d["contrast_id"] = (d["study_key"].astype(str) + "|"
                             + pd.Series(exp).astype(str) + "|" + pd.Series(con).astype(str))
     keys = [c for c in group_cols if c in d.columns]
-    for c in ("spec", "exclusions", "r_used", "timepoint"):
+    for c in ("spec", "exclusions", "r_used"):
+        if c in d.columns and c not in keys:
+            keys.append(c)
+    # D9 (2026-10-22): a composite may only be built from the components of ONE
+    # intervention.  Without this the pairing is contrast-blind: a record with several
+    # interventions put all of their true/false component rows in one cell, and the
+    # name-token match could join the "true" row of one intervention with the "false"
+    # row of another -- a composite that no contrast supports.  The intervention id is
+    # the binding key of a component row, so it joins the grouping.
+    if "Intervention_ID" in d.columns and "Intervention_ID" not in keys:
+        keys.append("Intervention_ID")
+    # D9b (2026-10-22): the components of a composite must also belong to the SAME
+    # contrast.  The arm pair (`group1_label` / `group2_label`) identifies the contrast
+    # and `timepoint_1` its measurement; without them the name-token match can join the
+    # "true" row of one arm pair with the "false" row of another arm pair of the same
+    # experiment (e.g. the fact-checking arm's authentic-information row with the
+    # lateral-reading arm's misinformation row).  The full `comparison` label is NOT a
+    # contrast key: it usually also names the measured item ("... on true news (post)"
+    # vs "... on fake news (post)"), so grouping by it would forbid the very pairs the
+    # composite exists to build.  Both columns are carried by the workbook frame and by
+    # the analysis-suite spec frame, so the two callers stay bit-identical.
+    for c in ("group1_label", "group2_label", "timepoint_1"):
         if c in d.columns and c not in keys:
             keys.append(c)
     derived_rows, log = [], []
     primary_labels, secondary_labels = [], []
     stats = {"derived_composite_pairs": 0, "cells_with_derived": 0,
-             "cells_with_pair": 0, "cells": 0}
+             "cells_with_pair": 0, "cells": 0,
+             "derived_pairs_cross_intervention": 0}
 
     def rec(row, rule):
         log.append({"study_key": row.get("study_key"), "experiment_id": row.get("experiment_id"),
@@ -1521,6 +1543,24 @@ def build_primary_composite(df, effect_col="effect", var_col="var", src_col=None
                 if "veracity" in d.columns:
                     base["veracity"] = ""
                 stats["derived_composite_pairs"] += 1
+                # D9 diagnostic: a pair must not join two different interventions of the
+                # same experiment (the pairing is otherwise contrast-blind).  The counter
+                # and the log make the defect measurable instead of invisible.
+                _it = str(d.loc[tl, "Intervention_ID"]).strip() if "Intervention_ID" in d.columns else ""
+                _if = str(d.loc[fl, "Intervention_ID"]).strip() if "Intervention_ID" in d.columns else ""
+                if _it and _if and _it != _if:
+                    stats["derived_pairs_cross_intervention"] += 1
+                    log.append({"study_key": d.loc[tl, "study_key"],
+                                "experiment_id": d.loc[tl, "experiment_id"],
+                                "dv_domain": d.loc[tl, "dv_domain"],
+                                "spec": d.loc[tl, "spec"] if "spec" in d.columns else "",
+                                "exclusions": d.loc[tl, "exclusions"] if "exclusions" in d.columns else "",
+                                "dv_name": ("cross-intervention pair: %s (%s) + %s (%s)"
+                                            % (d.loc[tl, "dv_name"], _it,
+                                               d.loc[fl, "dv_name"], _if)),
+                                "contrast_id": d.loc[tl, "contrast_id"],
+                                "family": str(g.loc[tl, family_col]), "rule": "cross_intervention_pair",
+                                "strand": "components_sensitivity"})
                 base["contrast_id"] = (str(base.get("contrast_id", ""))
                                        + f"|D{stats['derived_composite_pairs']}")
                 base["dv_name"] = ("derived composite (true+false): "

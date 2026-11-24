@@ -599,24 +599,6 @@ def run(key, url, dest_root=DATA, dry=False, timeout=None, keep_failed_dir=True,
         TIMEOUT, TIMEOUT_CAP = old_timeout, old_cap
 
 
-if __name__ == "__main__":
-    import argparse
-
-    ap = argparse.ArgumentParser(
-        description="Acquire a study's public dataset into Datasets/<Key>/ and "
-                    "append the attempt to Results/acquisition_log.jsonl.")
-    ap.add_argument("key", nargs="?", help="study key, e.g. 'Biddlestone et al. (2025 a)'")
-    ap.add_argument("url", nargs="?", help="public URL or DOI for the dataset")
-    ap.add_argument("--dry", action="store_true", help="resolve only, download nothing")
-    ap.add_argument("--timeout", type=int, default=None,
-                    help="per-request timeout cap in seconds (default 60)")
-    a = ap.parse_args()
-    if not a.key or not a.url:
-        ap.error("the following arguments are required: key, url")
-    s = run(a.key, a.url, dry=a.dry, timeout=a.timeout)
-    print(json.dumps(s, ensure_ascii=False, indent=1))
-
-
 def write_source(key, summary, extra=None, dest_root=DATA):
     dest = os.path.join(dest_root, key)
     if not os.path.isdir(dest):

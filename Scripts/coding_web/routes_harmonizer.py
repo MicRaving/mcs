@@ -27,6 +27,23 @@ _HARM_IDX = re.compile(r"(_i?\d+)+$")
 
 _HARM_FIELDS = ("role", "dv_domain", "veracity", "timepoint", "dv_polarity")
 
+# The master coder's override file is applied last, so a resolved value wins.
+HARM_MASTER = "master"
+
+_BAD_KEY = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+def valid_key(key):
+    """True for a study key that is a single file-name component.
+
+    Keys come from the URL (``<path:key>``) or a JSON body and are joined onto
+    ``Datasets/`` and ``Codings/``; a separator or ``..`` would read or write
+    outside the study folder / coder slot."""
+    if not isinstance(key, str) or not key or key != key.strip() or len(key) > 240:
+        return False
+    if key in (".", "..") or key.startswith(".") or key.endswith("."):
+        return False
+    return not _BAD_KEY.search(key)
+
 def harmonized_paths(key):
     folder = os.path.join(S.DATASETS or "", key)
     return (os.path.join(folder, key + " - harmonized_variables.csv"),
@@ -48,50 +65,107 @@ def harmonizer_coder_files(key):
         out.append({"coder": coder, "file": os.path.basename(f), "modified": stamp})
     return sorted(out, key=lambda d: d["coder"].lower())
 
-def load_harmonizer_overrides(key):
-    """Merged overrides from every coder file (later files win), plus a per-coder map."""
+def load_harmonizer_overrides(key, errors=None):
+    """Merged overrides from every coder file, plus a per-coder map.
+
+    Coders are merged alphabetically with the master coder last, so a value the
+    master resolved always wins.  An unreadable file is reported in ``errors``
+    (when a list is given) instead of disappearing silently."""
     merged, by_coder = {}, {}
-    for info in harmonizer_coder_files(key):
+    files = sorted(harmonizer_coder_files(key),
+                   key=lambda d: (d["coder"].lower() == HARM_MASTER, d["coder"].lower()))
+    for info in files:
         try:
             with open(os.path.join(S.CODINGS, info["file"]), encoding="utf-8") as fh:
                 data = json.load(fh)
-        except Exception:
+        except (OSError, ValueError) as e:
+            if errors is not None:
+                errors.append({"file": info["file"], "error": repr(e)})
             continue
-        ov = data.get("overrides") or {}
+        ov = data.get("overrides") if isinstance(data, dict) else None
+        if not isinstance(ov, dict):
+            if errors is not None and ov is not None:
+                errors.append({"file": info["file"], "error": "overrides is not an object"})
+            ov = {}
         by_coder[info["coder"]] = ov
         for uv, fields in ov.items():
             if isinstance(fields, dict):
                 merged.setdefault(uv, {}).update(fields)
     return merged, by_coder
 
+_BLANKS = {"nan", "none", "nat", "<na>"}
+
+def _cell(row, name):
+    v = (row.get(name) or "").strip()
+    return "" if v.lower() in _BLANKS else v
+
+def _norm_artifact(a):
+    """Mirror of ``variable_assignments._norm_artifact``: blank/all/any -> ``*``."""
+    return "*" if (a or "").strip().lower() in ("", "*", "all", "any") else a.strip()
+
+def _raw_key_matches(rows, artifact, original):
+    """Indices of the sidecar rows ``variable_assignments._match_indices`` hits.
+
+    The pipeline applies an assignment to the FIRST match only, so a raw column
+    that feeds several harmonized variables can patch a different variable than
+    the one a coder selected."""
+    if not original:
+        return []
+    a = _norm_artifact(artifact)
+    return [i for i, r in enumerate(rows)
+            if r["original_variable"] == original
+            and (a == "*" or _norm_artifact(r["artifact"]) in (a, "*"))]
+
+_SIDECAR_CACHE = {}
+
 def load_harmonized_variables(key):
     vfile, wide = harmonized_paths(key)
-    if not os.path.isfile(vfile):
+    try:
+        mt = os.path.getmtime(vfile)
+    except OSError:
         return None
-    rows = []
-    with open(vfile, encoding="utf-8-sig", newline="") as fh:
-        for row in csv.DictReader(fh):
-            uv = (row.get("uniform_variable") or "").strip()
-            if not uv:
-                continue
-            m = _HARM_IDX.search(uv)
-            rows.append({
-                "uniform_variable": uv,
-                "role": (row.get("role") or "").strip(),
-                "dv_domain": (row.get("dv_domain") or "").strip(),
-                "veracity": (row.get("veracity") or "").strip(),
-                "timepoint": (row.get("timepoint") or "").strip(),
-                "dv_polarity": (row.get("dv_polarity") or "").strip(),
-                "original_variable": (row.get("original_variable") or "").strip(),
-                "artifact": (row.get("artifact") or "").strip(),
-                "item_scope": (row.get("item_scope") or "").strip(),
-                "notes": (row.get("notes") or "").strip(),
-                "bundle": harmonizer_bundle(uv),
-                "index": (m.group(0).lstrip("_") if m else ""),
-            })
-    return {"variables": rows, "has_wide": os.path.isfile(wide)}
+    hit = _SIDECAR_CACHE.get(vfile)
+    if hit is not None and hit[0] == mt:
+        rows = hit[1]
+    else:
+        rows = []
+        with open(vfile, encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh):
+                uv = _cell(row, "uniform_variable")
+                if not uv:
+                    continue
+                m = _HARM_IDX.search(uv)
+                ver = _cell(row, "veracity")
+                rows.append({
+                    "uniform_variable": uv,
+                    "role": _cell(row, "role"),
+                    "dv_domain": _cell(row, "dv_domain"),
+                    # pandas writes a bool veracity column as True/False
+                    "veracity": ver.lower() if ver.lower() in ("true", "false") else ver,
+                    "timepoint": _cell(row, "timepoint"),
+                    "dv_polarity": _cell(row, "dv_polarity"),
+                    "original_variable": _cell(row, "original_variable"),
+                    "artifact": _cell(row, "artifact"),
+                    "item_scope": _cell(row, "item_scope"),
+                    "notes": _cell(row, "notes"),
+                    "bundle": harmonizer_bundle(uv),
+                    "index": (m.group(0).lstrip("_") if m else ""),
+                })
+        by_orig = {}
+        for i, r in enumerate(rows):
+            if r["original_variable"]:
+                by_orig.setdefault(r["original_variable"], []).append(i)
+        for i, r in enumerate(rows):
+            same = [rows[j] for j in by_orig.get(r["original_variable"], [])]
+            hits = _raw_key_matches(same, r["artifact"], r["original_variable"])
+            r["raw_key_shared"] = len(hits)
+            r["raw_key_target"] = same[hits[0]]["uniform_variable"] if hits else ""
+        _SIDECAR_CACHE[vfile] = (mt, rows)
+    return {"variables": [dict(r) for r in rows], "has_wide": os.path.isfile(wide)}
 
 def _harmonizer_known(key):
+    if not valid_key(key):
+        return False
     return key in S.KEYS or os.path.isfile(harmonized_paths(key)[0])
 
 def _harmonizer_context(key):
@@ -146,12 +220,14 @@ def api_harmonizer(key):
     if not _harmonizer_known(key):
         abort(404)
     data = load_harmonized_variables(key)
-    overrides, by_coder = load_harmonizer_overrides(key)
+    coder_errors = []
+    overrides, by_coder = load_harmonizer_overrides(key, coder_errors)
     context = _harmonizer_context(key)
     if data is None:
         return jsonify({"key": key, "exists": False, "variables": [], "bundles": [],
                         "coders": harmonizer_coder_files(key), "overrides": {},
-                        "by_coder": {}, "context": context, "options": _harmonizer_options()})
+                        "by_coder": {}, "coder_errors": coder_errors, "context": context,
+                        "options": _harmonizer_options()})
     bundles = {}
     for v in data["variables"]:
         b = bundles.setdefault(v["bundle"], {"bundle": v["bundle"], "role": v["role"],
@@ -161,7 +237,8 @@ def api_harmonizer(key):
     return jsonify({"key": key, "exists": True, "has_wide": data["has_wide"],
                     "variables": data["variables"], "bundles": bundle_list,
                     "coders": harmonizer_coder_files(key), "overrides": overrides,
-                    "by_coder": by_coder, "context": context, "options": _harmonizer_options()})
+                    "by_coder": by_coder, "coder_errors": coder_errors, "context": context,
+                    "options": _harmonizer_options()})
 
 _HARM_MISSING_LOCK = threading.Lock()
 
@@ -173,6 +250,37 @@ _HARM_MISSING_CACHE = {"mtime": None, "data": None}
 # posttest.  Requiring them flagged ~7.5k of 9.4k DVs as "missing".
 _HARM_REQUIRED_DV_FIELDS = ("dv_domain", "dv_polarity")
 
+_SIDECAR_LIST = {"root": None, "at": 0.0, "files": []}
+_SIDECAR_LIST_TTL = 5.0
+
+def sidecar_files():
+    """[(key, path, mtime)] for every ``Datasets/<Key>/<Key> - harmonized_variables.csv``.
+
+    One ``scandir`` of ``Datasets/`` plus one ``stat`` per study folder (a glob
+    lists every folder's contents), reused for a few seconds."""
+    import time
+    ds = S.DATASETS or ""
+    now = time.monotonic()
+    with _HARM_MISSING_LOCK:
+        if _SIDECAR_LIST["root"] == ds and now - _SIDECAR_LIST["at"] < _SIDECAR_LIST_TTL:
+            return list(_SIDECAR_LIST["files"])
+    out = []
+    try:
+        entries = sorted(os.scandir(ds), key=lambda e: e.name) if os.path.isdir(ds) else []
+    except OSError:
+        entries = []
+    for e in entries:
+        try:
+            if not e.is_dir():
+                continue
+            p = os.path.join(e.path, e.name + " - harmonized_variables.csv")
+            out.append((e.name, p, os.stat(p).st_mtime))
+        except OSError:
+            continue
+    with _HARM_MISSING_LOCK:
+        _SIDECAR_LIST.update(root=ds, at=now, files=out)
+    return list(out)
+
 def _harmonizer_missing_map():
     """{key: {"missing": n, "dv": n_dv, "dv_missing": n_dv_missing}}.
 
@@ -180,21 +288,13 @@ def _harmonizer_missing_map():
     for every variable, and ``dv_domain`` + ``dv_polarity`` for a DV.  Covariates
     and other roles legitimately omit the DV fields; veracity and timepoint are
     optional for a DV (see ``_HARM_REQUIRED_DV_FIELDS``)."""
-    ds = S.DATASETS or ""
-    files = (glob.glob(os.path.join(ds, "*", "* - harmonized_variables.csv"))
-             if os.path.isdir(ds) else [])
-    newest = 0.0
-    for f in files:
-        try:
-            newest = max(newest, os.path.getmtime(f))
-        except OSError:
-            pass
+    listing = sidecar_files()
+    stamp = (S.DATASETS, tuple((k, mt) for k, _p, mt in listing))
     with _HARM_MISSING_LOCK:
-        if _HARM_MISSING_CACHE["data"] is not None and _HARM_MISSING_CACHE["mtime"] == newest:
+        if _HARM_MISSING_CACHE["data"] is not None and _HARM_MISSING_CACHE["mtime"] == stamp:
             return _HARM_MISSING_CACHE["data"]
     out = {}
-    for f in files:
-        key = os.path.basename(os.path.dirname(f))
+    for key, f, _mt in listing:
         n_missing = n_dv = n_dv_missing = 0
         try:
             with open(f, encoding="utf-8-sig", newline="") as fh:
@@ -215,7 +315,7 @@ def _harmonizer_missing_map():
             continue
         out[key] = {"missing": n_missing, "dv": n_dv, "dv_missing": n_dv_missing}
     with _HARM_MISSING_LOCK:
-        _HARM_MISSING_CACHE.update(mtime=newest, data=out)
+        _HARM_MISSING_CACHE.update(mtime=stamp, data=out)
     return out
 
 @bp.get("/api/harmonizer/missing")
@@ -225,24 +325,73 @@ def api_harmonizer_missing():
 @bp.get("/api/harmonizer/index")
 def api_harmonizer_index():
     """Dataset keys that are not part of the paper list (experiment-level artefacts)."""
+    harm_files = set()
+    try:
+        for name in os.listdir(S.CODINGS):
+            if " - harmonizer - " in name and name.endswith(".json"):
+                harm_files.add(name.split(" - harmonizer - ", 1)[0])
+    except OSError:
+        pass
     extra = []
-    for f in glob.glob(os.path.join(S.DATASETS or "", "*", "* - harmonized_variables.csv")):
-        k = os.path.basename(os.path.dirname(f))
+    for k, _p, _mt in sidecar_files():
         if k in S.KEYS:
             continue
         extra.append({"key": k, "n_dv": 0, "n_records": 0, "n_coders": 0,
                       "missing_metrics": 0, "needs_reason": 0, "module": None,
                       "has_harmonized": True, "has_extraction": False,
-                      "has_harmonizer": bool(glob.glob(os.path.join(
-                          S.CODINGS, glob.escape(k) + " - harmonizer - *.json")))})
+                      "has_harmonizer": k in harm_files})
     return jsonify({"papers": extra})
 
+# Sidecar roles seen in the corpus; the select also keeps any other current value.
+_ROLE_OPTIONS = ["dv", "covariate", "flag", "metacog", "condition", "id", "other"]
+
 def _harmonizer_options():
-    return {"role": ["dv", "covariate", ""],
+    return {"role": _ROLE_OPTIONS + [""],
             "dv_domain": list(DOMAIN_VOCAB) + [""],
             "veracity": ["true", "false", ""],
             "timepoint": ["pre", "post", "followup", ""],
             "dv_polarity": ["higher_is_better", "higher_is_worse", "ambiguous", ""]}
+
+_ROLE_RE = re.compile(r"^[a-z][a-z0-9_/ -]{0,40}$")
+_TIMEPOINT_RE = re.compile(r"^(pre|post|followup)(_[a-z0-9]+)?$")
+_UV_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+
+def field_error(field, value):
+    """Why ``value`` is not a valid harmonized ``field`` value ('' when it is).
+
+    Blank is always valid (it means "no value").  The vocabularies are the
+    contract's: the merged 9-domain list, true/false veracity, a pre/post/
+    followup timepoint and the two orientations (plus ``ambiguous``)."""
+    v = "" if value is None else str(value).strip()
+    if not v:
+        return ""
+    if field == "dv_domain" and v not in DOMAIN_VOCAB:
+        return f"dv_domain {v!r} is not one of {', '.join(DOMAIN_VOCAB)}"
+    if field == "veracity" and v.lower() not in ("true", "false"):
+        return f"veracity {v!r} must be true or false"
+    if field == "timepoint" and not _TIMEPOINT_RE.match(v):
+        return f"timepoint {v!r} must be pre, post or followup"
+    if field == "dv_polarity" and v not in ("higher_is_better", "higher_is_worse", "ambiguous"):
+        return f"dv_polarity {v!r} must be higher_is_better or higher_is_worse"
+    if field == "role" and not _ROLE_RE.match(v.lower()):
+        return f"role {v!r} is not a role token"
+    if field == "uniform_variable":
+        if not _UV_RE.match(v):
+            return f"uniform_variable {v!r} may only hold letters, digits and _"
+        if v.endswith("_01"):
+            return f"uniform_variable {v!r} names a _01 twin; assign the raw variable instead"
+    return ""
+
+def write_json_atomic(target, record):
+    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(record, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        atomic_replace(tmp, target)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 @bp.post("/api/harmonizer/save")
 def api_harmonizer_save():
@@ -256,26 +405,35 @@ def api_harmonizer_save():
         return jsonify({"ok": False, "error": "coder name is required"}), 400
     if not isinstance(overrides, dict):
         return jsonify({"ok": False, "error": "no overrides to save"}), 400
-    clean = {}
+    data = load_harmonized_variables(key)
+    known = {v["uniform_variable"] for v in data["variables"]} if data else None
+    clean, errors = {}, []
     for uv, fields in overrides.items():
         if not isinstance(fields, dict):
             continue
-        keep = {k: v for k, v in fields.items() if k in _HARM_FIELDS and v is not None}
+        if known is not None and str(uv) not in known:
+            errors.append(f"{uv}: not a variable of this study's sidecar")
+            continue
+        keep = {}
+        for k, v in fields.items():
+            if k not in _HARM_FIELDS or v is None:
+                continue
+            err = field_error(k, v)
+            if err:
+                errors.append(f"{uv}: {err}")
+                continue
+            v = str(v).strip()
+            keep[k] = v.lower() if k == "veracity" else v
         if keep:
             clean[str(uv)] = keep
-    target = os.path.join(S.CODINGS, f"{key} - harmonizer - {safe_token(coder)}.json")
+    if errors:
+        return jsonify({"ok": False, "error": "invalid overrides", "errors": errors[:50]}), 400
+    coder = safe_token(str(coder))
+    target = os.path.join(S.CODINGS, f"{key} - harmonizer - {coder}.json")
     existed = os.path.exists(target)
     record = {"key": key, "coder": coder,
               "saved": datetime.now().isoformat(timespec="seconds"), "overrides": clean}
-    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(record, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        atomic_replace(tmp, target)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+    write_json_atomic(target, record)
     return jsonify({"ok": True, "path": os.path.relpath(target, S.ROOT).replace("\\", "/"),
                     "overwrote": existed, "overrides": len(clean), "records": len(clean)})
 
@@ -340,9 +498,16 @@ def _import_assignments():
 
 
 def _import_template():
+    # The template is written to run from Datasets/<Key>/: on import it points
+    # the process-wide ``tempfile.tempdir`` two folders above its own file, which
+    # from Scripts/ is OUTSIDE the project.  Keep the app's temp dir.
     _ensure_scripts_path()
-    with _quiet():
-        import harmonizer_template as ht  # noqa: PLC0415
+    saved = tempfile.tempdir
+    try:
+        with _quiet():
+            import harmonizer_template as ht  # noqa: PLC0415
+    finally:
+        tempfile.tempdir = saved
     return ht
 
 
@@ -363,7 +528,7 @@ def _study_folder(key):
 
 
 def _known_study(key):
-    return os.path.isdir(_study_folder(key))
+    return valid_key(key) and os.path.isdir(_study_folder(key))
 
 
 # ------------------------------------------------------------------ decode
@@ -376,14 +541,27 @@ def api_harmonizer_decode():
     ``contract.dv_veracity`` and the template's ``veracity_of`` so a name/field
     disagreement is visible, never silent.  Expected polarity uses
     ``dv_polarity.expected_polarity``.
+
+    ``contract.dv_veracity`` matches its tokens with ``\\b``, and ``_`` is a word
+    character, so on a raw uniform name (``dv_credibility_false``) it never
+    fires; it is therefore fed the name with ``_`` read as a space.  The sidecar
+    timepoint is also mapped to the analysis bucket with
+    ``contract.classify_timepoint`` (blank -> ``post_assumed``).
+
+    Optional ``domain`` / ``veracity`` (the form's chosen values) give the
+    polarity the rule expects for THOSE values (``polarity_for_fields``), so a
+    coder sees when the chosen orientation contradicts the veracity rule.
     """
     name = (request.args.get("name") or "").strip()
     score_types = (request.args.get("score_types") or "").strip()
     notes = (request.args.get("notes") or "").strip()
     original = (request.args.get("original") or "").strip()
+    form_domain = (request.args.get("domain") or "").strip()
+    form_veracity = (request.args.get("veracity") or "").strip().lower()
     out = {"name": name, "domain": "", "veracity": "", "veracity_contract": "",
            "veracity_template": "", "veracity_agreement": None, "timepoint": "",
-           "polarity": "", "polarity_source": "", "errors": []}
+           "timepoint_bucket": "", "polarity": "", "polarity_source": "",
+           "polarity_for_fields": "", "errors": []}
     if not name:
         return jsonify(out)
     try:
@@ -396,19 +574,31 @@ def api_harmonizer_decode():
     try:
         ct = _import_contract()
         out["veracity_contract"] = ct.dv_veracity(
-            name, score_types.split(",") if score_types else None, notes)
+            name.replace("_", " "), score_types.split(",") if score_types else None, notes)
+        out["timepoint_bucket"] = ct.classify_timepoint(out["timepoint"])
     except Exception as e:  # noqa: BLE001
-        out["errors"].append(f"contract.dv_veracity unavailable: {e!r}")
+        out["errors"].append(f"contract decoders unavailable: {e!r}")
     vt, vc = out["veracity_template"], out["veracity_contract"]
     if vt or vc:
         out["veracity_agreement"] = (vt == vc)
         out["veracity"] = vc or vt
     try:
         dvp = _import_dvp()
-        pol = dvp.expected_polarity(out["domain"] or "", out["veracity"] or name,
+        try:
+            import domain_restriction as dr  # noqa: PLC0415
+            resolve = dr.resolve_sidecar_domain
+        except Exception:  # noqa: BLE001  (the rule still runs on the raw domain)
+            def resolve(raw, _uv):
+                return raw
+        # dv_polarity._sidecar_rules resolves the domain the same way first.
+        pol = dvp.expected_polarity(resolve(out["domain"] or "", name), out["veracity"],
                                     name, notes, original)
         out["polarity"] = pol or ""
         out["polarity_source"] = "dv_polarity.expected_polarity"
+        if form_domain or form_veracity:
+            pf = dvp.expected_polarity(resolve(form_domain or out["domain"] or "", name),
+                                       form_veracity or out["veracity"], name, notes, original)
+            out["polarity_for_fields"] = pf or ""
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"dv_polarity unavailable: {e!r}")
     return jsonify(out)
@@ -604,8 +794,18 @@ def _preview_csv(path, kind, var, uniform, n_limit=10):
             "highlight": _preview_highlight(header, var, uniform)}
 
 
+_ROWCOUNT_CACHE = {}
+
 def _csv_data_rows(path):
-    """Data-row count via streaming (header excluded); never loads the frame."""
+    """Data-row count via streaming (header excluded); never loads the frame.
+    Cached per file revision: the preview asks for it on every target click."""
+    try:
+        stamp = (os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        return 0
+    hit = _ROWCOUNT_CACHE.get(path)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
     n = -1
     try:
         with open(path, encoding="utf-8-sig", newline="", errors="replace") as fh:
@@ -613,6 +813,7 @@ def _csv_data_rows(path):
                 n += 1
     except OSError:
         return 0
+    _ROWCOUNT_CACHE[path] = (stamp, max(n, 0))
     return max(n, 0)
 
 
@@ -859,7 +1060,7 @@ def api_rawvar(key):
                     ex = extra.head(10)
                     out["example_cols"] = [str(x) for x in ex.columns]
                     out["examples"] = [
-                        {str(k): (None if _isna(val) else val) for k, val in row.items()}
+                        {str(k): _py(val) for k, val in row.items()}
                         for _, row in ex.iterrows()]
                 break
         if series is not None:
@@ -952,7 +1153,7 @@ def api_rawvar(key):
             if not out["examples"]:
                 import pandas as pd
                 nn = pd.Series(series).dropna().head(10)
-                out["examples"] = [{"row": int(i), "value": v}
+                out["examples"] = [{"row": _py(i), "value": _py(v)}
                                    for i, v in nn.items()]
                 out["example_cols"] = ["row", "value"]
         except Exception as e:  # noqa: BLE001
@@ -978,7 +1179,32 @@ def _isna(v):
         return v is None
 
 
+def _py(v):
+    """A JSON-safe Python scalar (numpy ints / timestamps do not serialise)."""
+    if _isna(v):
+        return None
+    if isinstance(v, (bool, int, float, str)):
+        return v
+    item = getattr(v, "item", None)
+    if callable(item):
+        try:
+            v = item()
+        except (TypeError, ValueError):
+            pass
+        if isinstance(v, (bool, int, float, str)):
+            return v
+    return str(v)
+
+
 # --------------------------------------------------------------- assignments
+# One lock for every write to a study's assignment file + harmonized products:
+# write_rows is a read-modify-write and apply_files rewrites the sidecar/wide,
+# so two concurrent saves would otherwise lose rows.
+_ASSIGN_LOCK = threading.Lock()
+
+_ROLE_PREFIX = {"dv": "dv_", "covariate": "cov_", "flag": "flag_"}
+
+
 def _draft_path(key, coder):
     return os.path.join(S.CODINGS, f"{key} - assignments - {safe_token(coder)}.json")
 
@@ -1001,6 +1227,8 @@ def _clean_assignment(a):
         return None
     if row["status"] not in ("proposed", "confirmed", "conflict"):
         row["status"] = "proposed"
+    if row["veracity"].lower() in ("true", "false"):
+        row["veracity"] = row["veracity"].lower()
     return row
 
 
@@ -1020,20 +1248,233 @@ def _draft_rows(key):
     return out, by_coder
 
 
+@contextmanager
+def _assignment_env(va):
+    """Point the module's audit log and archive at the configured data root.
+
+    ``variable_assignments`` derives ``Results/variable_assignment_log.jsonl``
+    and its archive folder from its OWN file location, so with the app re-rooted
+    (another data root, a test fixture) every save would log into, and archive
+    into, the source checkout.  The module reads two environment overrides;
+    they are set only for the write and only when not already set."""
+    same = (os.path.normcase(os.path.abspath(S.ROOT))
+            == os.path.normcase(os.path.abspath(getattr(va, "ROOT", S.ROOT))))
+    want = {
+        "VARIABLE_ASSIGNMENT_LOG": os.path.join(S.ROOT, "Results",
+                                                "variable_assignment_log.jsonl"),
+        "VARIABLE_ASSIGNMENT_ARCHIVE": os.path.join(
+            S.ROOT, "archive", os.path.basename(getattr(va, "ARCHIVE_DIR", "ws_b3_backup"))),
+    }
+    set_now = [] if same else [k for k in want if k not in os.environ]
+    for k in set_now:
+        os.environ[k] = want[k]
+    try:
+        yield
+    finally:
+        for k in set_now:
+            os.environ.pop(k, None)
+
+
+def _safe_member(folder, name):
+    """``name`` as a file directly under ``folder`` (no absolute path, no ``..``)."""
+    if not name or os.path.isabs(name) or ":" in name:
+        return None
+    full = os.path.normpath(os.path.join(folder, name))
+    root = os.path.normpath(folder)
+    if os.path.commonpath([full, root]) != root or not os.path.isfile(full):
+        return None
+    return full
+
+
+def _validate_rows(key, folder, va, rows, targets):
+    """``(errors, warnings)`` for incoming rows, checked against the contract
+    and against what ``variable_assignments.apply`` will actually do with them.
+
+    * every label is in the contract's vocabulary and a ``dv``/``covariate``/
+      ``flag`` role carries the matching ``dv_``/``cov_``/``flag_`` name;
+    * a split row names a source file inside the study folder and both value lists;
+    * ``apply`` patches only the FIRST sidecar row of a raw key, so a row whose
+      raw column feeds several harmonized variables is refused when the coder
+      selected another one of them (it would silently label the wrong variable);
+    * a ``proposed`` value over a non-blank label is logged as a conflict and
+      never applied -- the coder is told so before saving."""
+    data = load_harmonized_variables(key)
+    side = data["variables"] if data else []
+    errors, warnings = [], []
+    for r, target in zip(rows, targets):
+        label = r["original_variable"]
+        role = r["role"].lower()
+        is_na = role in va.NA_ROLES
+        if va._is_split_row(r):
+            if not _safe_member(folder, r["source_file"]):
+                errors.append(f"{label}: split source file {r['source_file']!r} is not a "
+                              "file in this study's dataset folder")
+            spec = va._parse_kv(r["note"])
+            spec.update(va._parse_kv(r["evidence"]))
+            if not (va._as_list(spec.get("true_values")) and va._as_list(spec.get("false_values"))):
+                errors.append(f"{label}: a split needs both true_values and false_values")
+            continue
+        for f in ("uniform_variable", "role", "dv_domain", "veracity", "timepoint", "dv_polarity"):
+            if f == "role" and is_na:
+                continue
+            err = field_error(f, r[f])
+            if err:
+                errors.append(f"{label}: {err}")
+        uv = r["uniform_variable"]
+        prefix = _ROLE_PREFIX.get(role)
+        if uv and prefix and not uv.startswith(prefix):
+            errors.append(f"{label}: role {role!r} needs a {prefix}* uniform name, not {uv!r}")
+        hits = _raw_key_matches(side, r["artifact"], r["original_variable"])
+        if len(hits) > 1:
+            names = [side[i]["uniform_variable"] for i in hits]
+            first = names[0]
+            if target and target != first and target in names:
+                errors.append(
+                    f"{label}: this raw column feeds {len(hits)} harmonized variables "
+                    f"({', '.join(names[:6])}{', ...' if len(names) > 6 else ''}); an "
+                    f"assignment is applied to the first one ({first}) only, so it cannot "
+                    f"label {target} -- fix it in the study's harmonizer instead")
+                continue
+            warnings.append(f"{label}: feeds {len(hits)} harmonized variables; the "
+                            f"assignment is applied to {first} only")
+        if not hits:
+            if not (uv and role and not is_na):
+                warnings.append(f"{label}: no sidecar row uses this raw column and the row "
+                                "names no uniform_variable + role, so the dataset is unchanged")
+            continue
+        cur = side[hits[0]]
+        if r["status"] == "confirmed":
+            continue
+        for f in ("uniform_variable", "role", "dv_domain", "veracity", "timepoint", "dv_polarity"):
+            v, c = r[f], cur.get(f, "")
+            if f == "role" and is_na:
+                continue
+            if v and c and v.lower() != c.lower():
+                warnings.append(f"{label}: {f} {c!r} -> {v!r} is only proposed; it is logged "
+                                "as a conflict, not applied (set the decision to confirmed "
+                                "to override)")
+    return errors, warnings
+
+
+def _file_stamp(path):
+    try:
+        st = os.stat(path)
+        return (st.st_size, st.st_mtime_ns)
+    except OSError:
+        return None
+
+
+def _backup_products(key, folder):
+    """Copy the harmonized products ``apply_files`` may rewrite in place.
+
+    The sidecar is always copied (it is small).  The wide table is copied only
+    when the study has no ``harmonizer.py``: otherwise a re-run regenerates it,
+    while a sidecar-only study could never get its original back."""
+    import shutil
+    paths = [os.path.join(folder, f"{key} - harmonized_variables.csv")]
+    if not os.path.isfile(os.path.join(folder, "harmonizer.py")):
+        paths.append(os.path.join(folder, f"{key} - harmonized.csv"))
+    out = []
+    tmpdir = os.path.join(S.TEMP, "codingstudio_assign_backup")
+    os.makedirs(tmpdir, exist_ok=True)
+    for p in paths:
+        if not os.path.isfile(p):
+            continue
+        fd, tmp = tempfile.mkstemp(suffix=".csv", dir=tmpdir)
+        os.close(fd)
+        shutil.copy2(p, tmp)
+        out.append((p, tmp, _file_stamp(p)))
+    return out
+
+
+def _settle_backups(key, backups):
+    """Archive the pre-apply copy of every product that changed; drop the rest."""
+    import shutil
+    archived = []
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    adir = os.path.join(S.ROOT, "archive",
+                        "_codingstudio_assign_backup_" + datetime.now().strftime("%Y-%m-%d"), key)
+    for src, tmp, before in backups:
+        try:
+            if _file_stamp(src) != before:
+                os.makedirs(adir, exist_ok=True)
+                base, ext = os.path.splitext(os.path.basename(src))
+                dst = os.path.join(adir, f"{base} {stamp}{ext}")
+                shutil.move(tmp, dst)
+                archived.append(os.path.relpath(dst, S.ROOT).replace("\\", "/"))
+        except OSError:
+            pass
+        finally:
+            if os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+    return archived
+
+
+def _write_and_apply(key, folder, va, out_rows, do_apply):
+    """Upsert the rows, then (optionally) apply the file to the harmonized products.
+
+    Returns ``(n_total, records, archived, error)``; ``error`` names the failing
+    step.  Serialised by ``_ASSIGN_LOCK``."""
+    with _ASSIGN_LOCK, _assignment_env(va):
+        try:
+            n_total = va.write_rows(key, folder, out_rows)
+        except Exception as e:  # noqa: BLE001
+            return None, [], [], f"write_rows failed: {e!r}"
+        from routes_coverage import invalidate_study  # noqa: PLC0415  (circular at import)
+        invalidate_study(key)
+        if not do_apply:
+            return n_total, [], [], None
+        backups = []
+        try:
+            backups = _backup_products(key, folder)
+            records = va.apply_files(key, folder)
+        except Exception as e:  # noqa: BLE001
+            return n_total, [], _settle_backups(key, backups), f"apply_files failed: {e!r}"
+        return n_total, records, _settle_backups(key, backups), None
+
+
+def _action_rows(records):
+    return [{"action": r.get("action"), "original_variable": r.get("original_variable"),
+             "uniform_variable": r.get("uniform_variable"),
+             "field": r.get("field"), "old": r.get("old"), "new": r.get("new"),
+             "status": r.get("status"), "note": r.get("note")}
+            for r in records]
+
+
+def _assignment_rows(va, rows, coder, stamp):
+    out = []
+    for r in rows:
+        row = {c: "" for c in va.ASSIGN_COLS}
+        for f in _DRAFT_FIELDS:
+            if f in row:
+                row[f] = r.get(f, "")
+        row["coder"] = coder or r.get("coder", "")
+        row["decided_at"] = stamp
+        if not row.get("status"):
+            row["status"] = "proposed"
+        out.append(row)
+    return out
+
+
 @bp.get("/api/assignments/<path:key>")
 def api_assignments(key):
     if not _known_study(key):
         abort(404)
     merged, by_coder = _draft_rows(key)
+    error = None
     try:
         va = _import_assignments()
         saved = va.load(key, _study_folder(key))
         applied = [{c: _s(v) for c, v in r.items()} for _, r in saved.iterrows()]
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         applied = []
+        error = f"variable_assignments unavailable: {e!r}"
     return jsonify({"key": key, "drafts": merged, "by_coder": by_coder,
                     "applied": applied, "applied_path": f"{key} - variable_assignments.csv",
-                    "fields": list(_DRAFT_FIELDS)})
+                    "fields": list(_DRAFT_FIELDS), "error": error})
 
 
 @bp.post("/api/assignments/<path:key>")
@@ -1042,25 +1483,37 @@ def api_assignments_save(key):
 
     Accepts ``{"assignments": [...], "coder"?: str, "apply_to_dataset"?: bool}``.
     The coder name is OPTIONAL — a blank name is recorded under the neutral
-    label ``coder``.  Every incoming row is upserted into
+    label ``coder``.  A row may carry ``target_uniform`` (the sidecar variable
+    the coder selected; not stored) so a raw column shared by several variables
+    is refused instead of labelling the wrong one.  Rows are validated first
+    (``_validate_rows``): any error rejects the whole save, warnings are returned.
+    Every row is then upserted into
     ``Datasets/<Key>/<Key> - variable_assignments.csv`` via
     ``variable_assignments.write_rows`` and, unless ``apply_to_dataset`` is
     false, applied to the harmonized sidecar/wide with ``apply_files`` (which
     fills blanks / confirmed overrides / split rows and appends the per-field
-    audit trail to ``Results/variable_assignment_log.jsonl``).  Returns the
-    resulting changes so the UI can refresh.  A per-coder draft copy is kept in
+    audit trail to ``Results/variable_assignment_log.jsonl``).  The pre-apply
+    sidecar is archived when it changes.  A per-coder draft copy is kept in
     ``Codings/<Key> - assignments - <coder>.json`` for audit/back-compat.
     """
     if not _known_study(key):
         return jsonify({"ok": False, "error": "unknown study key"}), 404
     payload = request.get_json(force=True, silent=True) or {}
-    coder = str(payload.get("coder") or "").strip() or "coder"
+    coder = safe_token(str(payload.get("coder") or "").strip() or "coder")
     incoming = payload.get("assignments")
     do_apply = payload.get("apply_to_dataset")
     do_apply = True if do_apply is None else bool(do_apply)
     if not isinstance(incoming, list):
         return jsonify({"ok": False, "error": "assignments must be a list"}), 400
-    clean = [r for r in (_clean_assignment(a) for a in incoming) if r]
+    clean, targets = [], []
+    for a in incoming:
+        r = _clean_assignment(a)
+        if not r:
+            continue
+        if r["status"] == "conflict":      # only apply() stamps a conflict
+            r["status"] = "proposed"
+        clean.append(r)
+        targets.append(str(a.get("target_uniform") or "").strip())
     if not clean:
         return jsonify({"ok": False, "error": "no assignments to save"}), 400
 
@@ -1070,35 +1523,22 @@ def api_assignments_save(key):
         return jsonify({"ok": False, "error": f"variable_assignments unavailable: {e!r}"}), 500
 
     folder = _study_folder(key)
+    errors, warnings = _validate_rows(key, folder, va, clean, targets)
+    if errors:
+        return jsonify({"ok": False, "error": "; ".join(errors[:3]) + (
+            f" (+{len(errors) - 3} more)" if len(errors) > 3 else ""),
+            "errors": errors, "warnings": warnings}), 400
+
     stamp = datetime.now().isoformat(timespec="seconds")
-    out_rows = []
-    for r in clean:
-        row = {c: "" for c in va.ASSIGN_COLS}
-        for f in _DRAFT_FIELDS:
-            if f in row:
-                row[f] = r.get(f, "")
-        row["coder"] = coder
-        row["decided_at"] = stamp
-        if not row.get("status"):
-            row["status"] = "proposed"
-        out_rows.append(row)
+    out_rows = _assignment_rows(va, clean, coder, stamp)
+    n_total, records, archived, error = _write_and_apply(key, folder, va, out_rows, do_apply)
+    if error:
+        body = {"ok": False, "error": error, "backup": archived}
+        if n_total is not None:
+            body["rows_written"] = n_total
+        return jsonify(body), 500
 
-    # 1) write the canonical study file (upsert by raw key)
-    try:
-        n_total = va.write_rows(key, folder, out_rows)
-    except Exception as e:  # noqa: BLE001
-        return jsonify({"ok": False, "error": f"write_rows failed: {e!r}"}), 500
-
-    # 2) regenerate the harmonized sidecar/wide from the canonical file
-    records = []
-    if do_apply:
-        try:
-            records = va.apply_files(key, folder)
-        except Exception as e:  # noqa: BLE001
-            return jsonify({"ok": False, "error": f"apply_files failed: {e!r}",
-                            "rows_written": n_total}), 500
-
-    # 3) keep the per-coder draft copy in sync (audit trail / back-compat).
+    # keep the per-coder draft copy in sync (audit trail / back-compat).
     # The canonical dataset write above is the contract, so a draft-write problem
     # is reported but never fails the save.
     draft_path = None
@@ -1112,29 +1552,21 @@ def api_assignments_save(key):
         keep = [r for r in old
                 if (r["artifact"], r["original_variable"], r["item_scope"]) not in incoming_keys]
         merged = keep + clean
-        record = {"key": key, "coder": coder, "saved": stamp, "assignments": merged}
-        fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(record, fh, ensure_ascii=False, indent=2)
-                fh.write("\n")
-            atomic_replace(tmp, target)
-        finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
+        write_json_atomic(target, {"key": key, "coder": coder, "saved": stamp,
+                                   "assignments": merged})
         merged_total = len(merged)
         draft_path = os.path.relpath(target, S.ROOT).replace("\\", "/")
     except Exception as e:  # noqa: BLE001
         merged_total = len(clean)
         draft_error = repr(e)
 
-    actions = [{"action": r.get("action"), "original_variable": r.get("original_variable"),
-                "field": r.get("field"), "old": r.get("old"), "new": r.get("new"),
-                "status": r.get("status"), "note": r.get("note")}
-               for r in records]
+    actions = _action_rows(records)
     return jsonify({"ok": True, "coder": coder, "count": len(clean), "total": merged_total,
                     "rows_written": n_total, "applied_to_dataset": do_apply,
-                    "changes": len(actions), "records": actions,
+                    "changes": sum(1 for a in actions
+                                   if a["action"] in ("fill", "override", "add_row", "split")),
+                    "conflicts": sum(1 for a in actions if a["action"] == "conflict"),
+                    "records": actions, "warnings": warnings, "backup": archived,
                     "path": f"{key} - variable_assignments.csv",
                     "draft_path": draft_path, "draft_error": draft_error})
 
@@ -1154,10 +1586,7 @@ def api_assignments_apply(key):
     do_apply = True if do_apply is None else bool(do_apply)
     folder = _study_folder(key)
     merged, by_coder = _draft_rows(key)
-    if coder:
-        rows = by_coder.get(coder) or []
-    else:
-        rows = [r for r in merged]
+    rows = (by_coder.get(coder) or []) if coder else list(merged)
     if not rows:
         return jsonify({"ok": False, "error": "no assignment drafts to apply"}), 400
 
@@ -1166,34 +1595,19 @@ def api_assignments_apply(key):
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": f"variable_assignments unavailable: {e!r}"}), 500
 
+    errors, warnings = _validate_rows(key, folder, va, rows, [""] * len(rows))
+    if errors:
+        return jsonify({"ok": False, "error": "; ".join(errors[:3]), "errors": errors,
+                        "warnings": warnings}), 400
     stamp = datetime.now().isoformat(timespec="seconds")
-    out_rows = []
-    for r in rows:
-        row = {c: "" for c in va.ASSIGN_COLS}
-        for f in _DRAFT_FIELDS:
-            if f in row:
-                row[f] = r.get(f, "")
-        row["coder"] = coder or r.get("coder", "")
-        row["decided_at"] = stamp
-        if not row.get("status"):
-            row["status"] = "proposed"
-        out_rows.append(row)
-    try:
-        n_total = va.write_rows(key, folder, out_rows)
-    except Exception as e:  # noqa: BLE001
-        return jsonify({"ok": False, "error": f"write_rows failed: {e!r}"}), 500
-
-    records = []
-    if do_apply:
-        try:
-            records = va.apply_files(key, folder)
-        except Exception as e:  # noqa: BLE001
-            return jsonify({"ok": False, "error": f"apply_files failed: {e!r}",
-                            "rows_written": n_total}), 500
-    actions = [{"action": r.get("action"), "original_variable": r.get("original_variable"),
-                "field": r.get("field"), "old": r.get("old"), "new": r.get("new"),
-                "status": r.get("status"), "note": r.get("note")}
-               for r in records]
+    out_rows = _assignment_rows(va, rows, coder, stamp)
+    n_total, records, archived, error = _write_and_apply(key, folder, va, out_rows, do_apply)
+    if error:
+        body = {"ok": False, "error": error, "backup": archived}
+        if n_total is not None:
+            body["rows_written"] = n_total
+        return jsonify(body), 500
+    actions = _action_rows(records)
     return jsonify({"ok": True, "rows_written": n_total, "applied_to_dataset": do_apply,
-                    "changes": len(actions), "records": actions,
-                    "path": f"{key} - variable_assignments.csv"})
+                    "changes": len(actions), "records": actions, "warnings": warnings,
+                    "backup": archived, "path": f"{key} - variable_assignments.csv"})

@@ -1,23 +1,26 @@
 /* ============================================================
    Coding Studio — Abstract screening tab
-   Human abstract screening against C1-C4 + intervention type.
+   Human abstract screening against C1-C4.
 
    When an abstract loads, criteria whose keywords appear nowhere in the
    title/abstract are pre-selected "Unsure" (C3 is pre-filled "Yes" by the
-   English detector).  Inclusion is driven by the Tab key: each Tab accepts
-   the focused criterion (leaving an existing verdict as-is) and advances;
-   on the last criterion the next Tab saves the record and loads the next
-   abstract in the same place.
-   N = No, U = Unsure, Shift+Tab = back.  Every completed abstract is
-   written to Screening/<coder>.json immediately; "Merge to master"
-   writes the coder's decisions into master_dataset.xlsx.
+   English detector; outside blind mode C1/C2/C4 can be pre-filled from the
+   AI verdict).  Inclusion is driven by the Tab key: each Tab accepts the
+   focused criterion (leaving an existing verdict as-is) and advances; on the
+   last criterion the next Tab saves the record and loads the next abstract in
+   the same place.  Y / N / U = verdict, Shift+Tab = back, Ctrl+Z = undo,
+   Alt+↓ / Alt+↑ = next / previous abstract, Ctrl+J = next unscreened.
+   Every completed abstract is written to Screening/<coder>.json immediately;
+   leaving an abstract with unsaved changes saves it first.  "Merge" writes a
+   copy of master_dataset.xlsx with the coder's verdicts to
+   Results/screening_merge/ (the master itself is never written).
 
    Endpoints: /api/screening/{meta,list,abstract/<id>,decision,merge,merge/status}.
    ============================================================ */
 (() => {
   "use strict";
 
-  const { $, $$, esc, api, toast } = window.CS;
+  const { $, $$, esc, toast } = window.CS;
   const icon = window.CS.svg;
 
   const S = {
@@ -26,7 +29,7 @@
     criteria: [],
     rows: [],           // metadata for the current server-side filter
     byIdMeta: {},
-    dec: {},            // human decisions already on disk for this coder
+    dec: {},            // decisions saved in this session for this coder
     coder: "",
     blind: false,
     filter: "all",
@@ -39,10 +42,22 @@
     critIdx: 0,
     c3Auto: false,      // C3 pre-filled "Yes" from the English-word detector
     autoUnsure: new Set(),  // criteria pre-filled "Unsure" (no keyword evidence in title/abstract)
+    aiPrefill: new Set(),   // criteria pre-filled from the master dataset's AI verdict
+    aiPrefillOn: true,  // pre-fill from the AI verdict (never in blind mode)
+    stale: null,        // a saved decision that no longer matches this row's title
     coderMode: false,   // mirrors the coding tab's coder mode: auto-advance to the next unfilled
     shuffleOn: false,
     viewer: "abstract",
     saving: false,
+    dirty: false,       // the shown abstract has unsaved changes
+    undo: [],           // verdict changes on the shown abstract, newest last
+    fieldEdits: 0,      // certainty/rationale edits on the shown abstract
+    cleanDepth: 0,      // undo.length + fieldEdits at the last load/save
+    cleanSaved: false,  // whether that clean state is on disk
+    savePromise: null,
+    wired: false,
+    loadSeq: 0,         // guards against out-of-order abstract responses
+    listSeq: 0,
     timer: null,
     mergePoll: null,
     bootPromise: null,
@@ -52,6 +67,19 @@
   };
 
   // ---------------------------------------------------------------- helpers
+  /* fetch wrapper that surfaces the server's {"error": ...} message */
+  async function call(path, opts) {
+    const r = await fetch(path, opts);
+    let body = null;
+    try { body = await r.json(); } catch { /* not JSON */ }
+    if (!r.ok) throw new Error((body && body.error) || `${path} → HTTP ${r.status}`);
+    return body;
+  }
+
+  const postJson = (path, data) => call(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+
   const currentCriterion = () => S.criteria[S.critIdx] || null;
 
   const blankValues = () => {
@@ -60,11 +88,16 @@
     return v;
   };
 
-  function currentDecision() {
-    const verdicts = ["C1", "C2", "C3", "C4"].map((l) => (S.values[l] || {}).verdict || "");
+  /* Include / Exclude / Unsure (no No, every criterion answered: goes to full text) / "" */
+  function outcomeOf(verdicts) {
     if (verdicts.some((v) => v === "No")) return "Exclude";
-    if (verdicts.every((v) => v === "Yes")) return "Include";
+    if (verdicts.length && verdicts.every((v) => v === "Yes")) return "Include";
+    if (verdicts.length && verdicts.every((v) => !!v)) return "Unsure";
     return "";
+  }
+
+  function currentDecision() {
+    return outcomeOf(S.criteria.map((c) => (S.values[c.label] || {}).verdict || ""));
   }
 
   function decisionPill(value) {
@@ -72,11 +105,19 @@
     if (!el) return;
     if (value === "Include") { el.textContent = "Include"; el.className = "pill inc"; }
     else if (value === "Exclude") { el.textContent = "Exclude"; el.className = "pill exc"; }
+    else if (value === "Unsure") { el.textContent = "Unsure → full text"; el.className = "pill unsure"; }
     else { el.textContent = "Incomplete"; el.className = "pill warn"; }
   }
 
   function coderName() {
     return (S.coder || "").trim();
+  }
+
+  /* abstracts carry inline markup from the databases (<i>OR</i>); show it as text */
+  function plain(s) {
+    return String(s ?? "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/?(?:i|b|em|strong|sup|sub|u|span|p)(?:\s[^<>]*)?>/gi, "");
   }
 
   // ---------------------------------------------------------------- language
@@ -117,69 +158,130 @@
 
   // ---------------------------------------------------------------- loading
   async function loadMeta() {
-    S.meta = await api(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
+    S.meta = await call(`/api/screening/meta?coder=${encodeURIComponent(coderName())}`);
     S.criteria = S.meta.criteria || [];
+    if (S.meta.available === false) {
+      toast("Screening workbook unavailable", "err", S.meta.error || "master_dataset.xlsx");
+    }
+    if (S.meta.decisions_error) toast("Your screening file cannot be read", "err", S.meta.decisions_error);
+    const c = S.meta.counts || {};
+    if (c.stale) {
+      toast(`${c.stale} saved decision(s) no longer match their row`, "err",
+            "The workbook was re-ordered since they were saved; those rows show as unscreened.");
+    }
   }
 
   async function loadList({ keepPos = false } = {}) {
+    if (!(await flushDirty())) return;
+    const seq = ++S.listSeq;
+    const keepId = keepPos && S.cur ? S.cur.id : null;
+    const host = $("#screen-list");
+    if (host && !S.keys.length) host.innerHTML = `<p class="side-hint" style="padding:12px">Loading abstracts…</p>`;
     const q = new URLSearchParams({ coder: coderName(), filter: S.filter, search: S.search });
-    const d = await api(`/api/screening/list?${q.toString()}`);
+    const d = await call(`/api/screening/list?${q.toString()}`);
+    if (seq !== S.listSeq) return;           // a newer filter/search superseded this one
     S.rows = d.rows || [];
     S.byIdMeta = {};
     S.rows.forEach((r) => { S.byIdMeta[r.i] = r; });
     S.keys = S.rows.map((r) => r.i);
-    if (!keepPos) S.pos = 0;
+    if (keepId && S.keys.includes(keepId)) S.pos = S.keys.indexOf(keepId);
+    else if (!keepPos) S.pos = 0;
     if (S.pos < 0 || S.pos >= S.keys.length) S.pos = S.keys.length ? 0 : -1;
     updateProgress();
     renderList();
-    if (S.pos >= 0) await selectPos(S.pos, { force: true });
+    if (S.pos >= 0) await selectPos(S.pos, { force: true, skipFlush: true });
     else { S.cur = null; renderForm(); renderViewer(); updateStatus(); }
   }
 
-  async function selectPos(i, { force = false } = {}) {
-    if (!S.keys.length) return;
-    S.pos = Math.max(0, Math.min(S.keys.length - 1, i));
-    const uid = S.keys[S.pos];
-    if (!uid) return;
-    if (!force && S.cur && S.cur.id === uid) { renderList(); return; }
-    try {
-      const d = await api(`/api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
-      S.cur = d.record;
-      S.ai = d.record.ai || {};
-      S.values = blankValues();
-      const human = d.human;
-      if (human && human.criteria) {
-        S.criteria.forEach((c) => {
-          const h = human.criteria[c.label] || {};
-          S.values[c.label] = {
-            verdict: h.verdict || "",
-            certainty: h.certainty || "",
-            rationale: h.rationale || "",
-          };
-        });
-      }
-      // Pre-fill C3 "Yes" when the abstract is detected as English, unless the
-      // coder already answered it.  C3 is then skipped when moving past C2.
-      S.c3Auto = false;
-      if (!S.values.C3.verdict && looksEnglish(S.cur)) {
-        S.values.C3.verdict = "Yes";
-        S.c3Auto = true;
-      }
-      // Pre-select "Unsure" for every other criterion whose keywords appear
-      // nowhere in the title/abstract, so the coder sees the suggestion as soon
-      // as the abstract opens instead of having to Tab on it first.  Only blank
-      // criteria are touched: an already-coded verdict is never changed.  C3 is
-      // handled by the English detector above.
-      S.autoUnsure = new Set();
+  /* Save the shown abstract before leaving it, so a quick click elsewhere never
+     drops verdicts.  Returns false when the coder chose to stay. */
+  async function flushDirty(coder) {
+    if (S.savePromise) await S.savePromise.catch(() => {});   // a save already on its way
+    if (!S.dirty || !S.cur) return true;
+    const ok = await saveCurrent({ coder, quiet: true });
+    if (ok) return true;
+    return window.confirm("This abstract has unsaved changes that could not be saved.\n\nDiscard them and continue?");
+  }
+
+  function prefillFor(rec, human) {
+    S.values = blankValues();
+    if (human && human.criteria) {
+      S.criteria.forEach((c) => {
+        const h = human.criteria[c.label] || {};
+        S.values[c.label] = {
+          verdict: h.verdict || "",
+          certainty: h.certainty || "",
+          rationale: h.rationale || "",
+        };
+      });
+    }
+    // Pre-fill C3 "Yes" when the abstract is detected as English, unless the
+    // coder already answered it.  C3 is then skipped when moving past C2.
+    S.c3Auto = false;
+    if (S.values.C3 && !S.values.C3.verdict && looksEnglish(rec)) {
+      S.values.C3.verdict = "Yes";
+      S.c3Auto = true;
+    }
+    // Pre-fill C1, C2, C4 from the master dataset's AI verdict, so the coder
+    // starts from the AI's suggestion.  Never in blind mode (the coder must not
+    // see the AI), only with a valid option (the workbook also holds
+    // "Unscreened"), and only blank criteria are touched.
+    S.aiPrefill = new Set();
+    if (S.aiPrefillOn && !S.blind) {
       S.criteria.forEach((c) => {
         if (c.label === "C3" || c.kind === "classify") return;
-        const v = S.values[c.label] || (S.values[c.label] = { verdict: "", certainty: "", rationale: "" });
-        if (v.verdict) return;
-        if (!criterionHasKeywordEvidence(c.label)) {
-          v.verdict = "Unsure";
-          S.autoUnsure.add(c.label);
+        const v = S.values[c.label];
+        if (!v || v.verdict) return;
+        const aiV = String(((rec && rec.ai && rec.ai[c.label]) || {}).verdict || "").trim();
+        const opt = (c.options || []).find((o) => o.toLowerCase() === aiV.toLowerCase());
+        if (opt) {
+          v.verdict = opt;
+          S.aiPrefill.add(c.label);
         }
       });
+    }
+    // Pre-select "Unsure" for every other criterion whose keywords appear
+    // nowhere in the title/abstract, so the coder sees the suggestion as soon
+    // as the abstract opens instead of having to Tab on it first.  Only blank
+    // criteria are touched: an already-coded verdict is never changed.  C3 is
+    // handled by the English detector above; AI-prefilled criteria are skipped.
+    S.autoUnsure = new Set();
+    S.criteria.forEach((c) => {
+      if (c.label === "C3" || c.kind === "classify") return;
+      const v = S.values[c.label];
+      if (!v || v.verdict) return;
+      if (!criterionHasKeywordEvidence(c.label)) {
+        v.verdict = "Unsure";
+        S.autoUnsure.add(c.label);
+      }
+    });
+  }
+
+  async function selectPos(i, { force = false, skipFlush = false } = {}) {
+    if (!S.keys.length) return;
+    const pos = Math.max(0, Math.min(S.keys.length - 1, i));
+    const uid = S.keys[pos];
+    if (!uid) return;
+    if (!force && S.cur && S.cur.id === uid) { S.pos = pos; renderList(); return; }
+    if (!skipFlush && S.cur && S.cur.id !== uid && !(await flushDirty())) return;
+    const seq = ++S.loadSeq;
+    S.pos = pos;
+    renderList();
+    const viewer = $("#screen-viewer");
+    if (viewer && (!S.cur || S.cur.id !== uid)) viewer.classList.add("loading");
+    try {
+      const d = await call(`/api/screening/abstract/${encodeURIComponent(uid)}?coder=${encodeURIComponent(coderName())}`);
+      if (seq !== S.loadSeq) return;         // the coder already moved on
+      S.cur = d.record;
+      S.ai = d.record.ai || {};
+      S.stale = d.human_stale || null;
+      const human = d.human;
+      prefillFor(S.cur, human);
+      S.dirty = false;
+      S.undo = [];
+      S.fieldEdits = 0;
+      S.cleanDepth = 0;
+      S.cleanSaved = !!human;
       S.critIdx = 0;
       renderForm();
       renderViewer();
@@ -187,10 +289,12 @@
       renderList();
       setSaved(!!human);
       const body = $("#screen-body"); if (body) body.scrollTop = 0;
-      const viewer = $("#screen-viewer"); if (viewer) viewer.scrollTop = 0;
+      if (viewer) viewer.scrollTop = 0;
       focusCurrent();
     } catch (e) {
-      toast("Could not load abstract", "err", String(e.message || e));
+      if (seq === S.loadSeq) toast("Could not load abstract", "err", String(e.message || e));
+    } finally {
+      if (viewer && seq === S.loadSeq) viewer.classList.remove("loading");
     }
   }
 
@@ -219,14 +323,17 @@
           `${ai.rationale ? ` — ${esc(ai.rationale)}` : ""}</div>`
         : "";
       const autoYes = c.label === "C3" && S.c3Auto;
-      const autoUnsure = !!(S.autoUnsure && S.autoUnsure.has(c.label));
+      const autoUnsure = S.autoUnsure.has(c.label);
+      const autoAI = S.aiPrefill.has(c.label);
       const autoNote = autoYes
-        ? `<div class="crit-auto">Pre-filled <b>Yes</b> — English words detected in the abstract</div>`
-        : (autoUnsure
-          ? `<div class="crit-auto">Pre-filled <b>Unsure</b> — no keywords for this criterion found in the title/abstract</div>`
-          : "");
+        ? `<div class="crit-auto">Pre-filled <b>Yes</b> - English words detected in the abstract</div>`
+        : (autoAI
+          ? `<div class="crit-auto">Pre-filled <b>${esc(v.verdict || "")}</b> - from the AI screening verdict</div>`
+          : (autoUnsure
+            ? `<div class="crit-auto">Pre-filled <b>Unsure</b> - no keywords for this criterion found in the title/abstract</div>`
+            : ""));
       const verd = String(v.verdict || "").trim().toLowerCase();
-      return `<div class="screen-crit crit-${esc(String(c.label).toLowerCase())}${verd ? " v-" + esc(verd) : ""}${(autoYes || autoUnsure) ? " auto" : ""}" data-label="${esc(c.label)}" data-i="${i}">
+      return `<div class="screen-crit crit-${esc(String(c.label).toLowerCase())}${verd ? " v-" + esc(verd) : ""}${(autoYes || autoUnsure || autoAI) ? " auto" : ""}" data-label="${esc(c.label)}" data-i="${i}">
         <div class="crit-head">
           <span class="crit-tag">${esc(c.label)}</span>
           <span class="crit-title">${esc(c.title)}</span>
@@ -242,38 +349,79 @@
         ${aiLine}
       </div>`;
     }).join("");
+    const stale = S.stale
+      ? `<div class="screen-warn">A decision saved for this row id (${esc(S.stale.saved_at || "")}) was made on a different title — the workbook was re-ordered since. It is not shown; screen this abstract again.</div>`
+      : "";
+    const prefillOpt = S.blind ? "" :
+      `<label class="screen-opt" title="Pre-fill blank C1/C2/C4 verdicts from the AI screening verdict (never in blind mode)">` +
+      `<input type="checkbox" id="screen-ai-prefill"${S.aiPrefillOn ? " checked" : ""}> pre-fill from AI</label>`;
     host.className = S.blind ? "blind" : "";
     host.innerHTML = `
       <div class="screen-head">
-        <div class="screen-title">${esc(rec.title || "(no title)")}</div>
-        <div class="screen-sub">${esc(sub || "—")}</div>
+        <div class="screen-title">${esc(plain(rec.title) || "(no title)")}</div>
+        <div class="screen-sub">${esc(sub || "—")}${prefillOpt}</div>
       </div>
+      ${stale}
       ${cards}`;
     paintFocus();
     decisionPill(currentDecision());
   }
 
-  function setVal(label, value) {
-    if (!S.values[label]) S.values[label] = { verdict: "", certainty: "", rationale: "" };
-    S.values[label].verdict = value;
-    if (label === "C3") S.c3Auto = false;   // a manual C3 answer is not skipped
-    if (S.autoUnsure) S.autoUnsure.delete(label);   // a manual choice replaces the pre-fill
-    const btn = $(`.crit-opt[data-label="${cssEsc(label)}"][data-value="${cssEsc(value)}"]`);
-    $$(`.crit-opt[data-label="${cssEsc(label)}"]`).forEach((b) => b.classList.remove("active", "v-yes", "v-no", "v-unsure", "v-inoculation", "v-sourcing", "v-generic", "v-none"));
-    if (btn) btn.classList.add("active", "v-" + value.toLowerCase());
+  const V_CLASSES = ["v-yes", "v-no", "v-unsure", "v-inoculation", "v-sourcing", "v-generic", "v-none"];
+
+  function paintVerdict(label) {
+    const value = (S.values[label] || {}).verdict || "";
+    $$(`.crit-opt[data-label="${cssEsc(label)}"]`).forEach((b) => {
+      b.classList.remove("active", ...V_CLASSES);
+      if (value && b.dataset.value === value) b.classList.add("active", "v-" + value.toLowerCase());
+    });
     const card = $(`.screen-crit[data-label="${cssEsc(label)}"]`);
     if (card) {
-      card.classList.remove("v-yes", "v-no", "v-unsure", "v-inoculation", "v-sourcing", "v-generic", "v-none");
-      card.classList.add("v-" + String(value).toLowerCase());
-    }
-    // the verdict is now the coder's own: drop any "pre-filled" note/marker
-    const stillAuto = (label === "C3" && S.c3Auto) || (S.autoUnsure && S.autoUnsure.has(label));
-    if (card && !stillAuto) {
-      card.classList.remove("auto");
-      const note = card.querySelector(".crit-auto");
-      if (note) note.remove();
+      card.classList.remove(...V_CLASSES);
+      if (value) card.classList.add("v-" + String(value).toLowerCase());
+      const stillAuto = (label === "C3" && S.c3Auto) || S.autoUnsure.has(label) || S.aiPrefill.has(label);
+      if (!stillAuto) {
+        card.classList.remove("auto");
+        const note = card.querySelector(".crit-auto");
+        if (note) note.remove();
+      }
     }
     decisionPill(currentDecision());
+  }
+
+  function setVal(label, value) {
+    if (!S.values[label]) S.values[label] = { verdict: "", certainty: "", rationale: "" };
+    S.undo.push({
+      label, verdict: S.values[label].verdict, critIdx: S.critIdx,
+      c3Auto: S.c3Auto, autoUnsure: S.autoUnsure.has(label), aiPrefill: S.aiPrefill.has(label),
+    });
+    if (S.undo.length > 200) S.undo.shift();
+    S.values[label].verdict = value;
+    if (label === "C3") S.c3Auto = false;   // a manual C3 answer is not skipped
+    S.autoUnsure.delete(label);              // a manual choice replaces the pre-fill
+    S.aiPrefill.delete(label);
+    paintVerdict(label);
+    markDirty();
+  }
+
+  function undoLast() {
+    const u = S.undo.pop();
+    if (!u) { toast("Nothing to undo", "ok"); return; }
+    S.values[u.label].verdict = u.verdict;
+    S.c3Auto = u.c3Auto;
+    if (u.autoUnsure) S.autoUnsure.add(u.label);
+    if (u.aiPrefill) S.aiPrefill.add(u.label);
+    S.critIdx = u.critIdx;
+    renderForm();
+    focusCurrent();
+    // back at the state last loaded or saved: nothing left to save
+    if (S.undo.length + S.fieldEdits === S.cleanDepth) { S.dirty = false; setSaved(S.cleanSaved); }
+    else markDirty();
+  }
+
+  function markDirty({ field = false } = {}) {
+    if (field) S.fieldEdits += 1;
+    S.dirty = true;
     setSaved(false);
   }
 
@@ -366,9 +514,19 @@
   }
 
   // ---------------------------------------------------------------- save
-  async function saveCurrent({ advance: doAdvance = false } = {}) {
+  function prefilledMap() {
+    const out = {};
+    S.criteria.forEach((c) => {
+      if (c.label === "C3" && S.c3Auto) out.C3 = "language";
+      else if (S.aiPrefill.has(c.label)) out[c.label] = "ai";
+      else if (S.autoUnsure.has(c.label)) out[c.label] = "keyword";
+    });
+    return out;
+  }
+
+  async function saveCurrent({ advance: doAdvance = false, coder: coderOverride, quiet = false } = {}) {
     if (!S.cur) return false;
-    const coder = coderName();
+    const coder = (coderOverride ?? coderName()).trim();
     if (!coder) {
       toast("Enter your coder name before saving", "err");
       const el = $("#coder-input"); if (el) el.focus();
@@ -376,31 +534,53 @@
     }
     if (S.saving) return false;
     S.saving = true;
-    try {
-      const r = await api("/api/screening/decision", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coder, id: S.cur.id, criteria: S.values }),
+    // capture everything now: the coder may move to another abstract while the
+    // request is in flight, and the reply must update THIS record only
+    const uid = S.cur.id;
+    const values = JSON.parse(JSON.stringify(S.values));
+    const editDepth = S.undo.length + S.fieldEdits;
+    const persist = async () => {
+      const r = await postJson("/api/screening/decision", {
+        coder, id: uid, criteria: values, prefilled: prefilledMap(),
       });
-      S.dec[S.cur.id] = { criteria: JSON.parse(JSON.stringify(S.values)), decision: r.decision };
-      if (S.meta) S.meta.screened = r.screened;
-      const meta = S.byIdMeta[S.cur.id];
-      if (meta) { meta.h = r.decision; }
-      updateProgress();
-      renderList();
-      setSaved(true);
-      decisionPill(r.decision);
-      if (doAdvance) {
-        const next = nextPos();
-        if (next >= 0) await selectPos(next, { force: true });
-        else toast("End of the list", "ok", "No more abstracts in this view.");
+      if (coder === coderName()) {
+        S.dec[uid] = { criteria: values, decision: r.decision, outcome: r.outcome };
+        if (S.meta) S.meta.screened = r.screened;
+        const meta = S.byIdMeta[uid];
+        if (meta) { meta.h = r.outcome; meta.d = 1; }
       }
-      return true;
+      const same = !!(S.cur && S.cur.id === uid);
+      if (same) {
+        // only clean when nothing was edited while the request was in flight
+        S.cleanSaved = true;
+        S.cleanDepth = editDepth;
+        if (S.undo.length + S.fieldEdits === editDepth) { S.dirty = false; setSaved(true); }
+        S.stale = null;
+        decisionPill(currentDecision());
+      }
+      updateProgress();
+      updateStatus();
+      renderList();
+      if (quiet) toast("Saved", "ok", plain((S.byIdMeta[uid] || {}).t || uid).slice(0, 80));
+      return same;
+    };
+    let same = false;
+    S.savePromise = persist();
+    try {
+      same = await S.savePromise;
     } catch (e) {
       toast("Save failed", "err", String(e.message || e));
       return false;
     } finally {
       S.saving = false;
+      S.savePromise = null;
     }
+    if (doAdvance && same) {
+      const next = nextPos();
+      if (next >= 0) await selectPos(next, { force: true });
+      else toast("End of the list", "ok", "No more abstracts in this view.");
+    }
+    return true;
   }
 
   function completeCurrent() { return saveCurrent({ advance: true }); }
@@ -413,14 +593,23 @@
   }
 
   // ---------------------------------------------------------------- left list
+  const isScreened = (uid) => !!(S.dec[uid] || (S.byIdMeta[uid] || {}).d);
+
   function updateProgress() {
     const el = $("#screen-progress");
     if (!el) return;
     const total = S.meta ? S.meta.total : 0;
     const done = S.meta ? S.meta.screened : 0;
-    const pct = total ? Math.round((done / total) * 1000) / 10 : 0;
-    el.innerHTML = `${done.toLocaleString()} / ${total.toLocaleString()} screened` +
+    const pct = total ? Math.min(100, Math.round((done / total) * 1000) / 10) : 0;
+    let left = 0;
+    S.keys.forEach((uid) => { if (!isScreened(uid)) left += 1; });
+    el.innerHTML = `${done.toLocaleString()} / ${total.toLocaleString()} screened (${pct}%)` +
+      ` · ${left.toLocaleString()} to screen in view` +
       `<div class="screen-bar"><i style="width:${pct}%"></i></div>`;
+  }
+
+  function badgeClass(v) {
+    return v === "Include" ? "inc" : (v === "Exclude" ? "exc" : (v === "Unsure" ? "unsure" : ""));
   }
 
   function renderList() {
@@ -437,14 +626,16 @@
     for (let i = start; i < end; i += 1) {
       const uid = S.keys[i];
       const m = S.byIdMeta[uid] || {};
-      const human = (S.dec[uid] && S.dec[uid].decision) || m.h || "";
+      const own = S.dec[uid];
+      const human = own ? (own.outcome || own.decision || "") : (m.h || "");
+      const screened = isScreened(uid);
       const badges = [];
-      if (human) badges.push(`<span class="s-badge human ${human === "Include" ? "inc" : "exc"}">you: ${esc(human)}</span>`);
-      if (m.ai && !S.blind) badges.push(`<span class="s-badge ai ${m.ai === "Include" ? "inc" : (m.ai === "Exclude" ? "exc" : "")}">AI: ${esc(m.ai)}</span>`);
+      if (screened) badges.push(`<span class="s-badge human ${badgeClass(human)}">you: ${esc(human || "incomplete")}</span>`);
+      if (m.ai && !S.blind) badges.push(`<span class="s-badge ai ${badgeClass(m.ai)}">AI: ${esc(m.ai)}</span>`);
       parts.push(`<button type="button" class="paper-item screen-item${i === S.pos ? " active" : ""}" data-i="${i}">
-        <span class="dot${human ? " coded" : ""}"></span>
+        <span class="dot${screened ? " coded" : ""}"></span>
         <div class="meta">
-          <div class="k">${esc(m.t || uid)}</div>
+          <div class="k">${esc(plain(m.t) || uid)}</div>
           <div class="m"><span class="idx">${i + 1}</span><span>${esc([m.a, m.y].filter(Boolean).join(" · "))}</span></div>
           <div class="s-badges">${badges.join("")}</div>
         </div>
@@ -452,6 +643,8 @@
     }
     if (end < S.keys.length) parts.push(`<div class="screen-progress">… ${S.keys.length - end} more</div>`);
     host.innerHTML = parts.join("");
+    const active = host.querySelector(".screen-item.active");
+    if (active) active.scrollIntoView({ block: "nearest" });
   }
 
   // ---------------------------------------------------------------- keyword highlighting
@@ -503,18 +696,30 @@
     return kws.some((kw) => hay.includes(String(kw).toLowerCase()));
   }
 
-  function highlightKeywords(escaped) {
+  /* one alternation per criterion, longest keyword first, matched on the RAW
+     text so the markup we insert (and the &lt; entities) can never be matched */
+  const KW_RE = {};
+  function keywordRegex(label) {
+    if (!(label in KW_RE)) {
+      const kws = (CRIT_KEYWORDS[label] || []).slice().sort((a, b) => b.length - a.length)
+        .map((kw) => String(kw).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      KW_RE[label] = kws.length ? new RegExp(kws.join("|"), "gi") : null;
+    }
+    return KW_RE[label];
+  }
+
+  function highlightKeywords(text) {
+    const s = String(text ?? "");
     const c = currentCriterion();
-    const kws = (c && CRIT_KEYWORDS[c.label]) || [];
-    if (!kws.length) return escaped;
-    let out = escaped;
-    kws.forEach((kw) => {
-      const safe = String(kw).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      try {
-        out = out.replace(new RegExp("(" + safe + ")", "gi"), '<mark class="kw">$1</mark>');
-      } catch { /* ignore */ }
-    });
-    return out;
+    const re = c ? keywordRegex(c.label) : null;
+    if (!re) return esc(s);
+    re.lastIndex = 0;
+    let out = "", last = 0, m;
+    while ((m = re.exec(s))) {
+      out += esc(s.slice(last, m.index)) + `<mark class="kw">${esc(m[0])}</mark>`;
+      last = m.index + m[0].length;
+    }
+    return out + esc(s.slice(last));
   }
 
   // ---------------------------------------------------------------- right viewer
@@ -523,14 +728,19 @@
     if (!host) return;
     if (!S.cur) { host.innerHTML = `<p class="side-hint" style="padding:16px">Select an abstract.</p>`; return; }
     const rec = S.cur;
-    const head = `<div class="screen-head"><div class="screen-title">${highlightKeywords(esc(rec.title || "(no title)"))}</div>` +
+    const head = `<div class="screen-head"><div class="screen-title">${highlightKeywords(plain(rec.title) || "(no title)")}</div>` +
       `<div class="screen-sub">${esc([rec.authors, rec.year, rec.source].filter(Boolean).join(" · ") || "—")}</div></div>`;
     if (S.viewer === "meta") {
-      const rows = [["id", rec.an || rec.id], ["title", rec.title], ["authors", rec.authors],
-                    ["year", rec.year], ["source", rec.source], ["doi", rec.doi],
-                    ["fulltext verdict", rec.fulltext || "—"]];
+      const doi = String(rec.doi || "").trim();
+      const doiLink = /^10\.\S+$/.test(doi)
+        ? `<a href="https://doi.org/${esc(encodeURI(doi))}" target="_blank" rel="noopener noreferrer">${esc(doi)}</a>`
+        : esc(doi || "—");
+      const rows = [["id", esc(rec.an || rec.id)], ["title", esc(plain(rec.title) || "—")],
+                    ["authors", esc(rec.authors || "—")], ["year", esc(rec.year || "—")],
+                    ["source", esc(rec.source || "—")], ["doi", doiLink],
+                    ["fulltext verdict", esc(rec.fulltext || "—")]];
       host.innerHTML = head + `<dl class="screen-metagrid">` +
-        rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v || "—")}</dd>`).join("") + `</dl>`;
+        rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("") + `</dl>`;
       return;
     }
     if (S.viewer === "ai") {
@@ -547,7 +757,7 @@
       return;
     }
     host.innerHTML = head +
-      `<div class="screen-abstract"><span class="screen-abs-label">Abstract</span>${highlightKeywords(esc(rec.abstract || "(no abstract)"))}</div>`;
+      `<div class="screen-abstract"><span class="screen-abs-label">Abstract</span>${highlightKeywords(plain(rec.abstract) || "(no abstract)")}</div>`;
   }
 
   function updateStatus() {
@@ -556,7 +766,10 @@
     const done = S.meta ? S.meta.screened : 0;
     if (pos) pos.textContent = `${done.toLocaleString()} / ${total.toLocaleString()} coded`;
     const hint = $("#screen-hint");
-    if (hint) hint.textContent = S.shuffleOn ? `shuffle on · ${S.keys.length} in view` : `${S.keys.length} in view`;
+    if (hint) {
+      const at = S.pos >= 0 && S.keys.length ? `${(S.pos + 1).toLocaleString()} of ${S.keys.length.toLocaleString()} in view` : `${S.keys.length} in view`;
+      hint.textContent = S.shuffleOn ? `shuffle on · ${at}` : at;
+    }
     if (S.cur) decisionPill(currentDecision());
   }
 
@@ -580,6 +793,22 @@
     if (S.viewer === "ai") renderViewer();
   }
 
+  function toggleBlind() {
+    S.blind = !S.blind;
+    // switching blind on must also drop AI pre-fills the coder has not confirmed
+    if (S.blind && S.cur && S.aiPrefill.size) {
+      S.aiPrefill.forEach((lab) => { if (S.values[lab]) S.values[lab].verdict = ""; });
+      S.aiPrefill = new Set();
+      S.criteria.forEach((c) => {
+        const v = S.values[c.label];
+        if (c.label === "C3" || !v || v.verdict) return;
+        if (!criterionHasKeywordEvidence(c.label)) { v.verdict = "Unsure"; S.autoUnsure.add(c.label); }
+      });
+    }
+    applyBlind();
+    if (S.cur) renderForm();
+  }
+
   // ---------------------------------------------------------------- shuffle
   function syncShuffle() {
     const btn = $("#shuffle-btn");
@@ -592,31 +821,45 @@
 
   function nextPos() {
     if (S.shuffleOn) {
-      const pool = S.keys.map((uid, i) => i)
-        .filter((i) => i !== S.pos && !S.dec[S.keys[i]]);
+      const pool = [];
+      S.keys.forEach((uid, i) => { if (i !== S.pos && !isScreened(uid)) pool.push(i); });
       if (!pool.length) return -1;
       return pool[Math.floor(Math.random() * pool.length)];
     }
     return S.pos < S.keys.length - 1 ? S.pos + 1 : -1;
   }
 
+  /* the next abstract in the view the coder has not screened (wrapping) */
+  function nextUnscreenedPos() {
+    const n = S.keys.length;
+    for (let step = 1; step <= n; step += 1) {
+      const i = (S.pos + step) % n;
+      if (!isScreened(S.keys[i])) return i;
+    }
+    return -1;
+  }
+
+  async function gotoNextUnscreened() {
+    const i = nextUnscreenedPos();
+    if (i < 0) { toast("Everything in this view is screened", "ok"); return; }
+    await selectPos(i, { force: true });
+  }
+
   // ---------------------------------------------------------------- merge
   async function mergeToMaster() {
     const coder = coderName();
     if (!coder) { toast("Enter your coder name first", "err"); return; }
+    if (!(await flushDirty())) return;
     const n = S.meta ? S.meta.screened : 0;
     if (!n) { toast("Nothing to merge yet", "err", "Screen at least one abstract."); return; }
     const ok = window.confirm(
-      `Merge ${n} screened abstract(s) into master_dataset.xlsx?\n\n` +
-      "For each screened row this overwrites the C1-C4 verdict/certainty/rationale " +
-      "and records Screened_By / Screened_At. A backup is written under archive/. " +
-      "This cannot be undone from the app.");
+      `Write a merged copy of master_dataset.xlsx with your ${n} screened abstract(s)?\n\n` +
+      "The copy goes to Results/screening_merge/ with your C1-C4 verdict/certainty/rationale " +
+      "in place of the AI values plus Screened_By / Screened_At. master_dataset.xlsx itself " +
+      "is not modified (it stays the AI reference).");
     if (!ok) return;
     try {
-      const r = await api("/api/screening/merge", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coder }),
-      });
+      await postJson("/api/screening/merge", { coder });
       toast("Merge started", "ok", `${n} abstract(s)`);
       const btn = $("#merge-btn"); if (btn) btn.disabled = true;
       pollMerge();
@@ -627,25 +870,56 @@
 
   function pollMerge() {
     if (S.mergePoll) clearInterval(S.mergePoll);
-    S.mergePoll = setInterval(async () => {
-      let s;
-      try { s = await api("/api/screening/merge/status"); } catch { return; }
-      if (s.running) return;
+    let failures = 0;
+    const stop = () => {
       clearInterval(S.mergePoll); S.mergePoll = null;
       const btn = $("#merge-btn"); if (btn) btn.disabled = false;
+    };
+    S.mergePoll = setInterval(async () => {
+      let s;
+      try { s = await call("/api/screening/merge/status"); failures = 0; } catch (e) {
+        failures += 1;
+        if (failures >= 5) { stop(); toast("Lost track of the merge", "err", String(e.message || e)); }
+        return;
+      }
+      if (s.running) return;
+      stop();
       if (s.ok === false) toast("Merge failed", "err", s.error || "");
-      else toast("Merged to master", "ok", `${s.matched} row(s) · backup ${s.backup || "written"}`);
-      // master changed: reload metadata (server rebuilds its index)
-      try { await loadMeta(); await loadList({ keepPos: true }); } catch { /* ignore */ }
+      else toast("Merged copy written", "ok", `${s.matched} row(s) → ${s.output || "Results/screening_merge/"}`);
     }, 1500);
   }
 
   // ---------------------------------------------------------------- wiring
-  async function boot() {
+  const KEY_HELP = "Tab = accept & next criterion · Y / N / U = Yes / No / Unsure · Shift+Tab = back · " +
+    "Ctrl+Z = undo · Alt+↓ / Alt+↑ = next / previous abstract · Ctrl+J = next unscreened · " +
+    "Ctrl+S = save · Ctrl+K = search · the last Tab saves and loads the next abstract; " +
+    "leaving an abstract with changes saves it";
+
+  async function onCoderChange(name) {
+    const prev = S.coder;
+    if (S.dirty && S.cur && prev.trim()) {
+      // the edits belong to the coder who made them, not the name being typed
+      const ok = await saveCurrent({ coder: prev, quiet: true });
+      if (!ok) S.dirty = false;
+    }
+    S.coder = name;
+    S.dec = {};
+    try { localStorage.setItem("cs.coder", S.coder); } catch { /* ignore */ }
+    clearTimeout(S.timer);
+    S.timer = setTimeout(async () => {
+      try { await loadMeta(); await loadList({ keepPos: true }); }
+      catch (e) { toast("Could not load screening for this coder", "err", String(e.message || e)); }
+    }, 350);
+  }
+
+  function wire() {
     try { S.coder = localStorage.getItem("cs.coder") || ""; } catch { /* ignore */ }
     try { S.coderMode = localStorage.getItem("cs.coderMode") === "1"; } catch { /* ignore */ }
+    try { S.aiPrefillOn = localStorage.getItem("cs.screenAiPrefill") !== "0"; } catch { /* ignore */ }
     const coderEl = $("#coder-input");
     if (coderEl && !coderEl.value) coderEl.value = S.coder;
+    const keys = $("#screen-body .screen-keys");
+    if (keys) keys.textContent = "Criteria with no keyword evidence are pre-filled Unsure · " + KEY_HELP;
 
     // viewer tabs
     $$("#screen-viewer-seg button").forEach((b) =>
@@ -676,12 +950,7 @@
     });
 
     // coder (shared top-bar field)
-    window.addEventListener("cs:coder", (e) => {
-      S.coder = String(e.detail || "");
-      try { localStorage.setItem("cs.coder", S.coder); } catch { /* ignore */ }
-      clearTimeout(S.timer);
-      S.timer = setTimeout(() => loadList({ keepPos: true }).catch(() => {}), 350);
-    });
+    window.addEventListener("cs:coder", (e) => { onCoderChange(String(e.detail || "")); });
 
     // shuffle (top-bar toggle): when on, Next/Tab advances to a random unscreened abstract
     window.addEventListener("cs:screening-shuffle", (e) => {
@@ -724,18 +993,24 @@
         if (card) activateCriterion(Number(card.dataset.i));
       });
       form.addEventListener("change", (e) => {
+        if (e.target.id === "screen-ai-prefill") {
+          S.aiPrefillOn = !!e.target.checked;
+          try { localStorage.setItem("cs.screenAiPrefill", S.aiPrefillOn ? "1" : "0"); } catch { /* ignore */ }
+          toast(S.aiPrefillOn ? "AI pre-fill on (from the next abstract)" : "AI pre-fill off (from the next abstract)", "ok");
+          return;
+        }
         const s = e.target.closest(".crit-cert");
         if (!s) return;
         const v = S.values[s.dataset.label] || (S.values[s.dataset.label] = {});
         v.certainty = s.value;
-        setSaved(false);
+        markDirty({ field: true });
       });
       form.addEventListener("input", (e) => {
         const t = e.target.closest(".crit-ratio");
         if (!t) return;
         const v = S.values[t.dataset.label] || (S.values[t.dataset.label] = {});
         v.rationale = t.value;
-        setSaved(false);
+        markDirty({ field: true });
       });
     }
 
@@ -764,30 +1039,43 @@
     // actions (driven from the shared top bar)
     window.addEventListener("cs:screening-save", () => saveCurrent({ advance: false }));
     window.addEventListener("cs:screening-merge", () => mergeToMaster());
-    window.addEventListener("cs:screening-blind", () => { S.blind = !S.blind; applyBlind(); });
+    window.addEventListener("cs:screening-blind", () => toggleBlind());
 
     // keyboard (capture so the browser's default Tab is replaced by our walk)
     window.addEventListener("keydown", async (e) => {
       const view = $("#view-screening");
       if (!view || view.hidden) return;
       const t = e.target;
+      const inField = t && (/^(input|textarea|select)$/i.test(t.tagName) || t.isContentEditable);
       const meta = e.ctrlKey || e.metaKey;
       if (meta) {
         const k = e.key.toLowerCase();
         if (k === "s") { e.preventDefault(); e.stopImmediatePropagation(); saveCurrent({ advance: false }); }
-        else if (k === "b") { e.preventDefault(); e.stopImmediatePropagation(); S.blind = !S.blind; applyBlind(); }
+        else if (k === "b") { e.preventDefault(); e.stopImmediatePropagation(); toggleBlind(); }
         else if (k === "k") {
           e.preventDefault(); e.stopImmediatePropagation();
           const s = $("#screen-search"); if (s) { s.focus(); s.select(); }
+        } else if (k === "j") {
+          e.preventDefault(); e.stopImmediatePropagation(); gotoNextUnscreened();
+        } else if (k === "z" && !e.shiftKey && !inField) {
+          e.preventDefault(); e.stopImmediatePropagation(); undoLast();
         }
         return;
       }
-      const inField = t && /^(input|textarea|select)$/i.test(t.tagName);
+      if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (e.repeat) return;
+        const next = S.pos + (e.key === "ArrowDown" ? 1 : -1);
+        if (next >= 0 && next < S.keys.length) await selectPos(next);
+        return;
+      }
       const keepNativeTab = inField && !t.classList.contains("crit-ratio") && !t.classList.contains("crit-cert");
       if (e.key === "Tab") {
         if (keepNativeTab) return;              // normal focus movement in search/coder/count
         e.preventDefault();
         e.stopImmediatePropagation();
+        // a held-down Tab would walk through and save abstract after abstract
+        if (e.repeat) return;
         if (e.shiftKey) {
           if (S.critIdx > 0) { S.critIdx -= 1; focusCurrent(); }
           else if (S.pos > 0) { await selectPos(S.pos - 1, { force: true }); }
@@ -795,7 +1083,7 @@
         } else { acceptCurrent(); if (S.coderMode) advanceUnfilled(); else advance(); }
         return;
       }
-      if (inField) return;
+      if (inField || e.altKey || e.repeat) return;
       if (e.key === "y" || e.key === "Y") { e.preventDefault(); setAndAdvance("Yes"); }
       else if (e.key === "n" || e.key === "N") { e.preventDefault(); setAndAdvance("No"); }
       else if (e.key === "u" || e.key === "U") { e.preventDefault(); setAndAdvance("Unsure"); }
@@ -806,7 +1094,10 @@
         }
       }
     }, true);
+  }
 
+  async function boot() {
+    if (!S.wired) { S.wired = true; wire(); }
     await loadMeta();
     await loadList();
     applyBlind();
@@ -821,6 +1112,7 @@
       .catch((e) => {
         const host = $("#screen-list");
         if (host) host.innerHTML = `<div class="empty">${icon("i-alert")}<b>Could not load screening</b><p>${esc(e.message || e)}</p></div>`;
+        S.bootPromise = null;                // let the next visit retry
       });
     return S.bootPromise;
   }
@@ -831,6 +1123,7 @@
     if (!id) return;
     await ensureStarted();
     if (!S.booted) return;
+    if (!(await flushDirty())) return;
     // the record may be hidden behind the active filter/search: reset to "all"
     S.filter = "all";
     S.search = "";
@@ -847,13 +1140,17 @@
     const uid = e.detail && (e.detail.uid || e.detail.id);
     const tab = document.querySelector('.viewtab[data-view="screening"]');
     if (tab && !tab.classList.contains("active")) tab.click();
-    openUid(uid).catch(() => {});
+    openUid(uid).catch((err) => toast("Could not open the abstract", "err", String(err.message || err)));
   });
 
   document.addEventListener("cs:view", (e) => {
-    if (e.detail !== "screening") return;
+    if (e.detail !== "screening") {
+      // leaving the tab: keep what was entered
+      if (S.dirty && S.cur && coderName()) saveCurrent({ quiet: true });
+      return;
+    }
     try { S.coderMode = localStorage.getItem("cs.coderMode") === "1"; } catch { /* ignore */ }
-    ensureStarted().then(() => { if (S.started) { applyBlind(); syncShuffle(); if (S.cur) renderForm(); } });
+    ensureStarted().then(() => { if (S.booted) { applyBlind(); syncShuffle(); if (S.cur) renderForm(); } });
   });
   function boot2() {
     let saved = "coding";

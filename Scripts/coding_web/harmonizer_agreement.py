@@ -21,12 +21,14 @@ import os
 import json
 from datetime import datetime
 
+from studio_lib import safe_token
 from studio_state import S
-from routes_harmonizer import (harmonizer_coder_files, load_harmonized_variables,
-                               load_harmonizer_overrides, _HARM_FIELDS)
+from routes_harmonizer import (HARM_MASTER, field_error, harmonizer_coder_files,
+                               load_harmonized_variables, load_harmonizer_overrides,
+                               valid_key, write_json_atomic, _HARM_FIELDS)
 
 BASE_RATER = "LLM/base"          # the canonical harmonized sidecar
-MASTER_CODER = "master"         # where a resolved value is written
+MASTER_CODER = HARM_MASTER      # where a resolved value is written (applied last)
 # A field a coder may rate.  `role` is included because a disagreement about whether a
 # variable is a dv_/cov_/flag_ role changes every downstream product.
 RATED_FIELDS = tuple(_HARM_FIELDS)
@@ -82,35 +84,21 @@ def _ratings(key):
 def _gwet_ac1(units):
     """Gwet's AC1 over a list of rating vectors (one vector per unit, one entry per rater).
 
-    Mirrors ``agreement_lib.gwet_ac`` for the nominal case so the harmonizer and the
-    extraction layer report the same statistic.  Blank entries are "not rated" and are
-    dropped per unit; a unit with < 2 ratings is skipped.
+    Delegates to ``agreement_lib.gwet_ac`` (nominal weights) so the harmonizer and
+    the extraction layer report the same statistic: AC1's chance agreement is
+    ``sum(pi_k (1 - pi_k)) / (q - 1)``, not the Fleiss/Scott ``sum(pi_k^2)``.
+    Blank entries are "not rated"; a unit nobody rated is dropped.
     """
-    from collections import Counter
-    total_n = 0
-    pa_num = 0.0
-    cat_pi = Counter()
-    cat_n = 0
-    for vals in units:
-        vals = [v for v in vals if v != ""]
-        n = len(vals)
-        if n < 2:
-            continue
-        total_n += 1
-        counts = Counter(vals)
-        agree = sum(c * (c - 1) for c in counts.values())
-        pa_num += agree / (n * (n - 1))
-        for c, k in counts.items():
-            cat_pi[c] += k
-            cat_n += k
-    if total_n == 0 or cat_n == 0:
+    from agreement_lib import gwet_ac
+    units = [[v for v in vals if v != ""] for vals in units]
+    units = [u for u in units if u]
+    cats = sorted({v for u in units for v in u})
+    if not cats:
         return None
-    pa = pa_num / total_n
-    q = len(cat_pi)
-    if q <= 1:
-        return 1.0
-    pe = sum((v / cat_n) ** 2 for v in cat_pi.values())
-    return (pa - pe) / (1 - pe) if (1 - pe) else None
+    if len(cats) == 1:
+        return 1.0 if any(len(u) >= 2 for u in units) else None
+    res = gwet_ac(units, cats)
+    return None if res is None else res.get("coeff")
 
 
 def reliability(key):
@@ -131,8 +119,8 @@ def reliability(key):
         ac1 = _gwet_ac1(units)
         fields.append({"field": f, "ac1": ac1, "rated": rated,
                        "variables": len(variables)})
-    return {"available": True, "coders": coders, "fields": fields,
-            "variables": len(variables)}
+    return {"available": True, "coders": coders, "raters": raters_for(key),
+            "fields": fields, "variables": len(variables)}
 
 
 def conflicts(key, fields=None):
@@ -159,21 +147,37 @@ def resolve(key, uniform_variable, field, value, coder=MASTER_CODER):
     """Write one resolved value into the master coder's override file (never the sidecar)."""
     if field not in RATED_FIELDS:
         return {"ok": False, "error": f"unknown field {field!r}"}
+    if not valid_key(key):
+        return {"ok": False, "error": "invalid study key"}
+    hv = load_harmonized_variables(key)
+    if not hv:
+        return {"ok": False, "error": "no harmonized_variables sidecar for this study"}
+    if uniform_variable not in {v["uniform_variable"] for v in hv["variables"]}:
+        return {"ok": False, "error": f"{uniform_variable!r} is not a variable of this study"}
+    value = "" if value is None else str(value).strip()
+    err = field_error(field, value)
+    if err:
+        return {"ok": False, "error": err}
+    if field == "veracity":
+        value = value.lower()
+    coder = safe_token(coder)
     path = os.path.join(S.CODINGS, f"{key} - harmonizer - {coder}.json")
     data = {}
     if os.path.isfile(path):
         try:
             with open(path, encoding="utf-8") as fh:
                 data = json.load(fh) or {}
-        except Exception:
-            data = {}
+        except (OSError, ValueError) as e:
+            # never replace a file we could not read: that would drop its overrides
+            return {"ok": False, "error": f"{os.path.basename(path)} is unreadable: {e!r}"}
+    if not isinstance(data, dict) or not isinstance(data.get("overrides", {}), dict):
+        return {"ok": False, "error": f"{os.path.basename(path)} has an unexpected shape"}
     ov = data.setdefault("overrides", {})
     ov.setdefault(uniform_variable, {})[field] = value
     data["coder"] = coder
     data["key"] = key
     data["updated"] = datetime.now().isoformat(timespec="seconds")
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=1, ensure_ascii=False)
+    write_json_atomic(path, data)
     return {"ok": True, "file": os.path.basename(path), "overrides": len(ov)}
 
 
@@ -188,17 +192,18 @@ bp = Blueprint("harmonizer_agreement", __name__)
 @bp.get("/api/harmonizer_agreement/reliability")
 def api_harmonizer_reliability():
     key = (request.args.get("key") or "").strip()
-    if not key:
-        return jsonify({"ok": False, "error": "key required"}), 400
+    if not valid_key(key):
+        return jsonify({"ok": False, "error": "valid key required"}), 400
     return jsonify({"ok": True, "key": key, **reliability(key)})
 
 
 @bp.get("/api/harmonizer_agreement/conflicts")
 def api_harmonizer_conflicts():
     key = (request.args.get("key") or "").strip()
-    if not key:
-        return jsonify({"ok": False, "error": "key required"}), 400
-    fields = [f for f in (request.args.get("fields") or "").split(",") if f.strip()]
+    if not valid_key(key):
+        return jsonify({"ok": False, "error": "valid key required"}), 400
+    fields = [f.strip() for f in (request.args.get("fields") or "").split(",")
+              if f.strip() in RATED_FIELDS]
     return jsonify({"ok": True, "key": key, **conflicts(key, fields or None)})
 
 

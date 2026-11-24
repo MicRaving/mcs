@@ -206,3 +206,23 @@ body.ag-fast .ag-confcard { cursor: pointer; }
 .ag-exphead .cnt { margin-left: auto; font: 700 10.5px/1 var(--mono); color: var(--danger);
   background: var(--danger-soft); border-radius: 99px; padding: 2px 6px; white-space: nowrap; }
 .ag-exphead .cnt.settled { color: var(--ok); background: var(--ok-soft); }
+.ag-conftoolbar { flex-wrap: wrap; }
+.ag-chip.consensus {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-soft); color: var(--accent-ink);
+}
+.ag-chip.majority {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+.ag-badge {
+  display: inline-block; font: 700 10px/1 var(--mono); border-radius: 99px;
+  padding: 2px 6px; background: var(--panel-3); color: var(--muted);
+}
+.ag-badge.warn { background: var(--warn-soft, var(--danger-soft)); color: var(--warn, var(--danger)); }
+.ag-badge.ok { background: var(--ok-soft); color: var(--ok); }
+.ag-studybtn.done .t::after {
+  content: " ✓"; color: var(--ok); font-weight: 700;
+}
+.ag-totcounts { display: inline-flex; gap: 6px; align-items: center; }
+.ag-totcounts .ag-badge { white-space: nowrap; }
+.ag-confcard.rateronly { opacity: .82; border-style: dashed; }

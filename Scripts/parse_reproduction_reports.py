@@ -253,7 +253,7 @@ def parse_all(include_text=True, directory=None):
     d = directory or REPRO
     recs = []
     for fn in sorted(os.listdir(d)):
-        if not fn.endswith(".md") or fn.startswith("_BATCH") or fn.endswith(" - SB.md"):
+        if not fn.endswith(".md") or fn.startswith("_BATCH") or fn.endswith((" - SB.md", " - MM.md")):
             continue
         recs.append(parse_report(os.path.join(d, fn)))
     if not include_text:

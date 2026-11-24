@@ -521,7 +521,6 @@ def _arm_masks_from(wide, hdr, idcols, dv):
 def load_contrasts(verbose=True, force=False):
     rows, skipped, did_excluded, missing_dropped = [], [], [], []
     fw_skipped = []
-    include_fw = SC.include_fully_within()
     METACOG_DROPPED.clear()
     STD_DROPPED.clear()
     FW_STUDY_KEYS.clear()
@@ -552,7 +551,7 @@ def load_contrasts(verbose=True, force=False):
             is_fw = SC.is_fully_within(o)
             if is_fw:
                 FW_STUDY_KEYS.add(key)
-            if not include_fw and is_fw:
+            if not SC.include_fully_within() and is_fw:
                 fw_skipped.append({"study_key": key, "Study_ID": o.get("Study_ID")})
                 continue
             explicit_iv = SC.record_has_interventions(o)
@@ -650,6 +649,7 @@ def load_contrasts(verbose=True, force=False):
                     "oriented": bool(pol_known),
                     "contrast_type": dv.get("contrast_type"),
                     "comparison": dv.get("comparison_label"),
+                    "group1_label": dv.get("group1_label"), "group2_label": dv.get("group2_label"),
                     "timepoint_1": dv.get("timepoint_1"), "timepoint_2": dv.get("timepoint_2"),
                     "is_post": is_post, "is_followup": is_follow, "spans_pre_post": spans,
                     "reported_yi": ry, "reported_vi": rv, "reported_from": rh,
@@ -1250,6 +1250,12 @@ def write_meta_spec_table(out=None, coded=None):
         tidy.loc[fw_did, "source"] = "did:reported"
         tidy.loc[fw_did, "r_used"] = R_PRIMARY
         tidy.loc[fw_did, "did_r_used"] = R_PRIMARY
+        # Carry a fully-within marker so select_spec_rows / publication_bias can
+        # honour the switch on read (the builder skips fully-within studies only
+        # under the default switch, but the specs are sometimes rebuilt under
+        # opt-in; the column makes the filter robust to that).
+        tidy["fully_within"] = False
+        tidy.loc[fw_did, "fully_within"] = True
         tidy = SC.derive_specs(tidy, "meta")
     comp = (pd.concat(components_all, ignore_index=True) if components_all
             else pd.DataFrame())

@@ -20,7 +20,7 @@ import tempfile
 import threading
 
 from studio_lib import atomic_replace, safe_token
-from studio_state import S, log
+from studio_state import S, log, on_reroot
 
 # Controlled exclusion criteria (mirrors the values used in master_dataset.xlsx).
 FULLTEXT_CRITERIA = [
@@ -44,6 +44,15 @@ _MARK_STATE = {"running": False, "last": None, "marked": [], "error": "", "finis
 
 _MAP_CACHE = {"mtime": None, "map": None, "info": None}
 
+# Serialises the read-modify-write of one coder's decision file and of the
+# agreed list (two quick clicks used to race and drop a decision).
+_SAVE_LOCK = threading.RLock()
+
+
+@on_reroot
+def _reset_root_caches(_old=None, _new=None):
+    _MAP_CACHE.update(mtime=None, map=None, info=None)
+
 
 def criteria():
     return {"criteria": FULLTEXT_CRITERIA, "agree_min": AGREE_MIN}
@@ -54,7 +63,9 @@ def decision_path(coder):
     return os.path.join(S.SCREENING, f"fulltext - {safe_token(coder)}.json")
 
 
-def load_decisions(coder):
+def load_decisions(coder, strict=False):
+    """One coder's decisions.  ``strict`` raises on an unreadable file instead of
+    returning ``{}``, so a save never overwrites a file it could not read."""
     if not coder or not str(coder).strip():
         return {}
     path = decision_path(coder)
@@ -63,9 +74,17 @@ def load_decisions(coder):
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log(f"fulltext decisions unreadable ({os.path.basename(path)}): {exc!r}")
+        if strict:
+            raise ValueError(f"{os.path.basename(path)} cannot be read ({exc}); "
+                             "fix or move it before saving") from exc
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        if strict:
+            raise ValueError(f"{os.path.basename(path)} is not a JSON object")
+        return {}
+    return data
 
 
 def save_decisions(coder, decisions):
@@ -103,7 +122,12 @@ def save_decision(coder, key, exclude, criterion, note):
         raise ValueError("coder name is required")
     if not key:
         raise ValueError("study key is required")
-    decisions = load_decisions(coder)
+    with _SAVE_LOCK:
+        return _save_decision_locked(coder, key, exclude, criterion, note)
+
+
+def _save_decision_locked(coder, key, exclude, criterion, note):
+    decisions = load_decisions(coder, strict=True)
     if exclude:
         crit = str(criterion or "other").strip() or "other"
         decisions[key] = {
@@ -157,7 +181,8 @@ def load_agreed():
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        log(f"fulltext_agreed.json unreadable: {exc!r}")
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -179,16 +204,17 @@ def save_agreed(agreed):
 
 def recompute_agreed(mark=True):
     """Recompute the agreed list and mark newly-agreed studies in the master."""
-    agreed = compute_agreed()
-    previous = load_agreed()
-    now = datetime.now().isoformat(timespec="seconds")
-    merged = {}
-    for key, info in agreed.items():
-        prior = previous.get(key) or {}
-        merged[key] = dict(info)
-        merged[key]["marked_at"] = prior.get("marked_at") or now
-        merged[key]["master"] = prior.get("master") or ""
-    save_agreed(merged)
+    with _SAVE_LOCK:
+        agreed = compute_agreed()
+        previous = load_agreed()
+        now = datetime.now().isoformat(timespec="seconds")
+        merged = {}
+        for key, info in agreed.items():
+            prior = previous.get(key) or {}
+            merged[key] = dict(info)
+            merged[key]["marked_at"] = prior.get("marked_at") or now
+            merged[key]["master"] = prior.get("master") or ""
+        save_agreed(merged)
     newly = [k for k in merged if not (previous.get(k) or {}).get("master")]
     if mark and newly:
         start_marking(newly)
@@ -343,13 +369,14 @@ def _mark_master(keys):
         wb.close()
         raise
     # record marking outcome on the agreed entries
-    cur = load_agreed()
-    now = datetime.now().isoformat(timespec="seconds")
-    for key in keys:
-        if key in cur:
-            cur[key]["master"] = "marked" if key in marked else "not_found"
-            cur[key]["marked_at"] = now
-    save_agreed(cur)
+    with _SAVE_LOCK:
+        cur = load_agreed()
+        now = datetime.now().isoformat(timespec="seconds")
+        for key in keys:
+            if key in cur:
+                cur[key]["master"] = "marked" if key in marked else "not_found"
+                cur[key]["marked_at"] = now
+        save_agreed(cur)
     _MAP_CACHE.update(mtime=None, map=None)
     _MARK_STATE.update(marked=marked)
     log(f"fulltext merge marked={len(marked)} missing={len(missing)}")

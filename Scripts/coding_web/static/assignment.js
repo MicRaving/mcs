@@ -31,7 +31,7 @@
   const { $, esc, api, toast } = window.CS;
 
   const DEFAULT_OPTIONS = {
-    role: ["dv", "covariate", ""],
+    role: ["dv", "covariate", "flag", "metacog", "condition", "id", "other", ""],
     dv_domain: ["technique_recognition", "credibility", "sharing_intention",
       "search_behavior", "attitude_policy", "trust",
       "media_literacy_attitudes", "critical_thinking", "other", ""],
@@ -48,7 +48,11 @@
   const A_SLOT_FIELD = {
     S5: "dv_domain", S6: "veracity", S7: "timepoint", S8: "dv_polarity",
   };
+  // The sidecar labels an assignment row may set (variable_assignments.LABEL_FIELDS).
+  const LABEL_FIELDS = ["uniform_variable"].concat(A_SELECT);
+  const ROLE_PREFIX = { dv: "dv_", covariate: "cov_", flag: "flag_" };
   const enc = encodeURIComponent;
+  const lc = (v) => String(v == null ? "" : v).trim().toLowerCase();
 
   const state = {
     key: null, coder: "", host: null, token: 0, mounted: false,
@@ -253,7 +257,7 @@
     const selects = A_SELECT.map((field) =>
       `<div class="${fieldCls(field)}"><label>${esc(A_LABEL[field])}</label>` +
       `<select class="select" data-afield="${field}">${optSel(field, f[field])}</select></div>`).join("");
-    const keyed = !!f.original_variable;
+    const keyed = !!f.original_variable && !sharedRawBlock(f);
     return `<div class="assign-pane-h">Assignment form` +
       (state.ws.focusSlot ? ` <span class="pill">slot ${esc(state.ws.focusSlot)}</span>` : "") +
       (keyed && isStaged(f) ? ` <span class="pill staged-pill">staged</span>` : "") + `</div>` +
@@ -261,12 +265,14 @@
       `<input class="input mono-val" value="${esc(f.original_variable || "")}" readonly>` +
       (f.artifact ? `<span class="assign-tag">artifact ${esc(f.artifact)}</span>` : "") +
       (f.item_scope ? `<span class="assign-tag">item ${esc(f.item_scope)}</span>` : "") + `</div>` +
-      (keyed ? "" : `<p class="assign-hint assign-nokey">This is a study-level slot with no raw variable to key on. ` +
+      (f.original_variable ? "" : `<p class="assign-hint assign-nokey">This target has no raw variable to key on ` +
+        `(a study-level slot, or a sidecar row without an original_variable). ` +
         `Pick a variable-scope gap (S4–S8) or an unmapped raw column to record an assignment for it.</p>`) +
       `<div class="assign-field"><label>Uniform variable</label>` +
       `<input class="input mono-val" id="assign-uv" data-ainput="uniform_variable" value="${esc(f.uniform_variable || "")}" placeholder="dv_<domain>[_<veracity>][_<time>]" autocomplete="off" spellcheck="false"></div>` +
       `<div class="assign-decode" id="assign-decode">${decodeHtml()}</div>` +
       `<div class="assign-grid2">${selects}</div>` +
+      `<div class="assign-warn" id="assign-warn">${warningsHtml()}</div>` +
       `<div class="assign-field"><label>Evidence</label>` +
       `<input class="input" data-ainput="evidence" value="${esc(f.evidence || "")}" placeholder="variables.csv row, codebook p.12, wide value labels…" autocomplete="off" spellcheck="false"></div>` +
       `<div class="assign-field"><label>Note</label>` +
@@ -278,6 +284,7 @@
       `<div class="assign-actions">` +
       `<button type="button" class="btn" id="assign-stage" ${keyed ? "" : "disabled"} title="Stage this target for the top-row Save changes">Stage change</button>` +
       `<button type="button" class="btn ghost" id="assign-discard" title="Discard the staged change for this target">Discard</button>` +
+      `<button type="button" class="btn ghost" id="assign-usedecode" ${keyed ? "" : "disabled"} title="Fill the blank domain / veracity / timepoint / direction from the live decode preview">Fill from decode</button>` +
       `<button type="button" class="btn ghost" id="assign-na" ${keyed ? "" : "disabled"} title="Mark this variable not applicable with a reason">Mark N/A</button>` +
       `<button type="button" class="btn ghost" id="assign-split" ${keyed ? "" : "disabled"} title="Split a composite into true/false columns by item list">Split true/false</button>` +
       `</div>` +
@@ -294,11 +301,12 @@
   function decodeHtml() {
     const d = state.ws.decode;
     if (!d) return `<span class="decode-hint">Live decode preview appears as you type the uniform name.</span>`;
+    const rule = ruleFor(state.form);
     const rows = [
       ["domain", d.domain, false],
       ["veracity", d.veracity, d.veracity_agreement === false],
-      ["timepoint", d.timepoint, false],
-      ["polarity", d.polarity, false],
+      ["timepoint", d.timepoint ? `${d.timepoint}` : (d.timepoint_bucket || ""), false],
+      ["rule direction", rule, false],
     ].map(([k, v, warn]) =>
       `<span class="decode-cell${warn ? " warn" : ""}"><span>${esc(k)}</span>` +
       `<b>${esc(v || "—")}</b></span>`).join("");
@@ -306,6 +314,75 @@
       ? `<span class="decode-note warn">decoders disagree: template=${esc(d.veracity_template || "—")} · contract=${esc(d.veracity_contract || "—")}</span>`
       : (d.errors && d.errors.length ? `<span class="decode-note">${esc(d.errors[0])}</span>` : "");
     return `<div class="decode-row">${rows}</div>${note}`;
+  }
+
+  // The orientation dv_polarity.expected_polarity gives for the form's domain +
+  // veracity ("" = the rule leaves it to the study coding).
+  function ruleFor(f) {
+    const d = state.ws.decode;
+    if (!d || !f) return "";
+    return d.fields_sent ? (d.polarity_for_fields || "") : (d.polarity || "");
+  }
+
+  // The sidecar row the selected target came from (coverage gaps only).
+  function sidecarRow(f) {
+    return (f && f._target && state.byVar[f._target]) || null;
+  }
+
+  // variable_assignments.apply patches only the FIRST sidecar row of a raw key;
+  // when the selected variable is not that row an assignment would label another
+  // variable, so it is refused here and by the server.
+  function sharedRawBlock(f) {
+    const v = sidecarRow(f);
+    return !!(v && v.raw_key_shared > 1 && v.raw_key_target && v.raw_key_target !== f._target);
+  }
+
+  function formWarnings(f) {
+    const out = [];
+    if (!f || !f.original_variable) return out;
+    const v = sidecarRow(f);
+    if (v && v.raw_key_shared > 1) {
+      if (sharedRawBlock(f)) {
+        out.push(["err", `Raw column ${f.original_variable} feeds ${v.raw_key_shared} harmonized variables; ` +
+          `an assignment is applied to the first one (${v.raw_key_target}) only, so it cannot label ${f._target}. ` +
+          `Fix this variable in the study's harmonizer instead.`]);
+        return out;
+      }
+      out.push(["warn", `Raw column ${f.original_variable} feeds ${v.raw_key_shared} harmonized variables; ` +
+        `the assignment applies to ${v.raw_key_target} only.`]);
+    }
+    const base = f._baseline || {};
+    if (f.status !== "confirmed") {
+      const over = LABEL_FIELDS.filter((k) => base[k] && f[k] && lc(base[k]) !== lc(f[k]) &&
+        !(k === "role" && lc(f[k]) === "na"));
+      if (over.length) {
+        out.push(["warn", `Changing a non-blank ${over.join(", ")} as "proposed" is logged as a conflict and ` +
+          `NOT applied — set the decision to confirmed to override the harmonizer's value.`]);
+      }
+    }
+    const prefix = ROLE_PREFIX[lc(f.role)];
+    if (prefix && f.uniform_variable && !f.uniform_variable.startsWith(prefix)) {
+      out.push(["err", `Role ${f.role} needs a ${prefix}* uniform name.`]);
+    }
+    if (/_01$/.test(f.uniform_variable || "")) {
+      out.push(["err", "A _01 name is the rescaled twin; assign the raw variable instead."]);
+    }
+    const rule = ruleFor(f);
+    if (rule && f.dv_polarity && f.dv_polarity !== rule && f.dv_polarity !== "ambiguous") {
+      out.push(["warn", `The veracity rule expects ${rule} for this domain + veracity; ` +
+        `${f.dv_polarity} needs study evidence (validate_polarity checks this invariant).`]);
+    }
+    return out;
+  }
+
+  function warningsHtml() {
+    return formWarnings(state.form).map(([kind, msg]) =>
+      `<div class="assign-warn-row ${kind}">${esc(msg)}</div>`).join("");
+  }
+
+  function renderWarnings() {
+    const box = state.host && state.host.querySelector("#assign-warn");
+    if (box) box.innerHTML = warningsHtml();
   }
 
   function renderContext() {
@@ -381,6 +458,7 @@
   function renderDecodeBox() {
     const box = state.host && state.host.querySelector("#assign-decode");
     if (box) box.innerHTML = decodeHtml();
+    renderWarnings();
   }
 
   function renderContextPane() {
@@ -425,6 +503,7 @@
     ]);
     state.ws.targets = cov.targets || [];
     state.ws.applied = asg.applied || [];
+    if (asg.error) toast("Assignments unreadable", "err", asg.error);
     state.byVar = {};
     if (harm) {
       (harm.variables || []).forEach((v) => { state.byVar[v.uniform_variable] = v; });
@@ -436,6 +515,15 @@
     if (!key) return;
     if (!state.host) mount(document.getElementById("cv-assign-host"));
     if (!state.host) return;
+    if (state.ws.open && stagedRows().length) {
+      if (key === state.key) {   // same study: keep the staged edits, just jump to the slot
+        const list = filteredTargets();
+        const idx = list.findIndex((t) => t.slot === slot);
+        if (idx >= 0) selectTarget(idx);
+        return;
+      }
+      if (!window.confirm(`Discard ${stagedRows().length} unsaved assignment change(s) for ${state.key}?`)) return;
+    }
     const token = ++state.token;
     state.key = key;
     state.coder = readCoder();
@@ -502,14 +590,14 @@
       uniform_variable: t.uniform_variable || "",
       role: t.kind === "coverage" ? (v.role || "dv") : "",
       dv_domain: v.dv_domain || "",
-      veracity: v.veracity || "",
+      veracity: lc(v.veracity),
       timepoint: v.timepoint || "",
       dv_polarity: v.dv_polarity || "",
       slot_fix: (t.kind === "coverage" && t.scope === "study") ? (t.slot || "") : "",
       source_file: "", evidence: t.evidence || "", note: "", status: "proposed",
     };
-    // Prefer the already-applied assignment for this target, then any staged
-    // change, so the form shows what the dataset (or the pending save) holds.
+    // Prefer any staged change, then the already-applied assignment for this
+    // target, so the form shows what the pending save (or the dataset) holds.
     const f = Object.assign({}, base);
     const staged = state.ws.pending[draftKey(base)];
     const applied = appliedFor(base);
@@ -521,6 +609,18 @@
         if (src[fld] !== undefined && src[fld] !== null && String(src[fld]) !== "") f[fld] = src[fld];
       }
     }
+    // only apply() stamps "conflict"; a re-save is a new proposal (or confirmation)
+    if (f.status !== "confirmed") f.status = "proposed";
+    // What the sidecar holds now: a row carries only the labels the coder
+    // changed (plus those an earlier assignment already set), so an assignment
+    // never freezes the harmonizer's other decoded values.
+    f._baseline = t.kind === "coverage" ? {
+      uniform_variable: v.uniform_variable || t.uniform_variable || "", role: v.role || "",
+      dv_domain: v.dv_domain || "", veracity: lc(v.veracity), timepoint: v.timepoint || "",
+      dv_polarity: v.dv_polarity || "",
+    } : {};
+    f._applied = applied || {};
+    f._target = (t.kind === "coverage" && t.scope === "variable") ? (t.uniform_variable || "") : "";
     state.form = f;
     state.ws.focusSlot = t.slot || "";
     renderHost();
@@ -563,8 +663,13 @@
         name: f.uniform_variable || "", notes: f.note || "",
         original: f.original_variable || "",
       });
+      const fieldsSent = !!(f.dv_domain || f.veracity);
+      if (fieldsSent) {
+        qs.set("domain", f.dv_domain || "");
+        qs.set("veracity", f.veracity || "");
+      }
       api("/api/harmonizer/decode?" + qs.toString())
-        .then((d) => { if (token === state.token) state.ws.decode = d; })
+        .then((d) => { if (token === state.token) state.ws.decode = Object.assign(d, { fields_sent: fieldsSent }); })
         .catch((e) => { if (token === state.token) state.ws.decode = { errors: [String(e.message || e)] }; })
         .finally(() => { if (token === state.token) renderDecodeBox(); });
     }, 220);
@@ -595,6 +700,10 @@
     if (!f) return false;
     if (!f.original_variable) {
       if (!quiet) setStatus("This target has no raw variable to key the assignment on — pick a variable-scope target.", "err");
+      return false;
+    }
+    if (sharedRawBlock(f)) {
+      if (!quiet) setStatus("This raw column feeds several harmonized variables; an assignment cannot label this one — fix it in the harmonizer instead.", "err");
       return false;
     }
     const row = pickRow(f);
@@ -675,6 +784,28 @@
     if (stageForm({ quiet: true, rerender: false })) setStatus("Staged N/A — press “Save changes” to write it.", "ok");
   }
 
+  // Fill blank fields from the live decode preview.  Never overwrites a value
+  // the harmonizer (or a previous assignment) already provides.
+  function fillFromDecode() {
+    const f = state.form;
+    const d = state.ws.decode;
+    if (!f || !d) { toast("No decode preview yet", "err"); return; }
+    let n = 0;
+    const set = (k, v) => { if (v && !f[k]) { f[k] = v; n++; } };
+    set("dv_domain", d.domain);
+    set("veracity", lc(d.veracity));
+    set("timepoint", d.timepoint);
+    if (!f.dv_polarity) {
+      const rule = d.fields_sent ? (d.polarity_for_fields || "") : (d.polarity || "");
+      if (rule) { f.dv_polarity = rule; n++; }
+    }
+    if (!n) { toast("Nothing blank to fill", "ok"); return; }
+    renderFormPane();
+    decodePreview();
+    stageForm({ quiet: true, rerender: false });
+    setStatus(`Filled ${n} field(s) from the decode preview — press “Save changes”.`, "ok");
+  }
+
   function addSplit() {
     const f = state.form;
     if (!f) return;
@@ -737,6 +868,7 @@
       if (b.id === "assign-na") { markNA(); return; }
       if (b.id === "assign-split") { const sf = $("#assign-splitform"); if (sf) sf.hidden = !sf.hidden; return; }
       if (b.id === "split-add") { addSplit(); return; }
+      if (b.id === "assign-usedecode") { fillFromDecode(); return; }
       if (b.id === "assign-open-coding") {
         const tab = document.querySelector('.viewtab[data-view="coding"]');
         if (tab) tab.click();
@@ -757,5 +889,5 @@
     attachHost();
   }
 
-  window.CSAssign = { open, close, mount };
+  window.CSAssign = { open, close, mount, get key() { return state.key; } };
 })();

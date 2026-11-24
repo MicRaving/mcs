@@ -671,6 +671,8 @@ _PRODUCT_SUFFIXES = (" - prepared", " - harmonized", " - variables", " - dv_dire
 
 def _role_of(fn, key):
     low = fn.lower()
+    if os.path.splitext(low)[0].endswith((" - sb", " - mm")):
+        return "reliability route (SB/MM)"
     if low == "harmonizer.py":
         return "harmonizer"
     if low == key.lower() + " - reproduction.py":

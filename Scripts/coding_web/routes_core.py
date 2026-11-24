@@ -1,15 +1,35 @@
 """Core routes: root/config, the static app, papers, extractions, codings, notes, save and the PDF/text viewer."""
 
-from flask import Blueprint, abort, jsonify, request, send_file, send_from_directory
+from flask import Blueprint, Response, abort, jsonify, request, send_file, send_from_directory
 import json
 import os
 import re
-import tempfile
 from datetime import datetime
-from studio_lib import APP_VERSION, PAGE_SCALE, _PAGE_NUM, _pdf_text, atomic_replace, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records
-from studio_state import FROZEN, S, SCHEMA, STATIC, config_path, configure, log, paper_keys, refresh_keys, save_config
+from studio_lib import APP_VERSION, PAGE_SCALE, _MISSING, _PAGE_NUM, _pdf_text, atomic_replace, invalidate_dir, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records, write_json_atomic
+from studio_state import FROZEN, S, SCHEMA, STATIC, config_path, configure, has_data, log, refresh_keys, save_config
 
 bp = Blueprint("core", __name__)
+
+
+def _invalidate_dependants():
+    """Tell the other tabs' caches that a coder file changed (best effort)."""
+    try:
+        from agreement_lib import _invalidate_agreement
+        _invalidate_agreement()
+    except Exception as exc:  # noqa: BLE001
+        log(f"agreement cache invalidation failed: {exc!r}")
+
+
+def _coding_path(key, coder):
+    return os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+
+
+def _mtime_token(path):
+    """A file's mtime as an exact string token (ns precision does not fit a JS number)."""
+    try:
+        return str(os.stat(path).st_mtime_ns)
+    except OSError:
+        return None
 
 
 @bp.get("/api/root")
@@ -30,9 +50,21 @@ def api_set_root():
     path = (payload.get("root") or "").strip().strip('"')
     if not path or not os.path.isdir(path):
         return jsonify({"ok": False, "error": "folder does not exist"}), 400
+    # configure() creates Codings/, temp/ and Screening/ in the chosen folder, so
+    # a mistyped path (C:\, Desktop, ...) would litter it; insist on a project.
+    if not has_data(path) and not payload.get("force"):
+        return jsonify({"ok": False, "error": "no Papers/ or Text/ folder in that folder — "
+                                              "pick the project root"}), 400
     configure(path)
     save_config({"root": S.ROOT})
     refresh_keys()
+    # Caches of modules that do not register a re-root hook themselves.
+    for mod, fn in (("agreement_lib", "_invalidate_agreement"),
+                    ("analysis_lib", "_invalidate_analysis_caches")):
+        try:
+            getattr(__import__(mod), fn)()
+        except Exception as exc:  # noqa: BLE001
+            log(f"re-root: {mod}.{fn} failed: {exc!r}")
     log(f"root changed -> {S.ROOT} ({len(S.KEYS)} papers)")
     return jsonify({"ok": True, "root": S.ROOT, "papers": len(S.KEYS),
                     "has_papers": os.path.isdir(S.PAPERS)})
@@ -77,17 +109,26 @@ def static_files(path):
     resp.headers["Cache-Control"] = "no-store"
     return resp
 
+_SCHEMA_RESP = {"mtime": None, "body": None}
+
+
 @bp.get("/api/schema")
 def api_schema():
-    with open(SCHEMA, encoding="utf-8") as fh:
-        return jsonify(json.load(fh))
+    mtime = os.path.getmtime(SCHEMA)
+    if _SCHEMA_RESP["mtime"] != mtime:
+        with open(SCHEMA, encoding="utf-8") as fh:
+            _SCHEMA_RESP.update(body=json.dumps(json.load(fh), ensure_ascii=False), mtime=mtime)
+    return Response(_SCHEMA_RESP["body"], mimetype="application/json")
 
 @bp.get("/api/papers")
 def api_papers():
     from fulltext_lib import load_agreed
     agreed = load_agreed()
     papers = []
-    for k in paper_keys():
+    # Re-read the paper list so a paper added since start-up is both listed and
+    # accepted by the key guards (they check S.KEYS).
+    refresh_keys()
+    for k in sorted(S.KEYS, key=lambda s: (s.lower(), s)):
         s = summarise(k)
         ex = agreed.get(k)
         s["fulltext_excluded"] = bool(ex)
@@ -114,11 +155,18 @@ def api_extraction(key):
 def api_coding(key, coder):
     if key not in S.KEYS:
         abort(404)
-    path = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    path = _coding_path(key, coder)
     if not os.path.exists(path):
         abort(404)
-    with open(path, encoding="utf-8") as fh:
-        return jsonify({"key": key, "coder": coder, "records": json.load(fh)})
+    mtime = _mtime_token(path)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            records = json.load(fh)
+    except (OSError, ValueError) as exc:
+        log(f"coding file unreadable: {os.path.basename(path)}: {exc!r}")
+        return jsonify({"ok": False, "key": key, "coder": coder,
+                        "error": f"{os.path.basename(path)} cannot be read: {exc}"}), 500
+    return jsonify({"key": key, "coder": coder, "records": records, "mtime": mtime})
 
 @bp.get("/api/notes/<path:key>")
 def api_notes(key):
@@ -195,8 +243,9 @@ def extract_pdf_text(path):
     publisher boilerplate are dropped.
     """
     stamp = (path, os.path.getmtime(path))
-    if stamp in _pdf_text:
-        return _pdf_text[stamp]
+    cached = _pdf_text.get(stamp, _MISSING)
+    if cached is not _MISSING:
+        return cached
     text = ""
     try:
         import pymupdf
@@ -263,7 +312,8 @@ def extract_pdf_text(path):
                 if para:
                     out.append(para)
             text = "\n\n".join(out)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - fall back to Text/<key>.txt
+        log(f"extract_pdf_text failed for {os.path.basename(path)}: {exc!r}")
         text = ""
     _pdf_text[stamp] = text
     return text
@@ -426,24 +476,45 @@ def api_save():
     if not isinstance(records, list) or not records:
         return jsonify({"ok": False, "error": "no coding records to save"}), 400
 
+    if str(coder).strip().lower() in ("og", "original (og)"):
+        return jsonify({"ok": False, "error": "the original extraction is read-only — "
+                                              "save under your own coder name"}), 400
+    if not all(isinstance(r, dict) for r in records):
+        return jsonify({"ok": False, "error": "every coding record must be an object"}), 400
+
     records = _normalise_per_intervention(records)
-    target = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    target = _coding_path(key, coder)
     existed = os.path.exists(target)
+    # Optimistic concurrency: the client sends the mtime of the file it loaded
+    # (null = it loaded no file of this coder).  If the file changed since -
+    # the Summary tab, a second window or a script wrote it - refuse instead of
+    # silently overwriting that work; the client asks and may resend with force.
+    if "expected_mtime" in payload and not payload.get("force"):
+        expected = payload.get("expected_mtime")
+        current = _mtime_token(target) if existed else None
+        if (expected or None) != current:
+            if payload.get("unload"):
+                # Closing the window: nobody can answer a question now, so keep
+                # the edits in a recovery copy instead of losing or forcing them.
+                rescue = _write_recovery(key, coder, records)
+                log(f"save conflict on unload for {os.path.basename(target)}; edits kept in {rescue}")
+            return jsonify({"ok": False, "conflict": True,
+                            "error": f"{os.path.basename(target)} was changed outside this "
+                                     "window since you opened it",
+                            "mtime": current}), 409
     # M3 (audit): warn (never block) on codings that would fail B_validate.  The
     # check uses the shared completeness rule (contract.dv_has_effect).
     try:
         warnings = validate_records(records)
     except Exception as exc:  # never fail a save because the validator broke
+        log(f"validate_records failed for {key}: {exc!r}")
         warnings = [f"validator unavailable: {exc}"]
-    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(records, fh, ensure_ascii=False, indent=2)
-            fh.write("\n")
-        atomic_replace(tmp, target)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        write_json_atomic(target, records)
+    except Exception as exc:  # noqa: BLE001 - report it to the coder, never a bare 500
+        log(f"save failed for {os.path.basename(target)}: {exc!r}")
+        return jsonify({"ok": False, "error": f"could not write {os.path.basename(target)}: {exc}"}), 500
+    _invalidate_dependants()
     return jsonify(
         {
             "ok": True,
@@ -452,8 +523,23 @@ def api_save():
             "records": len(records),
             "dv_rows": sum(len(r.get("DV_Metrics") or []) for r in records),
             "warnings": warnings,
+            "mtime": _mtime_token(target),
+            "file": os.path.basename(target),
+            "coder": os.path.basename(target)[len(key) + 3:-len(".json")],
         }
     )
+
+
+def _write_recovery(key, coder, records):
+    folder = os.path.join(S.TEMP, "codingstudio_recovery")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(folder, f"{key} - {safe_token(coder)} - {stamp}.json")
+    try:
+        write_json_atomic(path, records)
+    except Exception as exc:  # noqa: BLE001
+        log(f"recovery copy failed for {key}: {exc!r}")
+        return None
+    return os.path.relpath(path, S.ROOT)
 
 
 @bp.post("/api/coding/delete")

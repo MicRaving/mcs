@@ -140,6 +140,15 @@ def _results_path(name):
         return max(cands, key=os.path.getmtime)
     return os.path.join(S.ROOT, "Results", name)
 
+def _figure_path(name):
+    """Resolve a figure file name across the pipeline + transient figure folders."""
+    for d in (_transient_figures_dir(), _figures_dir()):
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return os.path.join(_figures_dir(), name)
+
+
 def _figures_dir():
     """Figures folder, preferring the freshest of ``Results/figures`` and ``figures``."""
     now = time.time()
@@ -269,11 +278,14 @@ def _spec_options(temp):
         # `_derived_spec_options` reconstructs it on the fly instead.
         if r.get("spec", "") in DERIVED_SPECS and k == 0:
             continue
+        # The layer's reported headline (see ``_pool_rows``): DL for the meta
+        # layer, the three-level estimate for the SDT layer.
+        pre = "three" if (r.get("layer") == "sdt" and _finite(r.get("three_est"))) else "dl"
         out.append({"layer": r.get("layer", ""), "spec": r.get("spec", ""),
                     "exclusions": r.get("exclusions", ""), "k": k,
                     "n_studies": r.get("n_studies", ""),
-                    "est": r.get("dl_est", ""), "lo": r.get("dl_lo", ""),
-                    "hi": r.get("dl_hi", "")})
+                    "est": r.get(f"{pre}_est", ""), "lo": r.get(f"{pre}_lo", ""),
+                    "hi": r.get(f"{pre}_hi", "")})
     return out
 
 # ---------------------------------------------------------------- moderator analysis
@@ -759,6 +771,8 @@ _INPUTS_FP_CACHE = {"at": 0.0, "fp": None}
 
 _PREWARM = {"started": False}
 
+_DERIVED_OPT_CACHE = {"key": None, "data": None}
+
 
 def _invalidate_analysis_caches():
     """Reset every in-process analysis cache after a spec/table rebuild (M4).
@@ -769,6 +783,7 @@ def _invalidate_analysis_caches():
     different builds.
     """
     _MOD_CACHE.update(specs_at=0.0, mods_at=0.0, specs=None, mods=None)
+    _DERIVED_OPT_CACHE.update(key=None, data=None)
     _IV_MOD_CACHE.update(at=0.0, data=None)
     _CAT_CACHE.update(at=0.0, data=None)
     _PART_CACHE.update(at=0.0, data=None)
@@ -946,14 +961,19 @@ def _study_moderators():
     are derived here (raw extractions are never modified).  The scan is cached in
     memory and on disk (keyed by the input fingerprint) so startup is fast.
     """
+    # The in-memory copy is reused only while the input fingerprint (itself
+    # cached ~20 s) is unchanged, so a saved coding reaches the moderator
+    # models within seconds instead of after the five-minute TTL.
+    fp = _inputs_fingerprint()
     now = time.time()
-    if _MOD_CACHE["mods"] is not None and now - _MOD_CACHE["mods_at"] < _MOD_CACHE_TTL:
+    if (_MOD_CACHE["mods"] is not None and now - _MOD_CACHE["mods_at"] < _MOD_CACHE_TTL
+            and _MOD_CACHE.get("mods_fp") == fp):
         return _MOD_CACHE["mods"]
     with _MODS_LOCK:
         now = time.time()
-        if _MOD_CACHE["mods"] is not None and now - _MOD_CACHE["mods_at"] < _MOD_CACHE_TTL:
+        if (_MOD_CACHE["mods"] is not None and now - _MOD_CACHE["mods_at"] < _MOD_CACHE_TTL
+                and _MOD_CACHE.get("mods_fp") == fp):
             return _MOD_CACHE["mods"]
-        fp = _inputs_fingerprint()
         cache_file = os.path.join(S.ROOT, "temp", "study_moderators_cache.json")
         try:
             with open(cache_file, encoding="utf-8") as fh:
@@ -961,7 +981,7 @@ def _study_moderators():
             if (blob.get("fingerprint") == fp
                     and blob.get("version") == _MOD_DERIVATION_VERSION
                     and isinstance(blob.get("mods"), dict)):
-                _MOD_CACHE.update(mods_at=now, mods=blob["mods"])
+                _MOD_CACHE.update(mods_at=now, mods=blob["mods"], mods_fp=fp)
                 return blob["mods"]
         except Exception:
             pass
@@ -976,7 +996,7 @@ def _study_moderators():
             # (which is what the Summary tab reports).
             merged, gender_raw = _raw_moderator_fields(recs)
             out[key] = _finalize_moderators(base, merged, gender_raw)
-        _MOD_CACHE.update(mods_at=now, mods=out)
+        _MOD_CACHE.update(mods_at=now, mods=out, mods_fp=fp)
         try:
             tmp = cache_file + ".tmp"
             with open(tmp, "w", encoding="utf-8") as fh:
@@ -997,7 +1017,9 @@ def _intervention_moderators():
     ``Interventions`` (backward compatible).
     """
     now = time.time()
-    if _IV_MOD_CACHE["data"] is not None and now - _IV_MOD_CACHE["at"] < _MOD_CACHE_TTL:
+    fp = _inputs_fingerprint()
+    if (_IV_MOD_CACHE["data"] is not None and now - _IV_MOD_CACHE["at"] < _MOD_CACHE_TTL
+            and _IV_MOD_CACHE.get("fp") == fp):
         return _IV_MOD_CACHE["data"]
     if _SC is None:
         return {}
@@ -1015,7 +1037,7 @@ def _intervention_moderators():
                 base = dict(study_mods.get(key, {}))
                 base["data_available"] = 1 if _study_has_data(key) else 0
                 out[(key, exp, iid)] = _finalize_moderators(base, merged, gender_raw)
-    _IV_MOD_CACHE.update(at=now, data=out)
+    _IV_MOD_CACHE.update(at=now, data=out, fp=fp)
     return out
 
 
@@ -1412,7 +1434,12 @@ def _spec_rows():
     kept as a fallback for a degraded bundle without numpy/pandas.
     """
     now = time.time()
-    if _MOD_CACHE["specs"] is not None and now - _MOD_CACHE["specs_at"] < _SPEC_CACHE_TTL:
+    # Keyed on the spec files' identity as well as the TTL: a pipeline run
+    # outside the app (run_analysis.py, publication_bias.py) rewrites them, and
+    # the cache must not keep serving the previous build for five minutes.
+    src_key = _spec_files_key()
+    if (_MOD_CACHE["specs"] is not None and now - _MOD_CACHE["specs_at"] < _SPEC_CACHE_TTL
+            and _MOD_CACHE.get("specs_key") == src_key):
         return _MOD_CACHE["specs"]
     sourced = []          # [(layer_hint, row_dict)]
     if _SC is not None:
@@ -1484,8 +1511,21 @@ def _spec_rows():
             "fake_score": _num("fake_score"), "fake_var": _num("fake_var"),
             "criterion_score": _num("criterion_score"), "criterion_var": _num("criterion_var"),
             "effect": eff, "var": var})
-    _MOD_CACHE.update(specs=frames, specs_at=now)
+    _MOD_CACHE.update(specs=frames, specs_at=now, specs_key=src_key)
     return frames
+
+
+def _spec_files_key():
+    """(path, mtime, size) of every spec-layer candidate file, for cache invalidation."""
+    out = []
+    for name in ("meta_specs.csv", "sdt_specs.csv", "sdt_specs_pb.csv"):
+        p = os.path.join(S.ROOT, "temp", name)
+        try:
+            st = os.stat(p)
+            out.append((p, st.st_mtime, st.st_size))
+        except OSError:
+            out.append((p, None, None))
+    return tuple(out)
 # ---------------------------------------------------------------- timepoint specs
 # The Pretest / Follow-up controls map to a specification.  "only" uses the base
 # specification directly (studies that measured the timepoint); "-" ignores it;
@@ -1594,8 +1634,10 @@ def _fully_within_sets():
     not) still drops only its fully-within records.
     """
     now = time.time()
+    fp = _inputs_fingerprint()
     if (_FW_KEYS_CACHE["records"] is not None
-            and now - _FW_KEYS_CACHE["at"] < 30):
+            and now - _FW_KEYS_CACHE["at"] < _MOD_CACHE_TTL
+            and _FW_KEYS_CACHE.get("fp") == fp):
         return _FW_KEYS_CACHE["records"], _FW_KEYS_CACHE["studies"]
     records, studies = set(), set()
     for key in paper_keys():
@@ -1625,7 +1667,7 @@ def _fully_within_sets():
                 all_fw = False
         if all_fw:
             studies.add(key)
-    _FW_KEYS_CACHE.update(at=now, records=records, studies=studies)
+    _FW_KEYS_CACHE.update(at=now, records=records, studies=studies, fp=fp)
     return records, studies
 
 
@@ -1717,6 +1759,14 @@ def _derived_spec_options(base):
     # materialises them) must not suppress the on-the-fly derivation.
     have = {(o["layer"], o["spec"], o["exclusions"]) for o in base
             if int(o.get("k") or 0) > 0}
+    # Every overview request used to re-derive and re-pool up to eight derived
+    # specifications (~15 s per overview); the result only changes with the
+    # spec rows, the coded inputs and the fully-within switch.
+    _spec_rows()
+    key = (tuple(sorted(have)), _MOD_CACHE.get("specs_key"),
+           _inputs_fingerprint(), bool(_include_fully_within()))
+    if _DERIVED_OPT_CACHE.get("key") == key:
+        return [dict(o) for o in _DERIVED_OPT_CACHE["data"]]
     out = []
     for layer in ("meta", "sdt"):
         for spec in sorted(DERIVED_SPECS):
@@ -1730,7 +1780,8 @@ def _derived_spec_options(base):
                             "k": res["k"], "n_studies": str(res["n_studies"]),
                             "est": f"{res['est']:.6g}", "lo": f"{res['lo']:.6g}",
                             "hi": f"{res['hi']:.6g}", "derived": True})
-    return out
+    _DERIVED_OPT_CACHE.update(key=key, data=out)
+    return [dict(o) for o in out]
 
 def _derived_pooled_row(cols, layer, spec, exclusions):
     """Synthetic pooled-model row for a derived ``all`` specification.
@@ -2001,6 +2052,16 @@ def _bayes_sensitivity(rows, grid_n=161):
                         "bf10": r["bf10"]})
     return {"mu": mu, "tau": tau}
 
+def _transient_figures_dir():
+    """Where the interactive moderator pictures go (never ``Results/figures``).
+
+    These are per-request, per-selection side figures; writing them into the
+    pipeline's figure folder polluted the canonical products (and the figure
+    index) with files no pipeline step writes.
+    """
+    return os.path.join(S.TEMP, "codingstudio_figures")
+
+
 def _human_term(term):
     """Humanise moderator variable names in a term label (display only)."""
     out = str(term)
@@ -2039,8 +2100,8 @@ def _moderator_figure(layer, spec, coefs):
     tag = hashlib.sha1("|".join(c["term"] for c in terms).encode("utf-8")).hexdigest()[:8]
     name = f"moderatorfit_{layer}_{spec}_{tag}.png"
     try:
-        os.makedirs(_figures_dir(), exist_ok=True)
-        fig.savefig(os.path.join(_figures_dir(), name), dpi=200, bbox_inches="tight")
+        os.makedirs(_transient_figures_dir(), exist_ok=True)
+        fig.savefig(os.path.join(_transient_figures_dir(), name), dpi=200, bbox_inches="tight")
     except Exception:
         name = None
     plt.close(fig)
@@ -2126,8 +2187,8 @@ def _moderator_single_figure(name, kind, entries, rows):
     tag = hashlib.sha1((str(name) + "|" + str(kind)).encode("utf-8")).hexdigest()[:8]
     fname = f"modsingle_{_slug(name)}_{tag}.png"
     try:
-        os.makedirs(_figures_dir(), exist_ok=True)
-        fig.savefig(os.path.join(_figures_dir(), fname), dpi=200, bbox_inches="tight")
+        os.makedirs(_transient_figures_dir(), exist_ok=True)
+        fig.savefig(os.path.join(_transient_figures_dir(), fname), dpi=200, bbox_inches="tight")
     except Exception:
         fname = None
     plt.close(fig)

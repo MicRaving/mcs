@@ -7,7 +7,7 @@ import glob
 import math
 import os
 import re
-from analysis_lib import ANALYSIS_RUN_KINDS, ANALYSIS_TABLES, DERIVED_SPECS, SDT_AUXILIARY_SPECS, SUSCEPTIBILITY, _APA_SPEC, _CONTRAST_NAMES, _analysis_files, _analysis_run, _apply_study_filter, _bayes_domain, _bayes_for, _bayes_groups, _bayes_rows, _bayes_sensitivity, _csv_rowcount, _derived_pooled_row, _derived_spec_options, _export_pptx, _export_xlsx, _figure_index, _figures_dir, _filter_args, _human_mod_label, _inputs_fingerprint, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_figures, _moderator_level_effects, _mods_for_row, _participant_cov_names, _participant_rows_for, _prewarm_analysis, _read_table, _robustness_combined, _spec_options, _spec_rows_for, _specs_stale_flag, _study_moderators, _tables_stale_flag, bf_presentation, spec_estimand, start_background_run
+from analysis_lib import ANALYSIS_RUN_KINDS, ANALYSIS_TABLES, DERIVED_SPECS, SDT_AUXILIARY_SPECS, SUSCEPTIBILITY, _APA_SPEC, _CONTRAST_NAMES, _analysis_files, _analysis_run, _apply_study_filter, _bayes_domain, _bayes_for, _bayes_groups, _bayes_rows, _bayes_sensitivity, _csv_rowcount, _derived_pooled_row, _derived_spec_options, _export_pptx, _export_xlsx, _figure_index, _figures_dir, _figure_path, _filter_args, _human_mod_label, _inputs_fingerprint, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_figures, _moderator_level_effects, _mods_for_row, _participant_cov_names, _participant_rows_for, _prewarm_analysis, _read_table, _robustness_combined, _spec_options, _spec_rows_for, _specs_stale_flag, _study_moderators, _tables_stale_flag, bf_presentation, spec_estimand, start_background_run
 from statslib import BAYES_MU_SD_PRESETS, BAYES_TAU_MAX, BAYES_TAU_PRESETS, _bayes_meta, _bayes_pool, _bayes_tau_within, _chi2_sf, _dl_pool, _mat_inv, _resolve_bayes_priors, _study_level, _t_ppf, _t_sf, _two_level_components, _wls_cluster
 from studio_lib import _norm, _values
 from studio_state import FROZEN, S
@@ -673,7 +673,7 @@ def api_analysis_figure(name):
     base = os.path.basename(name)
     if os.path.splitext(base)[1].lower() not in (".png", ".pdf"):
         abort(404)
-    path = os.path.join(_figures_dir(), base)
+    path = _figure_path(base)
     if not os.path.isfile(path):
         abort(404)
     resp = send_file(path, conditional=True)

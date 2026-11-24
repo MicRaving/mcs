@@ -88,16 +88,11 @@ def _ensure_std_streams():
 def serve(host, port):
     logging.getLogger("werkzeug").disabled = True
     app.logger.disabled = True
-    # Warm the analysis caches (moderator scan, spec tables, figure index) and
-    # regenerate any stale tables in the background while the first page loads,
-    # so the Analysis tab is ready when the user opens it.
-    try:
-        from analysis_lib import _prewarm_analysis, autorun_if_stale
-
-        _prewarm_analysis()
-        autorun_if_stale()
-    except Exception:  # noqa: BLE001
-        pass
+    # The Analysis tab warms its own caches on first open (see
+    # ``api_analysis_overview`` -> ``_prewarm_analysis``) and never regenerates
+    # prerequisite tables at startup: doing so would rewrite ``Results/`` and
+    # burn CPU without the user asking (audit C3).  ``autorun_if_stale`` remains
+    # available for an explicit, user-initiated run.
     # ``Flask.run`` prints a startup banner to stderr, which crashes in a
     # windowed build; ``make_server`` serves quietly instead.
     try:

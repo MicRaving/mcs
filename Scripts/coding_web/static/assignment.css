@@ -125,6 +125,14 @@
 .assign-status { margin-top: 7px; font-size: 10.5px; color: var(--muted); word-break: break-word; }
 .assign-status.ok { color: var(--ok); }
 .assign-status.err { color: var(--danger); }
+.assign-warn { margin-top: 6px; display: grid; gap: 4px; }
+.assign-warn-row {
+  font-size: 10.5px; line-height: 1.4; padding: 4px 7px; border-radius: var(--r-sm);
+  border: 1px solid var(--line-2); background: var(--panel-2); color: var(--muted);
+}
+.assign-warn-row.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, var(--line)); background: var(--warn-soft); }
+.assign-warn-row.err { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); background: var(--danger-soft); }
+.assign-warn-row:empty { display: none; }
 
 .assign-context .ctx-src { font-size: 11px; color: var(--muted); margin-bottom: 5px; word-break: break-word; }
 .assign-context .ctx-vlabel { font-weight: 600; font-size: 11.5px; margin-bottom: 6px; }

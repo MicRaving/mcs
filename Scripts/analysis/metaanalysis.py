@@ -235,11 +235,13 @@ def main():
                     "dv_name": dv.get("dv_name"), "dv_domain": dom,
                     "contrast_type": dv.get("contrast_type"), "eligible_primary": dv.get("eligible_primary"),
                     "comparison": dv.get("comparison_label"), "veracity": SC.dv_veracity(dv),
+                    "group1_label": dv.get("group1_label"), "group2_label": dv.get("group2_label"),
                     "dv_family": SC.dv_family(dv), "component_side": SC.dv_component_side(dv),
                     "cluster_id": SC.contrast_cluster_id(key, o.get("Study_ID"), dv),
                     "dv_sign": polarity_sign(dv),
                     "oriented": int(dv.get("dv_polarity") in (0, 1)),
-                    "timepoint": dv.get("timepoint_1"), "timepoint_2": dv.get("timepoint_2"),
+                    "timepoint": dv.get("timepoint_1"), "timepoint_1": dv.get("timepoint_1"),
+                    "timepoint_2": dv.get("timepoint_2"),
                     "bucket": bucket, "spans_pre_post": spans, "is_post": post, "is_followup": follow,
                     "yi": yi, "vi": vi, "effect_from": how,
                     "did_yi": did_yi, "did_vi": did_vi, "did_from": did_from,
@@ -308,7 +310,7 @@ def main():
     # the secondary components strand and is never pooled with a composite.
     pool, components, fam_log, fam_stats = SC.build_primary_composite(
         pool, effect_col="q_yi", var_col="q_vi",
-        group_cols=("study_key", "experiment_id", "dv_domain", "question"))
+        group_cols=("study_key", "experiment_id", "dv_domain"))
     SC.write_nonredundancy_log(fam_log)
 
     def pool_table(frame, scope):

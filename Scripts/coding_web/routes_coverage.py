@@ -129,90 +129,200 @@ def _derive():
     summary = _read_csv_cached(summary_path)
     matrix = _read_csv_cached(matrix_path)
 
-    slot_counts = {}
-    open_by_study = {}
-    if matrix is not None and len(matrix):
-        cols = set(matrix.columns)
-        if {"study_key", "slot", "status"} <= cols:
-            g = matrix.groupby(["study_key", "slot", "status"], dropna=False).size()
-            for (k, slot, st), n in g.items():
-                k, slot, st = _s(k), _s(slot), _s(st)
-                if not k or not slot:
-                    continue
-                slot_counts.setdefault(k, {}).setdefault(slot, {})
-                slot_counts[k][slot][st] = slot_counts[k][slot].get(st, 0) + int(n)
-            open_rows = matrix[matrix["status"].astype(str).str.strip().isin(
-                ("missing", "ambiguous"))]
-            for r in open_rows.to_dict("records"):
-                k = _s(r.get("study_key"))
-                if not k:
-                    continue
-                open_by_study.setdefault(k, []).append({
-                    "slot": _s(r.get("slot")),
-                    "scope": _s(r.get("scope")),
-                    "target": _s(r.get("target")),
-                    "status": _s(r.get("status")),
-                    "evidence": _s(r.get("evidence")),
-                    "auto_detail": _s(r.get("auto_detail")),
-                })
-
-    for k, rows in open_by_study.items():
-        rows.sort(key=lambda d: (-SLOT_WEIGHT.get(d["slot"], 0.0),
-                                 SLOT_ORDER.index(d["slot"]) if d["slot"] in SLOT_ORDER else 99,
-                                 d["target"]))
+    slot_counts, open_by_study, row_index = {}, {}, {}
+    if matrix is not None and len(matrix) and {"study_key", "slot", "status"} <= set(matrix.columns):
+        g = matrix.groupby(["study_key", "slot", "status"], dropna=False).size()
+        for (k, slot, st), n in g.items():
+            k, slot, st = _s(k), _s(slot), _s(st)
+            if not k or not slot:
+                continue
+            slot_counts.setdefault(k, {}).setdefault(slot, {})
+            slot_counts[k][slot][st] = slot_counts[k][slot].get(st, 0) + int(n)
+        open_rows = matrix[matrix["status"].astype(str).str.strip().isin(("missing", "ambiguous"))]
+        for k, sub in open_rows.groupby("study_key", sort=False):
+            open_by_study[_s(k)] = _index_rows(sub.to_dict("records"))[1]
+        # positional row index per study, so one study's rows are sliced, not filtered
+        row_index = {_s(k): idx for k, idx in matrix.groupby("study_key", sort=False).indices.items()}
     data = {"summary": summary, "matrix": matrix, "slot_counts": slot_counts,
-            "open_by_study": open_by_study}
+            "open_by_study": open_by_study, "row_index": row_index}
     _DERIVED.update(stamp=stamp, data=data)
     return data
 
 
-def _summary_records():
-    d = _derive()
-    s = d["summary"]
-    if s is None or not len(s):
+def _matrix_rows(derived, key):
+    m = derived["matrix"]
+    idx = derived["row_index"].get(key)
+    if m is None or idx is None:
         return []
-    out = []
-    for _, r in s.iterrows():
-        rec = {c: r.get(c) for c in s.columns}
-        out.append(rec)
-    return out
+    return [{c: _s(v) for c, v in r.items()} for r in m.iloc[idx].to_dict("records")]
+
+
+def _index_rows(rows):
+    """One study's matrix rows -> ({slot: {status: n}}, open gaps by poolability weight)."""
+    counts, opens = {}, []
+    for r in rows:
+        slot, st = _s(r.get("slot")), _s(r.get("status"))
+        if not slot:
+            continue
+        counts.setdefault(slot, {})
+        counts[slot][st] = counts[slot].get(st, 0) + 1
+        if st in ("missing", "ambiguous"):
+            opens.append({"slot": slot, "scope": _s(r.get("scope")),
+                          "target": _s(r.get("target")), "status": st,
+                          "evidence": _s(r.get("evidence")),
+                          "auto_detail": _s(r.get("auto_detail"))})
+    opens.sort(key=lambda d: (-SLOT_WEIGHT.get(d["slot"], 0.0),
+                              SLOT_ORDER.index(d["slot"]) if d["slot"] in SLOT_ORDER else 99,
+                              d["target"]))
+    return counts, opens
+
+
+# ---------------------------------------------------------------------------
+# live coverage for studies changed since the products were generated
+# ---------------------------------------------------------------------------
+_DIRTY = set()
+_LIVE = {}
+_INPUT_SUFFIXES = (" - harmonized_variables.csv", " - harmonized.csv", " - variables.csv",
+                   " - exclusions.csv", " - conditions.csv", " - variable_assignments.csv",
+                   " - dv_direction.csv")
+
+
+def _inputs_stamp(key):
+    folder = os.path.join(S.DATASETS or "", key)
+    return tuple(_mtime(os.path.join(folder, key + s)) for s in _INPUT_SUFFIXES)
+
+
+def _is_stale(key):
+    """True when one of the study's coverage inputs is newer than the matrix product."""
+    mt = _mtime(_path("harmonization_coverage.csv"))
+    if mt is None:
+        return False
+    return any(t is not None and t > mt for t in _inputs_stamp(key))
+
+
+def _live_study(key):
+    """``(rows, summary)`` for one study from ``harmonization_coverage.coverage_for_study``,
+    the function that writes the products, cached per input revision; ``None`` when it
+    cannot be computed."""
+    folder = os.path.join(S.DATASETS or "", key)
+    if not os.path.isfile(os.path.join(folder, key + " - harmonized_variables.csv")):
+        return None
+    stamp = (S.DATASETS, _inputs_stamp(key))
+    hit = _LIVE.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1], hit[2]
+    try:
+        from routes_harmonizer import _ensure_scripts_path
+        _ensure_scripts_path()
+        import harmonization_coverage as hc  # noqa: PLC0415
+        rows, summ = hc.coverage_for_study(key, folder)
+    except Exception:  # noqa: BLE001  (fall back to the products on disk)
+        return None
+    rows = [{c: _s(v) for c, v in r.items()} for r in rows]
+    _LIVE[key] = (stamp, rows, summ)
+    return rows, summ
+
+
+_AUDIT = {"stamp": None, "data": None}
+
+
+def _truthy(v):
+    return str(v).strip().lower() in ("true", "1", "yes", "1.0")
+
+
+def _audit_checks():
+    """``Results/assignment_audit.csv`` as counters + findings, once per revision."""
+    path = _path("assignment_audit.csv")
+    mt = _mtime(path)
+    if _AUDIT["data"] is not None and _AUDIT["stamp"] == mt:
+        return _AUDIT["data"]
+    df = _read_csv_cached(path)
+    checks, findings = [], []
+    if df is not None and len(df) and {"check", "ok"} <= set(df.columns):
+        has_n = "n" in df.columns
+        for chk, sub in df.groupby("check"):
+            okm = sub["ok"].map(_truthy)
+            ok = int(okm.sum())
+            n = pd_num(sub["n"]).sum() if has_n else 0
+            checks.append({"check": str(chk), "ok": ok, "bad": len(sub) - ok, "n": int(n)})
+            for r in sub[~okm].to_dict("records"):
+                try:
+                    rn = int(float(r.get("n") or 0))
+                except (TypeError, ValueError):
+                    rn = 0
+                findings.append({"study_key": _s(r.get("study_key")), "check": str(chk),
+                                 "n": rn, "detail": _s(r.get("detail"))})
+    checks.sort(key=lambda c: c["check"])
+    data = (checks, findings)
+    _AUDIT.update(stamp=mt, data=data)
+    return data
+
+
+def pd_num(series):
+    import pandas as pd
+    return pd.to_numeric(series, errors="coerce").fillna(0)
 
 
 def _audit_block():
     """Aggregate ``Results/assignment_audit.csv`` into counters + findings."""
-    df = _read_csv_cached(_path("assignment_audit.csv"))
-    checks, findings = [], []
-    if df is not None and len(df):
-        for chk, sub in df.groupby("check"):
-            ok = sub["ok"].map(lambda v: str(v).strip().lower() in ("true", "1", "yes")).sum()
-            bad = len(sub) - int(ok)
-            checks.append({"check": str(chk), "ok": int(ok), "bad": int(bad),
-                           "n": int(sub["n"].sum())})
-            for _, r in sub.iterrows():
-                if str(r.get("ok")).strip().lower() not in ("true", "1", "yes"):
-                    findings.append({"study_key": _s(r.get("study_key")),
-                                     "check": str(chk), "n": int(r.get("n") or 0),
-                                     "detail": _s(r.get("detail"))})
-    checks.sort(key=lambda c: c["check"])
+    checks, findings = _audit_checks()
     parity = next((c for c in checks if c["check"] == "parity"), {"ok": 0, "bad": 0, "n": 0})
     return {"checks": checks, "parity": parity, "findings": findings,
             "conflicts": _count_conflicts(),
             "needs_veracity": _count_needs_veracity()}
 
 
+_CONFLICTS = {"root": None, "at": 0.0, "stamp": None, "n": 0}
+_CONFLICTS_TTL = 10.0
+
+
+def _assignment_files():
+    """[(key, path, mtime)] of every ``Datasets/<Key>/<Key> - variable_assignments.csv``
+    (one scandir + one stat per folder; a glob lists every folder's contents)."""
+    ds = S.DATASETS or ""
+    out = []
+    try:
+        entries = list(os.scandir(ds)) if os.path.isdir(ds) else []
+    except OSError:
+        entries = []
+    for e in entries:
+        try:
+            if e.is_dir():
+                p = os.path.join(e.path, e.name + " - variable_assignments.csv")
+                out.append((e.name, p, os.stat(p).st_mtime))
+        except OSError:
+            continue
+    return sorted(out)
+
+
 def _count_conflicts():
     """Assignment rows stamped ``conflict`` across every study file."""
+    import time
+    now = time.monotonic()
+    if _CONFLICTS["root"] == S.DATASETS and now - _CONFLICTS["at"] < _CONFLICTS_TTL:
+        return _CONFLICTS["n"]
+    files = _assignment_files()
+    stamp = tuple(files)
+    if _CONFLICTS["root"] == S.DATASETS and _CONFLICTS["stamp"] == stamp:
+        _CONFLICTS["at"] = now
+        return _CONFLICTS["n"]
     n = 0
-    for p in glob.glob(os.path.join(S.DATASETS or "", "*",
-                                    "* - variable_assignments.csv")):
+    for _k, p, _mt in files:
         try:
-            import pandas as pd
-            df = pd.read_csv(p, encoding="utf-8-sig", low_memory=False)
-            if "status" in df.columns:
-                n += int(df["status"].astype(str).str.strip().str.lower().eq("conflict").sum())
-        except Exception:  # noqa: BLE001
+            with open(p, encoding="utf-8-sig", newline="") as fh:
+                n += sum(1 for r in csv.DictReader(fh)
+                         if (r.get("status") or "").strip().lower() == "conflict")
+        except (OSError, csv.Error):
             continue
+    _CONFLICTS.update(root=S.DATASETS, at=now, stamp=stamp, n=n)
     return n
+
+
+def invalidate_study(key):
+    """Called after an assignment save: the products on disk no longer describe
+    ``key``, so its coverage is recomputed live until the products are rebuilt."""
+    _CONFLICTS["at"] = 0.0
+    _DIRTY.add(key)
 
 
 def _count_needs_veracity():
@@ -274,6 +384,18 @@ def api_coverage():
         for rec in summary.to_dict("records"):
             studies.append(_study_record(rec, d["slot_counts"], d["open_by_study"],
                                          paper_keys))
+    # studies saved from the assignment workspace since the products were built
+    for key in sorted(_DIRTY):
+        if not _is_stale(key):
+            _DIRTY.discard(key)
+            continue
+        live = _live_study(key)
+        if live is None:
+            continue
+        counts, opens = _index_rows(live[0])
+        rec = _study_record(live[1], {key: counts}, {key: opens}, paper_keys)
+        rec["live"] = True
+        studies = [s for s in studies if s["study_key"] != key] + [rec]
     have = {s["study_key"] for s in studies}
     for k in sorted(paper_keys - have):
         rec = {"study_key": k, "missingness_score": None, "blocks_sdt": None,
@@ -325,7 +447,16 @@ def api_coverage():
             return s.get("needs_na_verdict") == 1
         return True
 
+    # the KPI counters describe the whole corpus, not the current filter/search
+    counts = {"total": len(studies), "has_dataset": sum(1 for s in studies if s["has_dataset"]),
+              "paper_only": sum(1 for s in studies if not s["has_dataset"]),
+              "blocks_sdt": sum(1 for s in studies if s.get("blocks_sdt") == 1),
+              "blocks_did": sum(1 for s in studies if s.get("blocks_did") == 1),
+              "blocks_exclusions_on": sum(1 for s in studies if s.get("blocks_exclusions_on") == 1),
+              "needs_na_verdict": sum(1 for s in studies if s.get("needs_na_verdict") == 1)}
+
     studies = [s for s in studies if _keep(s) and (not q or q in s["study_key"].lower())]
+    counts["shown"] = len(studies)
 
     def _val(s):
         v = s.get(sort_key)
@@ -344,13 +475,6 @@ def api_coverage():
         have.sort(key=lambda s: str(_val(s)).lower(), reverse=(direction == "desc"))
     studies = have + miss
 
-    counts = {"total": len(studies), "has_dataset": sum(1 for s in studies if s["has_dataset"]),
-              "paper_only": sum(1 for s in studies if not s["has_dataset"]),
-              "blocks_sdt": sum(1 for s in studies if s.get("blocks_sdt") == 1),
-              "blocks_did": sum(1 for s in studies if s.get("blocks_did") == 1),
-              "blocks_exclusions_on": sum(1 for s in studies if s.get("blocks_exclusions_on") == 1),
-              "needs_na_verdict": sum(1 for s in studies if s.get("needs_na_verdict") == 1)}
-
     return jsonify({
         "generated_at": _iso(_mtime(_path("harmonization_coverage_summary.csv"))),
         "slots": [{"code": s, "name": SLOT_NAMES[s], "weight": SLOT_WEIGHT[s]}
@@ -368,26 +492,33 @@ def api_coverage():
 
 @bp.get("/api/coverage/study/<path:key>")
 def api_coverage_study(key):
+    from routes_harmonizer import valid_key
+    if not valid_key(key):
+        abort(404)
     d = _derive()
-    if d["matrix"] is None:
-        return jsonify({"key": key, "rows": [], "targets": [],
+    live = _live_study(key) if (d["matrix"] is None or _is_stale(key)) else None
+    if live is not None:
+        rows = live[0]
+        _counts, opens = _index_rows(rows)
+    elif d["matrix"] is None:
+        return jsonify({"key": key, "rows": [], "targets": [], "open_slots": [],
                         "warning": "harmonization_coverage.csv not found — run "
-                                   "python Scripts/coverage.py"})
-    m = d["matrix"]
-    rows = m[m["study_key"].astype(str) == key]
-    out = [{c: _s(r.get(c)) for c in m.columns} for _, r in rows.iterrows()]
-    targets = _assignment_targets(key, d)
-    return jsonify({"key": key, "rows": out, "targets": targets,
-                    "open_slots": d["open_by_study"].get(key, [])})
+                                   "python Scripts/harmonization_coverage.py"})
+    else:
+        rows = _matrix_rows(d, key)
+        opens = d["open_by_study"].get(key, [])
+    targets = _assignment_targets(key, opens)
+    return jsonify({"key": key, "rows": rows, "targets": targets, "open_slots": opens,
+                    "live": live is not None})
 
 
-def _assignment_targets(key, derived):
+def _assignment_targets(key, open_slots):
     """Open coverage gaps + unmapped raw columns for the workspace's (L) pane."""
     targets = []
     seen = set()
 
     # 1) open coverage gaps (per-variable slots point at a sidecar uniform name)
-    for gap in derived["open_by_study"].get(key, []):
+    for gap in open_slots:
         t = {"kind": "coverage", "slot": gap["slot"], "scope": gap["scope"],
              "target": gap["target"], "status": gap["status"],
              "evidence": gap["evidence"], "detail": gap["auto_detail"],
@@ -400,7 +531,14 @@ def _assignment_targets(key, derived):
     # 2) unmapped raw columns from the study's variables.csv
     folder = os.path.join(S.DATASETS or "", key)
     var_path = os.path.join(folder, f"{key} - variables.csv")
+    # a column the sidecar already maps (as its raw or its uniform name) is not unmapped
     orig_seen = set()
+    try:
+        from routes_harmonizer import load_harmonized_variables
+        for v in (load_harmonized_variables(key) or {}).get("variables", []):
+            orig_seen.update(n for n in (v["original_variable"], v["uniform_variable"]) if n)
+    except Exception:  # noqa: BLE001  (an unreadable sidecar only widens the list)
+        pass
     if os.path.isfile(var_path):
         try:
             import pandas as pd
@@ -420,7 +558,7 @@ def _assignment_targets(key, derived):
                      "target": orig, "status": "unmapped", "evidence": f"variables.csv:{orig}",
                      "detail": _s(r.get("notes")) or f"role={role}",
                      "uniform_variable": uni, "original_variable": orig,
-                     "artifact": "", "item_scope": "",
+                     "artifact": _s(r.get("artifact")), "item_scope": "",
                      "original_values": _s(r.get("original_values")),
                      "mapped_values": _s(r.get("mapped_values")),
                      "keyable": True}

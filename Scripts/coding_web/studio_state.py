@@ -26,15 +26,33 @@ EXE_DIR = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else REPO
 CONFIG_NAME = "codingstudio.config.json"
 
 
-def _first_existing(*paths):
+def _first_existing(*paths, probe=None):
     for p in paths:
-        if p and os.path.exists(p):
-            return p
+        if not p:
+            continue
+        check = os.path.join(p, probe) if probe else p
+        try:
+            if os.path.isfile(check) if probe else os.path.exists(check):
+                return p
+        except OSError:
+            continue
     return paths[-1]
 
 
-STATIC = _first_existing(os.path.join(BUNDLE, "static"), os.path.join(HERE, "static"))
-SCHEMA = _first_existing(os.path.join(BUNDLE, "schema.json"), os.path.join(HERE, "schema.json"))
+_SRC_WEB = os.path.join( os.path.dirname(EXE_DIR), "Scripts", "coding_web")
+STATIC = _first_existing(
+    os.path.join(BUNDLE, "static"),
+    os.path.join(HERE, "static"),
+    os.path.join(EXE_DIR, "Scripts", "coding_web", "static"),
+    os.path.join(_SRC_WEB, "static"),
+    probe="index.html",
+)
+SCHEMA = _first_existing(
+    os.path.join(BUNDLE, "schema.json"),
+    os.path.join(HERE, "schema.json"),
+    os.path.join(EXE_DIR, "Scripts", "coding_web", "schema.json"),
+    os.path.join(_SRC_WEB, "schema.json"),
+)
 
 
 def find_data_root(start, max_up=6):
@@ -81,10 +99,13 @@ def save_config(updates):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         cfg = load_config()
         cfg.update(updates)
-        with open(path, "w", encoding="utf-8") as fh:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(cfg, fh, indent=2)
+        os.replace(tmp, path)
         return True
-    except OSError:
+    except OSError as exc:
+        log(f"save_config failed: {exc!r}")
         return False
 
 
@@ -95,6 +116,52 @@ def default_root():
 
 def has_data(root):
     return os.path.isdir(os.path.join(root, "Papers")) or os.path.isdir(os.path.join(root, "Text"))
+
+
+def _probe_writable(folder):
+    """Raise ``OSError`` unless a real file can be created in ``folder``.
+
+    ``os.access`` lies on a dehydrated cloud placeholder, so the only reliable
+    test is to write and remove a probe file."""
+    fd, probe = tempfile.mkstemp(suffix=".wtest", dir=folder)
+    try:
+        os.write(fd, b"ok")
+    finally:
+        os.close(fd)
+        try:
+            os.remove(probe)
+        except OSError:
+            pass
+
+
+def _local_fallback_dir(name):
+    """A writable scratch folder outside the synced project tree."""
+    base = os.path.join(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(),
+                        "CodingStudio", name)
+    os.makedirs(base, exist_ok=True)
+    _probe_writable(base)
+    return base
+
+
+#: Callbacks run after the data root is re-pointed (``POST /api/root``), so a
+#: module can drop caches that hold data of the previous root.  Register with
+#: :func:`on_reroot`; each hook gets ``(old_root, new_root)``.
+_REROOT_HOOKS = []
+
+
+def on_reroot(fn):
+    """Register ``fn(old_root, new_root)`` to run after every re-root (decorator-friendly)."""
+    if fn not in _REROOT_HOOKS:
+        _REROOT_HOOKS.append(fn)
+    return fn
+
+
+def _run_reroot_hooks(old, new):
+    for fn in list(_REROOT_HOOKS):
+        try:
+            fn(old, new)
+        except Exception as exc:  # noqa: BLE001 - one module's cache must not block a re-root
+            log(f"re-root hook {getattr(fn, '__qualname__', fn)!r} failed: {exc!r}")
 
 
 class State:
@@ -146,10 +213,20 @@ class State:
         self.PDFIMG = os.path.join(self.TEMP, "pdfimg")
         try:
             os.makedirs(self.PDFIMG, exist_ok=True)
+            _probe_writable(self.PDFIMG)
         except OSError:
-            self.PDFIMG = self.TEMP
+            # A synced folder (Nextcloud/Dropbox) can hold temp/ as a dehydrated
+            # placeholder where creating a file fails with EINVAL.  That made
+            # every rendered PDF page come back blank; keep the images in the
+            # local (never-synced) application folder instead.
+            try:
+                self.PDFIMG = _local_fallback_dir("pdfimg")
+            except OSError:
+                self.PDFIMG = self.TEMP
         tempfile.tempdir = self.TEMP
-        self.ROOT = root
+        previous, self.ROOT = self.ROOT, root
+        if previous is not None:
+            _run_reroot_hooks(previous, root)
         return root
 
     def paper_keys(self):

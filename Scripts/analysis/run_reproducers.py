@@ -133,8 +133,25 @@ def _copy_if_changed(src, dst):
     tmp = dst + ".tmp"
     with open(src, "rb") as a, open(tmp, "wb") as b:
         b.write(a.read())
-    os.replace(tmp, dst)
-    return "copied"
+    # `os.replace` over a target that a file-sync client (Nextcloud, OneDrive) is
+    # uploading or has left as an online-only placeholder fails with WinError 5 /
+    # Errno 22 - a transient lock, not a defect in the run.  Retry briefly, then
+    # fall back to an in-place write so a sync lock never aborts the pipeline.
+    last = None
+    for attempt in range(6):
+        try:
+            os.replace(tmp, dst)
+            return "copied"
+        except OSError as exc:
+            last = exc
+            time.sleep(0.4 * (attempt + 1))
+    try:
+        with open(tmp, "rb") as a, open(dst, "wb") as b:
+            b.write(a.read())
+        os.remove(tmp)
+        return "copied"
+    except OSError:
+        raise last
 
 
 def persist_study_artifacts(key, fact=None):

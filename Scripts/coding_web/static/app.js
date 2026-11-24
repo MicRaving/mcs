@@ -30,6 +30,8 @@
     source: "original",
     compareCoder: "",   // coder (or "OG") shown in the compare gutter; "" = none
     compare: null,      // that coder's records for the current paper (read-only)
+    spanPool: {},       // paper key -> [{coder, records}] of every other coding (source-span lookup)
+    seededFrom: null,   // coder whose coding the working copy was started from
     records: [],
     current: 0,
     selIntervention: -1,
@@ -1909,11 +1911,13 @@
       touch();
       renderForm();
     });
-    const mark = el("button", "btn ghost dv-mark-btn" + (dv.source_span ? " marked" : ""));
+    const markHit = resolveDvSpan(i);
+    const mark = el("button", "btn ghost dv-mark-btn" + (markHit ? " marked" : ""));
     mark.type = "button";
     mark.tabIndex = -1;
-    mark.title = dv.source_span
-      ? "Jump to this variable's marked source (or re-mark a new selection)"
+    mark.title = markHit
+      ? "Jump to this variable's marked source" + (markHit.from ? ` (marked by ${markHit.from})` : "") +
+        " (or re-mark a new selection)"
       : "Mark the selected PDF text as this variable's source";
     mark.appendChild(icon("i-target", 13));
     mark.addEventListener("click", (e) => {
@@ -1922,7 +1926,8 @@
       state.coderTarget = { kind: "dv", index: i };
       const sel = captureSelectionSpan();
       if (sel) { markSelectionFor({ kind: "dv", index: i }); return; }
-      if (dv.source_span) { pdfGotoSpan(dv.source_span); return; }
+      const hit = resolveDvSpan(i);
+      if (hit) { gotoSpanOrSearch(hit); return; }
       toast("Select the supporting text in the PDF, then click Mark source", "ok");
     });
     const rm = el("button", "btn ghost danger");
@@ -1954,7 +1959,8 @@
       setActiveDv(i);
       state.coderTarget = { kind: "dv", index: i };
       // selecting a DV jumps the paper to its marked source, else its effect-size number
-      if (dv.source_span) pdfGotoSpan(dv.source_span);
+      const hit = resolveDvSpan(i);
+      if (hit) gotoSpanOrSearch(hit);
       else coderLocateDvCard(dv);
     });
     card.appendChild(head);
@@ -2360,6 +2366,149 @@
     });
   }
 
+  /* ---- where a marked (green) source location lives ----
+     The span a coder saved sits on that coder's own file (``DV.source_span`` and
+     ``record.source_spans[field]``).  The canonical Extraction carries very few of
+     them, so a coder who opens a study and compares against another coder (or just
+     codes it fresh) would see no green location.  The span is therefore looked up
+     in this order: the working copy itself, the compared coder, then every other
+     coding of the paper (loaded once per paper). */
+  const spanNorm = (s) => String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  function spanSources() {
+    const out = [];
+    const seen = new Set();
+    const add = (coder, records) => {
+      const k = String(coder || "").toLowerCase();
+      if (!records || !records.length || seen.has(k)) return;
+      seen.add(k);
+      out.push({ coder, records });
+    };
+    if (state.compare && state.compareCoder) add(state.compareCoder, state.compare);
+    const pool = (state.spanPool && state.spanPool[state.key]) || [];
+    const own = String(state.coder || "").toLowerCase();
+    pool.filter((e) => String(e.coder).toLowerCase() !== own)
+      .sort((a, b) => (a.coder === "OG") - (b.coder === "OG"))
+      .forEach((e) => add(e.coder, e.records));
+    return out;
+  }
+
+  function spanMatchRecord(srcRecords, rec, idx) {
+    const id = spanNorm(rec && rec.Study_ID);
+    if (id) {
+      const hit = srcRecords.find((r) => spanNorm(r && r.Study_ID) === id);
+      if (hit) return hit;
+    }
+    // the routes number their experiments differently (Exp2 vs Exp2a), so a
+    // position match is only safe when both codings have the same experiments count
+    return srcRecords.length === state.records.length ? (srcRecords[idx] || null) : null;
+  }
+
+  function dvSig(dv) {
+    return [dv.dv_name, dv.group1_label, dv.group2_label, dv.timepoint_1].map(spanNorm).join("|");
+  }
+
+  function spanMatchDv(srcRec, rec, dv, dvIdx) {
+    const srcDvs = (srcRec && srcRec.DV_Metrics) || [];
+    const mine = (rec && rec.DV_Metrics) || [];
+    const nth = (list, keyFn, key, upto) => {
+      let n = 0;
+      for (let i = 0; i < upto; i += 1) if (keyFn(list[i]) === key) n += 1;
+      return n;
+    };
+    const pickNth = (keyFn, key) => {
+      const n = nth(mine, keyFn, key, dvIdx);
+      let seen = 0;
+      for (let i = 0; i < srcDvs.length; i += 1) {
+        if (keyFn(srcDvs[i] || {}) !== key) continue;
+        if (seen === n) return srcDvs[i];
+        seen += 1;
+      }
+      return null;
+    };
+    const full = pickNth((d) => dvSig(d || {}), dvSig(dv));
+    if (full) return full;
+    const byName = pickNth((d) => spanNorm((d || {}).dv_name), spanNorm(dv.dv_name));
+    // never borrow a span for a differently named outcome: it would point at the wrong text
+    if (byName && spanNorm(dv.dv_name)) return byName;
+    return null;
+  }
+
+  /* {span, from} for a DV row; ``from`` is "" when the working copy owns it. */
+  function resolveDvSpan(dvIdx) {
+    const rec = state.records[state.current];
+    const dv = rec && (rec.DV_Metrics || [])[dvIdx];
+    if (!dv) return null;
+    if (dv.source_span && dv.source_span.page) return { span: dv.source_span, from: "" };
+    for (const src of spanSources()) {
+      const srec = spanMatchRecord(src.records, rec, state.current);
+      const sdv = srec && spanMatchDv(srec, rec, dv, dvIdx);
+      if (sdv && sdv.source_span && sdv.source_span.page) return { span: sdv.source_span, from: src.coder };
+    }
+    return null;
+  }
+
+  function resolveFieldSpan(fname) {
+    const rec = state.records[state.current];
+    if (!rec || !fname) return null;
+    const own = rec.source_spans && rec.source_spans[fname];
+    if (own && own.page) return { span: own, from: "" };
+    for (const src of spanSources()) {
+      const srec = spanMatchRecord(src.records, rec, state.current);
+      const sp = srec && srec.source_spans && srec.source_spans[fname];
+      if (sp && sp.page) return { span: sp, from: src.coder };
+    }
+    return null;
+  }
+
+  async function loadSpanPool() {
+    const key = state.key;
+    if (!key || state.blind) return;
+    const p = state.byKey[key] || {};
+    const wanted = (p.codings || []).map((c) => c && c.coder).filter(Boolean);
+    const jobs = wanted.map((coder) =>
+      api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`)
+        .then((d) => ({ coder, records: d && d.records })).catch(() => null));
+    if (p.has_extraction) {
+      jobs.push(api(`/api/extraction/${encodeURIComponent(key)}`)
+        .then((d) => ({ coder: "OG", records: d && d.records })).catch(() => null));
+    }
+    const got = (await Promise.all(jobs)).filter((e) => e && e.records && e.records.length);
+    if (key !== state.key) return;
+    state.spanPool[key] = got;
+    refreshMarkButtons();
+    if (state.coderMode) coderRelocateSoon(60);
+  }
+
+  function refreshMarkButtons() {
+    $$("#form .dv-card[data-dv]").forEach((card) => {
+      const r = resolveDvSpan(Number(card.dataset.dv));
+      const b = card.querySelector(".dv-mark-btn");
+      if (!b) return;
+      b.classList.toggle("marked", !!r);
+      b.title = r
+        ? "Jump to this variable's marked source" + (r.from ? ` (marked by ${r.from})` : "") +
+          " — or select text and click to re-mark"
+        : "Mark the selected PDF text as this variable's source";
+    });
+  }
+
+  /* Jump to a span, or, when the PDF view is not showing, search its text. */
+  async function gotoSpanOrSearch(res) {
+    if (!res || !res.span) return false;
+    if (state.view === "pdf") {
+      const ok = await pdfGotoSpan(res.span);
+      if (ok) {
+        if (res.from) showMarkWarn(`Marked location from ${res.from}.`);
+        return true;
+      }
+      return false;
+    }
+    const txt = String(res.span.text || "").trim();
+    if (txt) { coderSearchTerms([txt.slice(0, 90), txt.slice(0, 40)]); return true; }
+    return false;
+  }
+
   async function pdfGotoSpan(span) {
     if (!span || !span.page) return false;
     if (state.view !== "pdf") {
@@ -2654,6 +2803,8 @@
     }
     renderControls();
     if (state.view === "pdf") renderViewer();
+    // the pages exist only now: put the paper back on the focused variable's source
+    if (state.coderMode) coderRelocateSoon(250);
   }
 
   function renderViewer() {
@@ -2750,6 +2901,11 @@
       try { safeStore("cs.coders", JSON.stringify(fresh)); } catch { /* ignore */ }
     }
     if (state.coder && !isOriginalSource()) set.add(state.coder);
+    // A coder ADDED in the picker has no coding file yet, so the prune above
+    // would drop them on reload. Added names live in their own key and are never pruned.
+    let added = [];
+    try { added = JSON.parse(readStore("cs.coders.added", "[]")); } catch { added = []; }
+    (Array.isArray(added) ? added : []).forEach((c) => { if (c) set.add(String(c)); });
     return [...set].sort((a, b) => String(a).localeCompare(String(b)));
   }
 
@@ -2764,21 +2920,178 @@
   }
 
   function renderCoderOptions() {
-    const dl = $("#coder-options");
-    if (dl) {
-      dl.innerHTML = [`<option value="${esc(OG_CODER)}"></option>`]
-        .concat(knownCoders().map((c) => `<option value="${esc(c)}"></option>`))
-        .join("");
-    }
     const inp = $("#coder-input");
     if (inp) {
       const og = isOriginalSource();
       inp.classList.toggle("og-mode", og);
       inp.title = og
-        ? "Original extraction (read-only reference) — enter your own initials to code and save"
-        : "Your coder name — pick an existing one or type a new name to add yourself";
+        ? "Original extraction (read-only reference) - enter your own initials to code and save"
+        : "Your coder name - pick one from the list, or add yourself with your initials";
     }
+    if (coderMenuOpen()) renderCoderMenu();
   }
+  /* ---------------------------------------------------------- coder picker */
+  /* The coder field is an in-app dropdown, not a <datalist>: the browser draws
+     a datalist itself, so it cannot follow the theme, cannot mark who is
+     selected, and has nowhere to put "add a coder".  The menu holds
+
+       - "Original (OG)", the reference extraction, always first;
+       - every coder with a coding file in the project;
+       - the coders added here by their initials (kept until they have a file);
+       - one row that adds a new coder by their initials.
+
+     Typing in the field filters the list, the arrow keys move through it,
+     Enter picks the highlighted row and Escape closes it.  Picking from the
+     list and typing a name end in the same place: commitCoder(). */
+
+  let coderQuery = "";   // what the user typed, for filtering the list
+  let coderHl = -1;      // the highlighted row while the keyboard moves
+
+  function coderIsOG(name) {
+    return String(name || "").trim().toLowerCase() === OG_CODER.toLowerCase();
+  }
+
+  /* Two letters for the row's avatar: the initials of a name, or the name
+     itself when it is already short ("MM"). */
+  function coderInitials(name) {
+    const t = String(name || "").trim();
+    if (!t) return "?";
+    if (coderIsOG(t)) return "OG";
+    const words = t.split(/[\s._-]+/).filter(Boolean);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return t.slice(0, 2).toUpperCase();
+  }
+
+  function coderMenuOpen() {
+    const menu = $("#coder-menu");
+    return !!menu && !menu.hidden;
+  }
+
+  function openCoderMenu() {
+    const menu = $("#coder-menu");
+    if (!menu) return;
+    coderQuery = "";
+    coderHl = -1;
+    menu.hidden = false;
+    $("#coder-pick")?.classList.add("open");
+    $("#coder-input")?.setAttribute("aria-expanded", "true");
+    renderCoderMenu();
+  }
+
+  function closeCoderMenu() {
+    const menu = $("#coder-menu");
+    if (menu) menu.hidden = true;
+    $("#coder-pick")?.classList.remove("open");
+    $("#coder-input")?.setAttribute("aria-expanded", "false");
+    coderHl = -1;
+  }
+
+  function coderRow(name) {
+    const row = el("button", "coder-opt");
+    row.type = "button";
+    row.setAttribute("role", "option");
+    row.dataset.coder = name;
+    const on = name === state.coder;
+    row.classList.toggle("on", on);
+    row.setAttribute("aria-selected", String(on));
+    row.appendChild(el("span", "coder-av" + (coderIsOG(name) ? " og" : ""), coderInitials(name)));
+    const nm = el("span", "coder-name", name);
+    if (coderIsOG(name)) nm.appendChild(el("span", "coder-tag", "reference"));
+    row.appendChild(nm);
+    if (on) row.appendChild(icon("i-check", 13));
+    row.addEventListener("click", () => {
+      const inp = $("#coder-input");
+      if (inp) inp.value = name;
+      closeCoderMenu();
+      commitCoder(name);
+    });
+    return row;
+  }
+
+  function renderCoderMenu() {
+    const host = $("#coder-menu-list");
+    if (!host) return;
+    host.textContent = "";
+    const q = coderQuery.trim().toLowerCase();
+    const showOG = !q || OG_CODER.toLowerCase().includes(q);
+    const coders = knownCoders().filter((c) => !q || String(c).toLowerCase().includes(q));
+    if (showOG) host.appendChild(coderRow(OG_CODER));
+    if (showOG && coders.length) host.appendChild(el("div", "coder-menu-sep"));
+    coders.forEach((c) => host.appendChild(coderRow(c)));
+    if (!showOG && !coders.length) {
+      host.appendChild(el("div", "coder-menu-note",
+        "No coder matches \u201c" + coderQuery.trim() + "\u201d. Add them below."));
+    }
+    const add = $("#coder-add-input");
+    if (add && !add.value && coderQuery.trim()) add.value = coderQuery.trim();
+  }
+
+  /* Add a coder by their initials.  A name that already exists is simply
+     selected, so the same row both adds and picks. */
+  function addCoder() {
+    const field = $("#coder-add-input");
+    const raw = (field ? field.value : "").trim();
+    if (!raw) { if (field) field.focus(); return; }
+    if (coderIsOG(raw)) {
+      toast("\u201c" + OG_CODER + "\u201d is the reference extraction, not a coder", "err");
+      return;
+    }
+    const existing = knownCoders().find((c) => c.toLowerCase() === raw.toLowerCase());
+    if (field) field.value = "";
+    if (!existing) {
+      let added = [];
+      try { added = JSON.parse(readStore("cs.coders.added", "[]")); } catch { added = []; }
+      if (!Array.isArray(added)) added = [];
+      added.push(raw);
+      safeStore("cs.coders.added", JSON.stringify(added));
+      rememberCoder(raw);
+    }
+    const name = existing || raw;
+    const inp = $("#coder-input");
+    if (inp) inp.value = name;
+    closeCoderMenu();
+    commitCoder(name);
+    toast(existing ? "Coder selected" : "Coder added", "ok", name);
+  }
+
+  /* Commit a coder: the initials are set and that coder's working copy is
+     loaded.  Picking a row and typing a name both come through here, so the
+     two cannot drift apart. */
+  async function commitCoder(raw) {
+    const name = String(raw || "").trim();
+    if (name === state.coderLoaded) { renderCoderOptions(); return; }
+    if (state.dirty) {
+      const ok = await confirmDialog("Discard unsaved changes?",
+        "Switching coder replaces the working copy with that coder's coding.",
+        "Discard & switch", true);
+      if (!ok) { const inp = $("#coder-input"); if (inp) inp.value = state.coder; return; }
+    }
+    state.coder = name;
+    safeStore("cs.coder", name);
+    if (name) rememberCoder(name);
+    renderCoderOptions();
+    window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
+    if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
+    await loadWorkingCopyForCoder();
+    state.records.forEach(ensureModuleFields);
+    state.current = 0;
+    state.selIntervention = -1;
+    state.openDv = new Set();
+    state.statChoice = {};
+    state.seededFrom = null;
+    state.coderDone = new Set();
+    dvAutoFill.clear();
+    state.dirty = false;
+    syncMissingOpen();
+    renderTabs();
+    renderForm();
+    syncRationale();
+    renderCompareSelect();
+    updateDirty();
+    await maybeSeedFromCompare();
+    refreshMarkButtons();
+  }
+
 
   /* Working copy for the selected coder: their saved coding, else the canonical
      extraction, else blank.  "Original (OG)" always shows the extraction.  In
@@ -3632,14 +3945,28 @@
     if (!row) return;
     const isGrid = row.classList && row.classList.contains("dv-grid-input");
     if (!isGrid && row.dataset.editor !== "number") return;
+    // A variable with a saved (green) source location keeps the paper there: the
+    // delayed number search would scroll the PDF away from it a moment after the jump.
+    const card = row.closest && row.closest(".dv-card");
+    if (state.coderMode && card && resolveDvSpan(Number(card.dataset.dv))) return;
     clearTimeout(dvLocateTimer);
     dvLocateTimer = setTimeout(() => coderLocateDv(row), 400);
   }
 
+  /* Re-run the jump for the focused variable (after a reload, a view switch or
+     once the PDF pages / other codings have loaded).  Uses the saved source
+     location first, not only the value search. */
   function coderRelocateSoon(delay = 350) {
     if (!state.coderMode || !state.coderField) return;
-    const def = fieldIndex.get(state.coderField);
-    if (def) setTimeout(() => coderLocate(def), delay);
+    setTimeout(() => {
+      if (!state.coderMode || !state.coderField) return;
+      let row = state.coderEl && document.contains(state.coderEl) ? state.coderEl : null;
+      if (!row) {
+        const sel = `#form .field[data-field="${String(state.coderField).replace(/"/g, '\\"')}"]`;
+        row = $(sel);
+      }
+      if (row) coderJumpToSource(row);
+    }, delay);
   }
 
   function coderVisibleFields() {
@@ -3649,6 +3976,7 @@
 
   function coderSetFocus(row) {
     if (!row) return;
+    clearPdfMarks();
     $$("#form .coder-focus").forEach((r) => r.classList.remove("coder-focus"));
     row.classList.add("coder-focus");
     state.coderField = row.dataset.field;
@@ -3660,8 +3988,15 @@
       try { ctl.focus({ preventScroll: true }); } catch { ctl.focus(); }
     }
     row.scrollIntoView({ block: "center", behavior: "smooth" });
-    // A DV field/marked variable: jump to its saved source span, else fall back
-    // to the value/text search and say so.
+    coderJumpToSource(row);
+  }
+
+  /* Move the paper to the focused variable: its saved (green) source location -
+     the working copy's own, else the compared / another coder's - and only when
+     none exists fall back to the value / text search and say so. */
+  function coderJumpToSource(row) {
+    if (!row) return;
+    clearPdfMarks();   // a variable without a saved location must not keep the previous green mark
     const card = row.closest(".dv-card");
     if (card) {
       const i = Number(card.dataset.dv);
@@ -3669,8 +4004,9 @@
       state.coderTarget = { kind: "dv", index: i };
       const rec = state.records[state.current];
       const dv = rec && (rec.DV_Metrics || [])[i];
-      if (dv && dv.source_span) {
-        pdfGotoSpan(dv.source_span);
+      const hit = resolveDvSpan(i);
+      if (hit) {
+        gotoSpanOrSearch(hit);
         return;
       }
       showMarkWarn("No marked source location for this variable — used a text search.");
@@ -3685,11 +4021,10 @@
     }
     // A record-level field (N, age, gender, control group, intervention, …).
     const fname = row.dataset.field;
-    const rec = state.records[state.current];
     state.coderTarget = fname ? { kind: "field", name: fname } : null;
-    const fspan = rec && rec.source_spans && fname ? rec.source_spans[fname] : null;
-    if (fspan) {
-      pdfGotoSpan(fspan);
+    const fhit = resolveFieldSpan(fname);
+    if (fhit) {
+      gotoSpanOrSearch(fhit);
       return;
     }
     showMarkWarn("No marked source location for this field — used a text search.");
@@ -3710,6 +4045,13 @@
     const i = rows.indexOf(state.coderEl);
     if (i < 0) { coderMove(1); return; }
     if (rows[i]) coderCommitField(rows[i]);
+    // Working on a copy of another coder's coding: moving past a field with Tab
+    // accepts it as coded the same.  Mark the copy as needing a save so it is
+    // written to this coder's own file even when nothing was edited.
+    if (state.seededFrom && rows[i]) {
+      state.coderDone.add(rows[i].dataset.field);
+      if (!state.dirty) touch();
+    }
     if (i + 1 < rows.length) coderSetFocus(rows[i + 1]);
   }
 
@@ -3867,8 +4209,13 @@
         const def = fieldIndex.get(r.dataset.field);
         if (!def) { r.classList.remove("manual"); return; }  // non-schema rows (e.g. group sizes)
         const inDv = !!r.closest(".dv-card");
+        // A field that carries a saved (green) source location stays codable in
+        // coder mode, even if it would otherwise be manual (e.g. a free-text
+        // field like Title/Authors): coder mode must be able to land on it and
+        // move the paper to that location.
+        const hasMarkedLocation = !inDv && !!(rec && rec.source_spans && rec.source_spans[def.name]);
         const armGate = armFocus && !inDv && !isArmFocusAllowedField(def);
-        const manual = armGate || (inDv ? isManualDvField(def) : isManualField(def));
+        const manual = armGate || (inDv ? isManualDvField(def) : (isManualField(def) && !hasMarkedLocation));
         r.classList.toggle("manual", manual);
         // a coder-choice button row replaces the native dropdown for short option lists
         if (def && !manual && def.options && def.options.length >= 2 && def.options.length <= 9
@@ -3923,6 +4270,7 @@
   function toggleCoderMode(force) {
     state.coderMode = force === undefined ? !state.coderMode : !!force;
     safeStore("cs.coderMode", state.coderMode ? "1" : "0");
+    if (state.coderMode && state.key && !(state.spanPool[state.key] || []).length) loadSpanPool();
     // re-render so the DV cards switch between the full family layout and the
     // coder pre/post grid, and the arm-focus / group-size controls appear.
     if (state.records.length) renderForm();
@@ -3946,6 +4294,7 @@
     state.coderField = null;
     state.coderEl = null;
     state.coderDone = new Set();
+    state.seededFrom = null;
     dvAutoFill.clear();
     state.dirty = false;
     state.supp = "";
@@ -3963,12 +4312,47 @@
     syncRationale();
     renderCompareSelect();
     await reloadCompare();
+    await maybeSeedFromCompare();
     renderViewer();
     loadNotes();
     loadPdfInfo();
     loadFulltext(key);
+    loadSpanPool();
     coderRelocateSoon(500);
     updateDirty();
+  }
+
+  /* Start the working copy from the compared coder's coding.
+
+     A coder who has no coding file of their own yet and compares against another
+     coder (AA against DS) edits a COPY of that coding: nothing is written until
+     Save, and Save writes ``<Key> - AA.json`` only - the compared coder's file is
+     never touched, so a deletion made in the comparison exists in the copy alone.
+     Fields left as they are count as "coded the same" (see coderAdvance). */
+  async function maybeSeedFromCompare() {
+    if (state.blind || isOriginalSource() || state.dirty) return false;
+    if (!state.coder || !state.compareCoder || state.compareCoder === "OG" || !state.compare) return false;
+    if (String(state.compareCoder).toLowerCase() === String(state.coder).toLowerCase()) return false;
+    const p = state.byKey[state.key] || {};
+    if (coderHasCoding(p)) return false;            // an existing own file always wins
+    state.records = JSON.parse(JSON.stringify(state.compare));
+    state.records.forEach(ensureModuleFields);
+    state.source = "copy:" + state.compareCoder;
+    state.seededFrom = state.compareCoder;
+    state.current = Math.min(state.current, state.records.length - 1);
+    state.selIntervention = -1;
+    state.openDv = new Set();
+    state.statChoice = {};
+    dvAutoFill.clear();
+    syncMissingOpen();
+    renderTabs();
+    renderForm();
+    syncRationale();
+    renderCompareGutter();
+    updateDirty();
+    toast(`Working copy of ${state.compareCoder}'s coding`, "ok",
+      `Edits are saved to ${state.key} - ${state.coder}.json only; Tab accepts a value as coded the same.`);
+    return true;
   }
 
   /* ================================================================ dirty */
@@ -4362,44 +4746,82 @@
     $("#merge-btn")?.addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-merge"));
     });
-    $("#coder-input").addEventListener("input", (e) => {
-      state.coder = e.target.value;
-      safeStore("cs.coder", state.coder);
-      window.dispatchEvent(new CustomEvent("cs:coder", { detail: state.coder }));
-      if (!screeningView()) renderPaperList();
+    /* ---- the coder picker ---- */
+    const coderInp = $("#coder-input");
+    if (coderInp) {
+      coderInp.addEventListener("focus", () => openCoderMenu());
+      coderInp.addEventListener("click", () => { if (!coderMenuOpen()) openCoderMenu(); });
+      coderInp.addEventListener("input", (e) => {
+        coderQuery = e.target.value;
+        state.coder = e.target.value;
+        safeStore("cs.coder", state.coder);
+        window.dispatchEvent(new CustomEvent("cs:coder", { detail: state.coder }));
+        if (!screeningView()) renderPaperList();
+        if (!coderMenuOpen()) openCoderMenu();
+        else { coderHl = -1; renderCoderMenu(); }
+      });
+      coderInp.addEventListener("keydown", (e) => {
+        const rows = () => $$("#coder-menu-list .coder-opt");
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          if (!coderMenuOpen()) { openCoderMenu(); return; }
+          const list = rows();
+          if (!list.length) return;
+          e.preventDefault();
+          const step = e.key === "ArrowDown" ? 1 : -1;
+          coderHl = coderHl < 0
+            ? (step > 0 ? 0 : list.length - 1)
+            : (coderHl + step + list.length) % list.length;
+          list.forEach((r, i) => r.classList.toggle("hl", i === coderHl));
+          list[coderHl].scrollIntoView({ block: "nearest" });
+          return;
+        }
+        if (e.key === "Enter") {
+          const list = rows();
+          if (coderMenuOpen() && coderHl >= 0 && list[coderHl]) {
+            e.preventDefault();
+            list[coderHl].click();
+            return;
+          }
+          if (coderMenuOpen()) { e.preventDefault(); closeCoderMenu(); commitCoder(coderInp.value); }
+          return;
+        }
+        if (e.key === "Escape" && coderMenuOpen()) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeCoderMenu();
+        }
+      });
+      // A change without a pick (typed, then left) still commits the name.
+      coderInp.addEventListener("change", (e) => {
+        if (coderMenuOpen()) closeCoderMenu();
+        commitCoder(e.target.value);
+      });
+    }
+    $("#coder-caret")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (coderMenuOpen()) closeCoderMenu();
+      else { openCoderMenu(); coderInp?.focus(); }
     });
-    // Committing a coder (pick from the dropdown or type a new name) sets the
-    // initials AND loads that coder's working copy — the unified replacement for
-    // the old separate initials + source controls.
-    $("#coder-input").addEventListener("change", async (e) => {
-      const name = (e.target.value || "").trim();
-      if (name === state.coderLoaded) { renderCoderOptions(); return; }
-      if (state.dirty) {
-        const ok = await confirmDialog("Discard unsaved changes?",
-          "Switching coder replaces the working copy with that coder's coding.",
-          "Discard & switch", true);
-        if (!ok) { e.target.value = state.coder; return; }
-      }
-      state.coder = name;
-      safeStore("cs.coder", name);
-      if (name) rememberCoder(name);
-      renderCoderOptions();
-      window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
-      if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
-      await loadWorkingCopyForCoder();
-      state.records.forEach(ensureModuleFields);
-      state.current = 0;
-      state.selIntervention = -1;
-      state.openDv = new Set();
-      state.statChoice = {};
-      dvAutoFill.clear();
-      state.dirty = false;
-      syncMissingOpen();
-      renderTabs();
-      renderForm();
-      syncRationale();
-      renderCompareSelect();
-      updateDirty();
+    $("#coder-add-btn")?.addEventListener("click", () => addCoder());
+    $("#coder-add-input")?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); addCoder(); }
+      if (e.key === "Escape") { e.preventDefault(); closeCoderMenu(); }
+    });
+    // Keep the focus in the field while a row is pressed: a blur would commit
+    // the half-typed name before the pressed row could be picked.
+    $("#coder-menu")?.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".coder-opt")) e.preventDefault();
+    });
+    // Clicking or tabbing out of the picker closes it.
+    document.addEventListener("mousedown", (e) => {
+      if (!coderMenuOpen()) return;
+      if (e.target.closest && e.target.closest("#coder-pick")) return;
+      closeCoderMenu();
+    });
+    document.addEventListener("focusin", (e) => {
+      if (!coderMenuOpen()) return;
+      if (e.target.closest && e.target.closest("#coder-pick")) return;
+      closeCoderMenu();
     });
     $("#save-btn").addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-save"));
@@ -4445,7 +4867,13 @@
         state.coderField = fieldEl.dataset.field;
         state.coderEl = fieldEl;
         coderShowSectionFor(fieldEl);
-        if (!gridInput) coderLocate(fieldIndex.get(state.coderField));
+        if (!gridInput) coderJumpToSource(fieldEl);
+        else {
+          const gc = gridInput.closest(".dv-card");
+          const gi = gc ? Number(gc.dataset.dv) : -1;
+          const hit = gi >= 0 ? resolveDvSpan(gi) : null;
+          if (hit) { setActiveDv(gi); state.coderTarget = { kind: "dv", index: gi }; gotoSpanOrSearch(hit); }
+        }
       }
     });
     formEl.addEventListener("change", (e) => {
@@ -4564,6 +4992,8 @@
 
     $("#compare-select").addEventListener("change", async (e) => {
       await loadCompare(e.target.value);
+      await maybeSeedFromCompare();
+      if (state.coderMode) coderRelocateSoon(120);
     });
 
     $("#viewer-seg").addEventListener("click", (e) => {

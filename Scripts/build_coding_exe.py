@@ -47,7 +47,19 @@ def _remove(path):
             os.remove(path)
         return True
     except OSError:
-        return False
+        # Nextcloud virtual-files placeholders inside an old _internal/ tree
+        # cannot be unlinked while the sync client is stopped, but the top-level
+        # directory itself can be renamed out of the way into temp/.
+        try:
+            import time
+            # Rename NEXT TO the target (same volume, still in the build tree):
+            # temp/ itself can live on a synced drive where a rename would fail.
+            stash = os.path.join(os.path.dirname(path),
+                                 f"_stale_{os.path.basename(path)}_{int(time.time() * 1000)}")
+            os.replace(path, stash)
+            return True
+        except OSError:
+            return False
 
 
 def main():

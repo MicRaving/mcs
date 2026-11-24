@@ -1,6 +1,6 @@
 """Experiment-level exclusions.
 
-Two kinds of excluded *experiment* (the paper/source is kept whenever it contains other
+Five kinds of excluded *experiment* (the paper/source is kept whenever it contains other
 eligible experiments):
 
 1. **Non-independent experiments.**  Some included sources report the *same participants /
@@ -17,13 +17,24 @@ eligible experiments):
    other, eligible experiments; the non-intervention experiment is dropped here.  These
    records carry `Intervention_Type = ["other"]` with a `NO_INTERVENTION:` detail; see
    `Scripts/MODERATOR_JSON_FIX.md`.
+3. **Coding-excluded records (C1/C2/C4).**  A record the coding itself marks as excluded
+   that nevertheless carried pooled effects (decision D3, 2026-10-21).
+4. **Confirmed same-trial duplicates (D4).**  A trial confirmed against the paper to be
+   the same as another one (decision D4, 2026-10-21).  A *contested* verdict is not
+   confirmed and is therefore not excluded; the verdicts live in
+   `Results/duplicate_trial_verdicts_consolidated.csv`.
+5. **Foreign records (D8).**  A record that belongs to a *different paper* than the one its
+   study key points at.  The coding is left untouched (the three routes must agree for the
+   IRR to mean anything), but such a record may not contribute to a pooled product, because
+   the paper that supports it is not in the corpus and was never screened.
 
 `Extraction/*.json` and the harmonized datasets are never edited (AGENTS.md); these maps are
 applied by `metaanalysis.py` (keys are `Study_ID`) and `reanalysis.py` (keys are the
 dataset `artifact` label, where one exists).
 
-Nothing here is heuristic: each entry is a same-sample match (kind 1) or a paper-verified
-absence of any intervention (kind 2).
+Nothing here is heuristic: each entry is a same-sample match (kind 1), a paper-verified
+absence of any intervention (kind 2), a coding-excluded record (kind 3), a confirmed
+same-trial duplicate (kind 4) or a record the paper does not contain (kind 5).
 """
 
 import json
@@ -416,9 +427,554 @@ NO_INTERVENTION_EXCLUSIONS = {
         kept="Jalbert2026_Exp1"),
 }
 
+    # --- excluded because the coding marks the study as excluded
+
+    # --- excluded because the coding marks the study as excluded
+
+    # --- excluded because the coding marks the study as excluded
+
+    # --- excluded because the coding marks the study as excluded
+
+    # --- excluded because the coding marks the study as excluded
+
+CODING_EXCLUDED_STUDIES = {
+
+    ('Anne Zappi Williams (2022)', 'AnneZappiWilliams2022_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Bender et al. (2023)', 'Bender2023_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Bennett (2020)', 'Bennett2020_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Coşkun et al. (2023)', 'Coskun2023_Exp1'): dict(
+
+        criterion='C1, C2, C4',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Golan et al. (2013)', 'Golan2013_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Gordon et al. (2018)', 'Gordon2018_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Hunze et al. (2025)', 'Hunze2025_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Levy et al. (2019)', 'Levy2019_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept='Levy2019_Exp2'),
+
+    ('Levy et al. (2019)', 'Levy2019_Exp2'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept='Levy2019_Exp1'),
+
+    ('McVey & Davis (2002)', 'McVey2002_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Mora et al. (2017)', 'Mora2017_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Parker et al. (2008)', 'Parker2008_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Raich et al. (2010)', 'Raich2010_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Ratajczak et al. (2019)', 'Ratajczak2019_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Ridolfi & Vander Wal (2008)', 'Ridolfi2008_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Rivera et al. (2016)', 'Rivera2016_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Saman et al. (2025)', 'Saman2025_Exp1'): dict(
+
+        criterion='C1, C4',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Scull & Kupersmidt (2011)', 'Scull2011_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Scull et al. (2018 a)', 'Scull2018a_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Sundgot-Borgen et al. (2019)', 'SundgotBorgen2019_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Tefo (2019)', 'Tefo2019_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Turetsky & Sanderson (2018)', 'TuretskySanderson2018_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Wollslager (2011)', 'Wollslager2011_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ("Yager & O'Dea (2010)", 'Yager2010_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Yamamiya et al. (2005)', 'Yamamiya2005_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+    ('Zounlome & Wong (2019)', 'Zounlome&Wong2019_Exp1'): dict(
+
+        criterion='C1',
+
+        reason=(
+            "Excluded from the pooled analysis on the campaign owner's decision (2026-10-21): C1: the experiment delivers no misinformation intervention, so it cannot supply a misinformation-intervention effect. The study remains fully coded, harmonised and reproduced; the criterion is the screening layer and the pooled models select on eligible_primary without reading it, so without this entry the experiment kept contributing its effects."),
+
+        kept=''),
+
+}
+
+
+
+
+
+
+
+    # --- same trial confirmed against the paper (decision D4, 2026-10-21)
+
+CONFIRMED_DUPLICATE_TRIALS = {
+
+    ('Apuke et al. (2023 a)', '*'): dict(
+
+        duplicate_of='Apuke et al. (2023 b)',
+
+        reason=(
+            'Same trial as Apuke et al. (2023 b), confirmed against the paper (decision D4, 2026-10-21): both April 2021, same 470/235/235, identical arm-level gender split, same 12-item knowledge scale and Preston task; (2023 b) published first'),
+
+        kept='Apuke et al. (2023 b)'),
+
+    ('Austin et al. (2007)', '*'): dict(
+
+        duplicate_of='Pinkleton et al. (2007)',
+
+        reason=(
+            'Same trial as Pinkleton et al. (2007), confirmed against the paper (decision D4, 2026-10-21): a secondary analysis of a quasi-experiment: the same 723 participants from 76 schools, identical arms, same six-lesson curriculum'),
+
+        kept='Pinkleton et al. (2007)'),
+
+    ('Austin et al. (2015)', 'Austin2015_Exp1'): dict(
+
+        duplicate_of='Pinkleton et al. (2012)',
+
+        reason=(
+            'Same trial as Pinkleton et al. (2012), confirmed against the paper (decision D4, 2026-10-21): wave 1 is Pinkleton (2012): N = 922, 655 treatment / 267 control; Austin (2015) says the original evaluations are in Pinkleton et al.'),
+
+        kept='Pinkleton et al. (2012)'),
+
+    ('Austin et al. (2020 a)', '*'): dict(
+
+        duplicate_of='Austin et al. (2020)',
+
+        reason=(
+            'Same trial as Austin et al. (2020), confirmed against the paper (decision D4, 2026-10-21): the same FoodMania! trial: 189 parent-child dyads, same counties, Extension recruitment, same IRB No. 15012'),
+
+        kept='Austin et al. (2020)'),
+
+    ('Austin et al. (2024)', '*'): dict(
+
+        duplicate_of='Austin et al. (2020)',
+
+        reason=(
+            'Same trial as Austin et al. (2020), confirmed against the paper (decision D4, 2026-10-21): the 2024 paper re-analyses the same 189 dyads and cites Austin et al. (2020a, 2020b) for the trial'),
+
+        kept='Austin et al. (2020)'),
+
+    ('Banerjee & Greene (2007)', '*'): dict(
+
+        duplicate_of='Banerjee & Greene (2006)',
+
+        reason=(
+            'Same trial as Banerjee & Greene (2006), confirmed against the paper (decision D4, 2026-10-21): the same 260 students in two Northeastern schools, identical classroom-randomised arms and the same attitude-scale statistics'),
+
+        kept='Banerjee & Greene (2006)'),
+
+    ('Banks (2025)', 'Banks2025_Exp1'): dict(
+
+        duplicate_of='Banks & Brannon (2026)',
+
+        reason=(
+            'Same trial as Banks & Brannon (2026), confirmed against the paper (decision D4, 2026-10-21): the article is the peer-reviewed version of dissertation Study 1: same 462 recruits, same 55+1 exclusions, final N = 406, same 6 message frames; the thesis Study 2 is a different trial'),
+
+        kept='Banks & Brannon (2026)'),
+
+    ('Basol (2022)', 'Basol2022_Exp3'): dict(
+
+        duplicate_of='Basol et al. (2021)',
+
+        reason=(
+            'Same trial as Basol et al. (2021), confirmed against the paper (decision D4, 2026-10-21): thesis chapter 4 is the published article itself (same chapter title, same N = 1,771/1,777); the other chapters are different trials'),
+
+        kept='Basol et al. (2021)'),
+
+    ('Basol (2022)', 'Basol2022_Exp4'): dict(
+
+        duplicate_of='Basol et al. (2021)',
+
+        reason=(
+            'Same trial as Basol et al. (2021), confirmed against the paper (decision D4, 2026-10-21): thesis chapter 4 is the published article itself (same chapter title, same N = 1,771/1,777); the other chapters are different trials'),
+
+        kept='Basol et al. (2021)'),
+
+    ('Biddlestone et al. (2025 a)', '*'): dict(
+
+        duplicate_of='Biddlestone et al. (2025)',
+
+        reason=(
+            'Same trial as Biddlestone et al. (2025), confirmed against the paper (decision D4, 2026-10-21): byte-identical PDFs (the same SHA-256): one Political Psychology article filed twice'),
+
+        kept='Biddlestone et al. (2025)'),
+
+    ('Gordon et al. (2018)', '*'): dict(
+
+        duplicate_of='Gordon et al. (2016)',
+
+        reason=(
+            'Same trial as Gordon et al. (2016), confirmed against the paper (decision D4, 2026-10-21): the 2018 brief report re-analyses the same trial: the same 165 fifth/sixth-graders, same 10-week program and three waves'),
+
+        kept='Gordon et al. (2016)'),
+
+    ('Greene et al. (2015)', 'Greene2015_Exp2'): dict(
+
+        duplicate_of='Banerjee et al. (2015)',
+
+        reason=(
+            "Same trial as Banerjee et al. (2015), confirmed against the paper (decision D4, 2026-10-21): Greene et al. (2015) Sample II is the same 2011 YMD test: identical N = 171, same ages, 34 Pennsylvania schools; Greene's Sample I is a different sample"),
+
+        kept='Banerjee et al. (2015)'),
+
+    ('Jolley (2014)', 'Jolley2014_Exp9'): dict(
+
+        duplicate_of='Jolley & Douglas (2017)',
+
+        reason=(
+            'Same trial as Jolley & Douglas (2017), confirmed against the paper (decision D4, 2026-10-21): 2017 Study 1 is thesis Study 9: both 267 MTurk participants, the same five conditions and cell sizes, identical cell means'),
+
+        kept='Jolley & Douglas (2017)'),
+
+    ('Lutzke (2019)', '*'): dict(
+
+        duplicate_of='Lutzke et al. (2019)',
+
+        reason=(
+            'Same trial as Lutzke et al. (2019), confirmed against the paper (decision D4, 2026-10-21): identical experiment, final N = 2,750, the same 3x2 design and the same F statistics; the single-author file is the manuscript'),
+
+        kept='Lutzke et al. (2019)'),
+
+    ('Maertens (2022)', 'Maertens2022_Exp1'): dict(
+
+        duplicate_of='Maertens et al. (2020)',
+
+        reason=(
+            'Same trial as Maertens et al. (2020), confirmed against the paper (decision D4, 2026-10-21): thesis Study 1 is the 2020 article: 480 Prolific participants, 415 complete cases, the same 80-participant pilot'),
+
+        kept='Maertens et al. (2020)'),
+
+    ('Maertens (2022)', 'Maertens2022_Exp2'): dict(
+
+        duplicate_of='Maertens et al. (2020)',
+
+        reason=(
+            'Same trial as Maertens et al. (2020), confirmed against the paper (decision D4, 2026-10-21): thesis Study 1 is the 2020 article: 480 Prolific participants, 415 complete cases, the same 80-participant pilot'),
+
+        kept='Maertens et al. (2020)'),
+
+    ('Maertens (2022)', 'Maertens2022_Exp3'): dict(
+
+        duplicate_of='Maertens et al. (2020)',
+
+        reason=(
+            'Same trial as Maertens et al. (2020), confirmed against the paper (decision D4, 2026-10-21): thesis Study 1 is the 2020 article: 480 Prolific participants, 415 complete cases, the same 80-participant pilot'),
+
+        kept='Maertens et al. (2020)'),
+
+    ('Maertens (2022)', 'Maertens2022_Exp4'): dict(
+
+        duplicate_of='Maertens et al. (2020)',
+
+        reason=(
+            'Same trial as Maertens et al. (2020), confirmed against the paper (decision D4, 2026-10-21): thesis Study 1 is the 2020 article: 480 Prolific participants, 415 complete cases, the same 80-participant pilot'),
+
+        kept='Maertens et al. (2020)'),
+
+    ('Maertens (2022)', 'Maertens2022_Exp5'): dict(
+
+        duplicate_of='Maertens et al. (2020)',
+
+        reason=(
+            'Same trial as Maertens et al. (2020), confirmed against the paper (decision D4, 2026-10-21): thesis Study 1 is the 2020 article: 480 Prolific participants, 415 complete cases, the same 80-participant pilot'),
+
+        kept='Maertens et al. (2020)'),
+
+    ('Marten & Stadtler (2025 b)', '*'): dict(
+
+        duplicate_of='Marten et al. (2025)',
+
+        reason=(
+            "Same trial as Marten et al. (2025), confirmed against the paper (decision D4, 2026-10-21): the '2025 b' file is the author accepted manuscript of the Learning and Individual Differences article: same 254 students, final 210"),
+
+        kept='Marten et al. (2025)'),
+
+    ('Moravec (2020)', '*'): dict(
+
+        duplicate_of='Moravec et al. (2020)',
+
+        reason=(
+            "Same trial as Moravec et al. (2020), confirmed against the paper (decision D4, 2026-10-21): the dissertation's chapter 3 is titled exactly like the ISR article and reports the same N = 398 Qualtrics main study"),
+
+        kept='Moravec et al. (2020)'),
+
+    ('Neylan et al. (2023 b)', '*'): dict(
+
+        duplicate_of='Neylan et al. (2023)',
+
+        reason=(
+            'Same trial as Neylan et al. (2023), confirmed against the paper (decision D4, 2026-10-21): the same DOI, the same 10 pages, the extracted texts match at 0.9999: one article downloaded twice'),
+
+        kept='Neylan et al. (2023)'),
+
+    ('Pennycook et al. (2023)', '*'): dict(
+
+        duplicate_of='Pennycook et al. (2024)',
+
+        reason=(
+            'Same trial as Pennycook et al. (2024), confirmed against the paper (decision D4, 2026-10-21): the 2023 working paper and the 2024 article have identical per-study Ns'),
+
+        kept='Pennycook et al. (2024)'),
+
+    ('Ramasubramanian (2005)', '*'): dict(
+
+        duplicate_of='Ramasubramanian & Oliver (2007)',
+
+        reason=(
+            'Same trial as Ramasubramanian & Oliver (2007), confirmed against the paper (decision D4, 2026-10-21): identical N = 227 (196 analysed) and identical statistics to the decimals'),
+
+        kept='Ramasubramanian & Oliver (2007)'),
+
+    ('Ramasubramanian (2007)', '*'): dict(
+
+        duplicate_of='Ramasubramanian & Oliver (2007)',
+
+        reason=(
+            'Same trial as Ramasubramanian & Oliver (2007), confirmed against the paper (decision D4, 2026-10-21): the Media Psychology note 1 states the same experiment included the implicit judgment-and-memory mini-study, a salami slice of the same session'),
+
+        kept='Ramasubramanian & Oliver (2007)'),
+
+    ('Winters (2021)', 'WintersDiss2021_Exp2'): dict(
+
+        duplicate_of='Winters et al. (2021)',
+
+        reason=(
+            "Same trial as Winters et al. (2021), confirmed against the paper (decision D4, 2026-10-21): the thesis's Study IV is the article's CMT RCT: the same 736 randomised 1:1:1, the same recruitment, the same registration NCT04112680, the same results"),
+
+        kept='Winters et al. (2021)'),
+
+}
+
+
+# Foreign records (decision D8, 2026-10-22): a record whose study does not appear in the
+# paper its study key points at.  The coding stays as it is (all three routes carry these
+# records, so removing them from the canonical route would break the IRR measurement),
+# but they may not contribute to a pooled product: the paper that supports them is not in
+# the corpus and was never screened.
+FOREIGN_RECORD_EXCLUSIONS = {
+
+    ('Fendt et al. (2026 x)', 'Fendt2026_Morality1'): dict(
+
+        criterion='Record belongs to a paper that is not in the corpus (D8)',
+
+        reason=(
+            "Foreign record. `Papers/Fendt et al. (2026 x).pdf` is 'Analytic Thinking x "
+            "Lateral Reading' (19 pp.) and contains no morality-framing study: the words "
+            "'moral'/'morality' occur 0 times in its full PDF text layer, and it reports no "
+            "MIST-8 measure. This record is 'Analytic reflection and morality framing "
+            "(Study 1: pre/post accuracy discernment)' (Fendt, Martin & Pennycook, N = 914), "
+            "a different paper that is not in the corpus and was never screened in "
+            "master_dataset.xlsx. The coding is left in place so the three coding routes "
+            "stay comparable (SB and MM carry the same record under the same key), but the "
+            "record may not contribute to any pooled product (decision D8, 2026-10-22)."),
+
+        kept=''),
+
+    ('Fendt et al. (2026 x)', 'Fendt2026_Morality2'): dict(
+
+        criterion='Record belongs to a paper that is not in the corpus (D8)',
+
+        reason=(
+            "Foreign record. `Papers/Fendt et al. (2026 x).pdf` is 'Analytic Thinking x "
+            "Lateral Reading' (19 pp.) and contains no morality-framing study: the words "
+            "'moral'/'morality' occur 0 times in its full PDF text layer, and it reports no "
+            "MIST-8 measure. This record is 'Analytic reflection and morality framing "
+            "(Study 2: post-only MIST-8)' (Fendt, Martin & Pennycook, N = 705), a different "
+            "paper that is not in the corpus and was never screened in master_dataset.xlsx. "
+            "The coding is left in place so the three coding routes stay comparable (SB and "
+            "MM carry the same record under the same key), but the record may not contribute "
+            "to any pooled product (decision D8, 2026-10-22)."),
+
+        kept=''),
+
+}
+
+
 ALL_EXCLUSIONS = {}
+ALL_EXCLUSIONS.update(CODING_EXCLUDED_STUDIES)
 ALL_EXCLUSIONS.update(NONINDEPENDENT_EXCLUSIONS)
 ALL_EXCLUSIONS.update(NO_INTERVENTION_EXCLUSIONS)
+ALL_EXCLUSIONS.update(CONFIRMED_DUPLICATE_TRIALS)
+ALL_EXCLUSIONS.update(FOREIGN_RECORD_EXCLUSIONS)
+
+
+WILDCARD = "*"
 
 
 def is_excluded(study_key, experiment):
@@ -426,21 +982,34 @@ def is_excluded(study_key, experiment):
 
     A pre-rename (legacy) experiment label is resolved through ``LEGACY_STUDY_IDS`` so
     that callers holding the old id still map to the current exclusion.
+
+    An entry whose experiment label is ``"*"`` excludes **every** experiment of
+    the study key.  That is what a confirmed same-trial duplicate needs: the
+    whole paper is the same trial as the paper kept, so no experiment of it may
+    be pooled again.
     """
     key = (str(study_key), str(experiment))
     if key in ALL_EXCLUSIONS:
         return True
+    if (str(study_key), WILDCARD) in ALL_EXCLUSIONS:
+        return True
     alias = LEGACY_STUDY_IDS.get(key)
-    return alias is not None and (str(study_key), alias) in ALL_EXCLUSIONS
+    if alias is not None and (str(study_key), alias) in ALL_EXCLUSIONS:
+        return True
+    return False
 
 
 def reason(study_key, experiment):
     e = ALL_EXCLUSIONS.get((str(study_key), str(experiment)))
+    if e is None:
+        e = ALL_EXCLUSIONS.get((str(study_key), WILDCARD))
     return e["reason"] if e else ""
 
 
 def criterion(study_key, experiment):
     e = ALL_EXCLUSIONS.get((str(study_key), str(experiment)))
+    if e is None:
+        e = ALL_EXCLUSIONS.get((str(study_key), WILDCARD))
     return e.get("criterion", "Duplicate/non-independent report of an included study") if e else ""
 
 
@@ -457,6 +1026,35 @@ def excluded_labels(study_key):
     return out
 
 
+def excluded_labels_all(study_key):
+    """Like ``excluded_labels`` but resolves a ``"*"`` entry to every
+    experiment of the study key that the corpus actually carries.
+
+    Callers that filter on a specific experiment label need the real
+    labels, not the wildcard marker, so the labels are taken from the
+    extraction files when the wildcard is in play.
+    """
+    labels = excluded_labels(study_key)
+    if WILDCARD not in labels:
+        return labels
+    import glob
+    import json
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "Extraction", str(study_key) + ".json")
+    if os.path.isfile(path):
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+            recs = data if isinstance(data, list) else data.get("experiments", [])
+            for r in recs:
+                sid = r.get("Study_ID")
+                if sid:
+                    labels.add(str(sid))
+        except Exception:
+            pass
+    labels.discard(WILDCARD)
+    return labels
+
+
 def table():
     """List of rows for the workbook's `Excluded_Experiments` sheet."""
     rows = []
@@ -468,6 +1066,22 @@ def table():
     for (study_key, experiment), e in NO_INTERVENTION_EXCLUSIONS.items():
         rows.append({"study_key": study_key, "experiment": experiment,
                      "kind": "no_intervention",
+                     "duplicate_of": "", "kept_source": e.get("kept", ""),
+                     "reason": e["reason"]})
+    for (study_key, experiment), e in CODING_EXCLUDED_STUDIES.items():
+        rows.append({"study_key": study_key, "experiment": experiment,
+                     "kind": "coding_excluded",
+                     "duplicate_of": "", "kept_source": e.get("kept", ""),
+                     "reason": e["reason"]})
+    for (study_key, experiment), e in CONFIRMED_DUPLICATE_TRIALS.items():
+        rows.append({"study_key": study_key, "experiment": experiment,
+                     "kind": "confirmed_duplicate",
+                     "duplicate_of": e.get("duplicate_of", ""),
+                     "kept_source": e.get("kept", ""),
+                     "reason": e["reason"]})
+    for (study_key, experiment), e in FOREIGN_RECORD_EXCLUSIONS.items():
+        rows.append({"study_key": study_key, "experiment": experiment,
+                     "kind": "foreign_record",
                      "duplicate_of": "", "kept_source": e.get("kept", ""),
                      "reason": e["reason"]})
     return rows

@@ -9,8 +9,8 @@ import json
 import math
 import os
 import re
-from agreement_lib import _LABEL_MAX_LEVELS, _agreement_index, _field_case_map, gwet_ac
-from analysis_lib import SUSCEPTIBILITY, _APA_LAYER, _APA_SPEC, _apa_domain, _apa_metric, _apa_spec, _bayes_for, _bayes_rows, _figure_index, _figures_dir, _human_mod_label, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_single_figure, _pooled_for, _pool_rows, _sel_rows, _spec_rows_for, _study_moderators
+from agreement_lib import _LABEL_MAX_LEVELS, _agreement_index, _field_case_map, gwet_ac, reliability_rows
+from analysis_lib import SUSCEPTIBILITY, _APA_LAYER, _APA_SPEC, _apa_domain, _apa_metric, _apa_spec, _bayes_for, _bayes_rows, _figure_index, _figures_dir, _figure_path, _human_mod_label, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_single_figure, _pooled_for, _pool_rows, _sel_rows, _spec_rows_for, _study_moderators, _transient_figures_dir
 from statslib import _bayes_meta, _bayes_pool, _dl_pool, _mat_inv, _resolve_bayes_priors, _study_level, _t_ppf, _t_sf, _two_level_components, _wls_cluster
 from studio_lib import _norm, _values, load_extraction
 from studio_state import S, paper_keys
@@ -140,6 +140,17 @@ def _prisma_counts():
         mtime = 0
     if _APA_PRISMA_CACHE["data"] is not None and _APA_PRISMA_CACHE["mtime"] == mtime:
         return _APA_PRISMA_CACHE["data"]
+    # Disk cache so a server restart does not pay the ~90 s canonical counter again.
+    cache_file = os.path.join(S.TEMP, "prisma_counts_cache.json")
+    try:
+        with open(cache_file, encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if (isinstance(blob, dict) and blob.get("mtime") == mtime
+                and isinstance(blob.get("data"), dict)):
+            _APA_PRISMA_CACHE.update(mtime=mtime, data=blob["data"])
+            return blob["data"]
+    except Exception:
+        pass
     try:
         flow = _PRISMA.flow()
     except Exception:
@@ -275,6 +286,14 @@ def _prisma_counts():
                       "distinct_coded_papers": coded},
     }
     _APA_PRISMA_CACHE.update(mtime=mtime, data=data)
+    try:
+        os.makedirs(S.TEMP, exist_ok=True)
+        tmp = cache_file + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"mtime": mtime, "data": data}, fh)
+        os.replace(tmp, cache_file)
+    except OSError:
+        pass
     return data
 
 def _prisma_figure():
@@ -608,7 +627,7 @@ def _apa_moderator(moderator, label, layer, spec, exclusions, scope, model, prio
         _fname = _moderator_single_figure(moderator, "categorical", _entries,
                                           [r for r, _ in data])
         if _fname:
-            fit["figure"] = os.path.join(_figures_dir(), _fname)
+            fit["figure"] = os.path.join(_transient_figures_dir(), _fname)
     except Exception:
         pass
     if multi_studies:
@@ -745,27 +764,11 @@ def _apa_reliability():
                 "note": (f"Only {len(raters)} rater(s) available "
                          f"({', '.join(raters) or 'none'}), so Gwet's AC could not be computed; "
                          "at least two coders (or coder files) are required.")}
-    per, wsum, acc = [], 0.0, 0.0
-    for f in data["fields"]:
-        cmap = _field_case_map(data["raters"], f["name"])
-        case_ratings, observed = [], set()
-        for key, cases in cmap.items():
-            for case, vals in cases.items():
-                observed.update(vals.values())
-                case_ratings.append(list(vals.values()))
-        n_multi = sum(1 for v in case_ratings if len(v) >= 2)
-        if not n_multi:
-            continue
-        cats = sorted(observed) if f["multi"] else list(f["levels"]) + sorted(
-            v for v in observed if v not in f["levels"])
-        res = gwet_ac(case_ratings, cats) if 2 <= len(cats) < _LABEL_MAX_LEVELS else None
-        if res and res["coeff"] is not None:
-            per.append({"Field": f["label"], "AC1": res["coeff"], "k (items)": res["n2"]})
-            acc += res["coeff"] * res["n2"]
-            wsum += res["n2"]
-    overall = (acc / wsum) if wsum else None
-    return {"available": bool(per), "overall_ac1": overall,
-            "n_fields": len(per), "n_items": wsum, "rows": per}
+    rows, overall, _summary = reliability_rows(data)
+    per = [{"Field": r["label"], "AC1": r["ac1"], "k (items)": r["n_multi"]}
+           for r in rows if r.get("ac1") is not None]
+    return {"available": bool(per), "overall_ac1": overall.get("ac1"),
+            "n_fields": len(per), "n_items": overall.get("n_items_total", 0), "rows": per}
 
 def _apa_context(payload):
     layer = (payload.get("layer") or "meta").strip()

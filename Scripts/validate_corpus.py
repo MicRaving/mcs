@@ -192,7 +192,10 @@ def main():
     for sid, rows in sorted(dup_sid.items()):
         print(f"    FAIL {sid}")
         for r in rows:
-            print(f"        {r['key']:<34} pub={r['pub']:<16} year={r['year']} n={r['n']}")
+            # Publication_Type is optional in the schema, so it can be None:
+            # a bare format spec would raise and abort the whole audit.
+            print(f"        {r['key']:<34} pub={str(r['pub'] or '-'):<16} "
+                  f"year={r['year']} n={r['n']}")
         failures.append(f"duplicate Study_ID {sid}")
 
     # ---- 2. duplicate DOI across files -------------------------------------

@@ -1531,6 +1531,42 @@
      "label": "duplicate of an included study (non-independent report)"
     }
    ]
+  },
+  {
+   "name": "Corresponding_Author_Name",
+   "label": "Corresponding author (name)",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Name of the author the paper directs correspondence to, e.g. \"Jane Roe\". Empty when the paper names no corresponding author. Recorded separately from the address in 'Corresponding_Author_Email'.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Corresponding_Author_Email",
+   "label": "Corresponding author (email)",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "E-mail address of the corresponding author, as printed in the paper. Empty when no address is printed or none could be resolved to the corresponding author.",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
+  },
+  {
+   "name": "Corresponding_Author_Source",
+   "label": "Corresponding author (source)",
+   "group": "Metadata & Identification",
+   "type": "string|null",
+   "base_type": "string",
+   "description": "Where the corresponding author was read from, e.g. \"pdf: correspondence note, p. 1\" or \"openalex: corresponding_author_ids\".",
+   "required": false,
+   "derived": false,
+   "module": null,
+   "editor": "text"
   }
  ],
  "dv_fields": [

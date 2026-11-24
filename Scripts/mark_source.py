@@ -199,11 +199,25 @@ def pdf_for(key, explicit=None):
     return None
 
 
+def _rects_ok(rects):
+    for r in (rects or []):
+        if (not isinstance(r, list) or len(r) < 4
+                or not all(isinstance(v, (int, float)) for v in r[:4])
+                or not (0 <= r[0] < r[2] <= 1 and 0 <= r[1] < r[3] <= 1)):
+            return False
+    return True
+
+
+def _text_only(location):
+    """A text reference (``Text p. 3, Results, para 2``) for a paper with no PDF."""
+    return str(location or "").strip().lower().startswith("text")
+
+
 def verify(path, require_fields=False):
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     recs = data if isinstance(data, list) else [data]
-    n_dv = n_quote = n_span = problems = n_fields = n_field_span = 0
+    n_dv = n_quote = n_span = n_text_span = problems = n_fields = n_field_span = 0
     issues = []
     # Record-level bookkeeping that is not extracted from the paper (identifiers,
     # the coder's own note, the screening decision, and the nested containers).
@@ -220,25 +234,22 @@ def verify(path, require_fields=False):
             span = dv.get("source_span")
             if quote:
                 n_quote += 1
-            if isinstance(span, dict) and span.get("page") and span.get("rects"):
+            rects = (span or {}).get("rects") if isinstance(span, dict) else None
+            if isinstance(span, dict) and span.get("page") and rects:
                 n_span += 1
                 pg = span.get("page")
                 if not isinstance(pg, int) or pg < 1:
                     problems += 1
                     issues.append(f"{sid}: invalid page {pg!r} ({dv.get('dv_name')})")
-                bad_rect = False
-                for r in (span.get("rects") or []):
-                    if (not isinstance(r, list) or len(r) < 4
-                            or not all(isinstance(v, (int, float)) for v in r[:4])
-                            or not (0 <= r[0] < r[2] <= 1 and 0 <= r[1] < r[3] <= 1)):
-                        bad_rect = True
-                        break
-                if bad_rect:
+                if not _rects_ok(rects):
                     problems += 1
                     issues.append(f"{sid}: rect outside [0,1] ({dv.get('dv_name')})")
                 if quote and _norm(quote) and _norm(quote) not in _norm(str(span.get("text") or "")):
                     problems += 1
                     issues.append(f"{sid}: span text does not contain source_quote ({dv.get('dv_name')})")
+            elif quote and _text_only(dv.get("source_location")):
+                # paper has no PDF: a text reference plus a verbatim quote is the mark
+                n_text_span += 1
             elif quote:
                 problems += 1
                 issues.append(f"{sid}: source_quote without source_span ({dv.get('dv_name')})")
@@ -249,13 +260,19 @@ def verify(path, require_fields=False):
                     continue
                 n_fields += 1
                 fs = spans.get(fname)
-                if not (isinstance(fs, dict) and fs.get("page") and fs.get("rects")):
+                ok = (isinstance(fs, dict) and fs.get("page") and fs.get("rects"))
+                if not ok and isinstance(fs, dict):
+                    # text-only field span: a page/location plus the quoted text
+                    ok = bool(str(fs.get("text") or "").strip()) and (
+                        fs.get("page") or _text_only(fs.get("location")))
+                if not ok:
                     problems += 1
                     issues.append(f"{sid}: field '{fname}' has no source_span")
                 else:
                     n_field_span += 1
     print(json.dumps({"file": os.path.relpath(path, B), "dv": n_dv, "with_quote": n_quote,
-                      "with_span": n_span, "fields": n_fields,
+                      "with_span": n_span, "with_text_span": n_text_span,
+                      "fields": n_fields,
                       "fields_with_span": n_field_span,
                       "problems": problems, "issues": issues[:30]},
                      ensure_ascii=False, indent=1))

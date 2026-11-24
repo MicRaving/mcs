@@ -52,6 +52,8 @@ for pkg in packages:
 # drop PyMuPDF's development bundle (headers + .lib), never used at runtime
 datas = [item for item in datas if "mupdf-devel" not in item[0].lower().replace("\\", "/")]
 datas = [item for item in datas if "__pycache__" not in item[0].lower()]
+datas = [item for item in datas if "/tests/" not in item[0].lower().replace("\\", "/")]
+hiddenimports = [h for h in hiddenimports if ".tests" not in h and not h.endswith(".conftest")]
 
 # Drop Pillow's AVIF codec: the app never reads AVIF (exports are PNG/XLSX/PPTX),
 # and `_avif.cp311-win_amd64.pyd` is a large binary that triggered a bootloader

@@ -85,8 +85,18 @@
       Coder mode
     </button>
     <div class="field-inline coder-field">
-      <input class="input" id="coder-input" list="coder-options" placeholder="Coder" autocomplete="off" spellcheck="false" title="Your coder name — pick an existing one or type a new name to add yourself">
-      <datalist id="coder-options"></datalist>
+      <div class="coder-pick" id="coder-pick">
+        <input class="input" id="coder-input" placeholder="Coder" autocomplete="off" spellcheck="false" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="coder-menu" title="Your coder name - pick one from the list, or add yourself with your initials">
+        <button class="coder-caret" id="coder-caret" type="button" tabindex="-1" aria-label="Show the coders"></button>
+        <div class="coder-menu" id="coder-menu" hidden>
+          <div class="coder-menu-list" id="coder-menu-list" role="listbox" aria-label="Coders"></div>
+          <div class="coder-add">
+            <span class="coder-add-label">Add coder</span>
+            <input class="input coder-add-input" id="coder-add-input" placeholder="Initials" maxlength="24" autocomplete="off" spellcheck="false" aria-label="Initials of the new coder">
+            <button class="btn primary coder-add-btn" id="coder-add-btn" type="button">Add</button>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="field-inline master-top" id="master-field">
       <input class="input" id="ag-master" placeholder="Master" autocomplete="off" spellcheck="false">
@@ -334,7 +344,7 @@
     <div class="ag-head">
       <div class="an-title">
         <h1>Inter-rater agreement</h1>
-        <p>Gwet's AC1 (nominal) and AC2 (linear weights) on every deterministic label with fewer than 50 levels. Raters need not overlap; missing cells are ignored. The canonical coding is the <code>LLM/base</code> rater.</p>
+        <p>Gwet's AC1 (nominal) and AC2 (linear weights) across every original coder route in <code>Codings/</code>. Raters are never overwritten; settling a conflict records the decision in <code>Codings/_settlements.json</code> and updates the consensus coding in <code>Extraction/&lt;Key&gt;.json</code>.</p>
       </div>
     </div>
 
@@ -381,10 +391,14 @@
                 <option value="all">All</option>
               </select>
             </label>
+            <button class="btn" id="ag-bulk-majority" type="button" title="Settle every OPEN conflict of this study that has a strict rater majority (human-judgement fields are skipped)">Settle majority</button>
+            <button class="btn ghost" id="ag-study-done" type="button" title="Mark this study's conflict review as complete (or reopen it)">Mark complete</button>
+            <a class="btn ghost" id="ag-export-csv" href="/api/agreement/settlements.csv" download="settlements.csv" title="Download all recorded settlements as CSV">Export CSV</a>
             <span class="grow"></span>
+            <span class="ag-totcounts" id="ag-totcounts"></span>
             <span class="pill" id="ag-confcount">–</span>
           </div>
-          <p class="an-note" id="ag-confnote">Click a rater's value to settle the conflict with it; the Master's file is <code>Codings/&lt;Key&gt; - &lt;master&gt;.json</code>.</p>
+          <p class="an-note" id="ag-confnote">Click a rater's value (or the current consensus value) to settle the conflict; all decisions are saved in <code>Codings/_settlements.json</code> and written to the consensus coding <code>Extraction/&lt;Key&gt;.json</code>.</p>
           <div id="ag-conflist"></div>
           <div id="ag-conftail"></div>
         </div>
@@ -720,7 +734,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
         Run all harmonizers
       </button>
-      <button class="btn primary" id="rp-repro" title="Run every Datasets/&lt;Key&gt;/&lt;Key&gt; - reproduction.py and rebuild reproduction_summary.xlsx">
+      <button class="btn" id="rp-dossier" title="Rebuild Results/repro_dossier/ and repro_dossier_index.csv for every study">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-copy"/></svg>
+    Rebuild dossier
+  </button>
+  <button class="btn primary" id="rp-repro" title="Run every Datasets/&lt;Key&gt;/&lt;Key&gt; - reproduction.py and rebuild reproduction_summary.xlsx">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><use href="#i-play"/></svg>
         Run all reproducers
       </button>
@@ -729,6 +747,7 @@
         <input class="input" id="rp-only" placeholder="study substring" autocomplete="off" spellcheck="false">
       </label>
       <span class="pill" id="rp-status-pill">Idle</span>
+  <button class="btn danger" id="rp-cancel" hidden title="Kill the running step and its child processes">Cancel</button>
     </div>
 
     <section class="an-kpis" id="rp-kpis"></section>

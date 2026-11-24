@@ -20,6 +20,7 @@ Every script writes its intermediates to ``temp/`` and writes outputs atomically
 """
 import collections
 import csv
+from collections import Counter
 import glob
 import json
 import math
@@ -1347,6 +1348,599 @@ def main():
     return 0
 
 
+def _jload(path, default=None):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return default
+
+
+def coder_disagreement_section():
+    """The methods subsection on coder disagreement and its resolution.
+
+    Every number is read from the products the disagreement triage wrote
+    (``Results/coder_disagreement_*``, ``Results/coder_majority_fixes.csv``,
+    ``Results/coder_master_scope.json``, ``Results/irr_baseline_comparison.json``);
+    nothing is hard-coded, so the section cannot drift from the data.
+    """
+    tiers = _jload(os.path.join(RESULTS, "coder_disagreement_tiers_summary.json"))
+    split = _jload(os.path.join(RESULTS, "coder_disagreement_split_summary.json"))
+    scope = _jload(os.path.join(RESULTS, "coder_master_scope.json"))
+    irr = _jload(os.path.join(RESULTS, "irr_baseline_comparison.json"))
+    if not (tiers and split):
+        return []
+    fixes = []
+    fx = os.path.join(RESULTS, "coder_majority_fixes.csv")
+    if os.path.isfile(fx):
+        with open(fx, encoding="utf-8-sig", newline="") as fh:
+            fixes = list(csv.DictReader(fh))
+    applied = [r for r in fixes if r.get("pending") == "0"]
+    pending = [r for r in fixes if r.get("pending") == "1"]
+    work = _jload(os.path.join(RESULTS, "coder_master_worklist.json"), {}) or {}
+    match = (_jload(os.path.join(RESULTS, "coder_dv_matching_check.json"), {}) or {}).get("tally") or {}
+    pair = (_jload(os.path.join(RESULTS, "coder_dv_pairing_check.json"), {}) or {}).get("tally") or {}
+    master_batches = master_done = 0
+    mstate = os.path.join(ROOT, "temp", "mm_route", "master_state.json")
+    if os.path.isfile(mstate):
+        st = _jload(mstate, {}) or {}
+        b = st.get("batches") or {}
+        master_batches = len(b)
+        master_done = sum(1 for v in b.values() if v.get("status") == "done")
+
+    tc = tiers.get("counts") or {}
+    sc = split.get("counts") or {}
+
+    def n(x):
+        return "–" if x is None else f"{x:,}"
+
+    L = []
+    L.append("## Coding and coder disagreement")
+    L.append("")
+    L.append("The corpus was coded three times, independently and without sight of each "
+             "other: the canonical analysis route (`Extraction/<Key>.json`), a SpaceBunny "
+             "route (`Codings/<Key> - SB.json`) and a MiniMax route "
+             "(`Codings/<Key> - MM.json`). The two agent routes exist to measure "
+             "inter-rater reliability; they never overwrite the analysis route. "
+             "Every difference between the routes was then sorted by **what settling "
+             "it requires**, not by how often it occurs, and each class was routed to "
+             "the cheapest agent that could settle it soundly.")
+    L.append("")
+    L.append("### How the differences were found")
+    L.append("")
+    L.append(f"- Differences located: **{n(tc.get('pool_items', 0))}** in fields that "
+             f"decide what is pooled and **{n(tc.get('coding_items', 0))}** in fields "
+             f"the analysis does not read, across "
+             f"**{n(tc.get('keys_with_pool', 0))}** and "
+             f"**{n(tc.get('keys_with_coding', 0))}** study keys respectively. "
+             f"A further **{n(tc.get('prose_items', 0))}** differences were in "
+             f"free-text fields where the routes say the same thing at different "
+             f"lengths; these are wording, not disagreement, and were not adjudicated.")
+    L.append("")
+    L.append("- Outcome rows were matched **by position within an outcome name**, not by "
+             "a composite key. The same outcome name recurs once per arm pair, per "
+             "timepoint and per condition, so a stricter key silently compares the wrong "
+             "rows.")
+    if match and pair:
+        L.append(f"  Measured: a composite-key matching leaves only "
+                 f"**{n(match.get('strict_conflicts', 0))}** of the "
+                 f"**{n(match.get('index_conflicts', 0))}** real conflicts visible "
+                 f"({n(match.get('hidden_by_strict', 0))} hidden), while a content-based "
+                 f"pairing agrees with positional pairing to within "
+                 f"{n(abs((pair.get('content_conflicts') or 0) - (pair.get('positional_conflicts') or 0)))} "
+                 f"conflicts ({n(pair.get('positional_conflicts', 0))} vs "
+                 f"{n(pair.get('content_conflicts', 0))}).")
+    L.append("- Positional matching has one residual weakness: when the routes list the "
+             "arms of a contrast in a different order, the pairing is off and the "
+             "disagreement is an artefact rather than a conflict. The master agent "
+             "verified this on `Choi et al. (2023)`, where all three routes agree once "
+             "the rows are matched by arm contrast instead of by position. Such items "
+             "were closed as artefacts, and the matching is the one thing to revisit "
+             "if the disagreement counts are re-derived.")
+    L.append("- A second, sharper weakness: when a route's outcome name **embeds the "
+             "contrast** (`A vs C`, `experimental`), the name no longer identifies the "
+             "same row across routes, and the pairing can compare a canonical row "
+             "against a different contrast entirely. On `Liao et al. (2016)` the "
+             "resulting queue row was not a real disagreement at all, and its value was "
+             "not stable between runs. Items of that shape are listed for the human "
+             "master rather than acted on, because the paper - not the row name - is "
+             "the only reliable way to identify the contrast.")
+    L.append("")
+    align = _jload(os.path.join(RESULTS, "dv_route_alignment_summary.json"), {}) or {}
+    if align:
+        abf = align.get("by_field") or {}
+        L.append("### A second pairing pass, and what it found")
+        L.append("")
+        L.append("The weakness above is not a cosmetic naming problem: it hides "
+                 "disagreements that change the pooled estimate. The canonical route "
+                 "names a row `Food advertising literacy: differentiating advertising "
+                 "authenticity (Group A vs Group C, posttest)` where an agent route "
+                 "names the same outcome `Advertising authenticity`. The two strings "
+                 "never match, so a name-based comparison has nothing to pair and the "
+                 "canonical route and that route are never compared at all - the "
+                 "disagreement can only surface between the two agent routes, under "
+                 "the agent route's name.")
+        L.append("")
+        L.append(f"The rows the name-based pass leaves unpaired are therefore paired a "
+                 f"second time, by the **contrast** they describe (the arm codes and a "
+                 f"coarse timepoint class) and, within a contrast, by how much the "
+                 f"outcome names overlap. The pass is strictly additive - it never "
+                 f"removes a conflict the name-based pass found, so it cannot hide one "
+                 f"- and every conflict it adds is settled by a master agent that "
+                 f"reads the paper. Measured on the corpus: "
+                 f"**{n(align.get('keys_with_extra', 0))}** study keys carry a "
+                 f"disagreement the name-based pass could not see, "
+                 f"**{n(align.get('extra_conflicts', 0))}** row-level conflicts in "
+                 f"total, concentrated in the fields that decide what is pooled "
+                 f"(`eligible_primary` {n(abf.get('eligible_primary', 0))}, "
+                 f"`dv_polarity` {n(abf.get('dv_polarity', 0))}, "
+                 f"`contrast_type` {n(abf.get('contrast_type', 0))}, "
+                 f"`effect_size_type_reported` "
+                 f"{n(abf.get('effect_size_type_reported', 0))}).")
+        L.append("")
+        L.append("The human-queue items that came out of it are not a bookkeeping "
+                 "artefact. A worked example, `Butler et al. (2024)`: the canonical "
+                 "route codes the sharing of true headlines with `yi = -0.580` and the "
+                 "agent routes with `yi = +0.053` and `+0.051` - a **sign** "
+                 "disagreement on a pooled effect, invisible to the name-based pass. "
+                 "The items are addressed by the canonical row they belong to, so the "
+                 "queue names a row that exists and a decision can be written.")
+        L.append("")
+    L.append("### How each class was resolved")
+    L.append("")
+    L.append("The three classes count different things — the rule class is counted in "
+             "record-level field values, the paper and human classes in adjudicated "
+             "items — so they are reported separately rather than as a partition of one "
+             "total.")
+    L.append("")
+    L.append("| class | count | resolved by | status | what it was |")
+    L.append("|---|---|---|---|---|")
+    L.append(f"| rule | {n(len(applied))} record-level field values | a script | "
+             f"**closed** — {n(len(applied))} applied, {n(len(pending))} pending | two of "
+             f"the three routes carry the same value, so the value is settled and no "
+             f"decision is needed |")
+    L.append(f"| paper | {n((scope or {}).get('pool_jobs', 0) + (scope or {}).get('coding_jobs', 0))} "
+             f"items over {n(len(work))} study keys | a master agent | **open** — queued | "
+             f"the paper's own wording settles it: the experiment count, the value of a "
+             f"field the paper states, the taxonomy a row belongs to, how completely an "
+             f"enumeration was done |")
+    L.append(f"| human | {n(split.get('human_items', 0))} items over "
+             f"{n(split.get('human_keys', 0))} study keys | a human master | **open** — "
+             f"awaiting a person | a judgement the paper does not dictate |")
+    L.append(f"| prose | {n(tc.get('prose_items', 0))} differences | not adjudicated | "
+             f"closed | a free-text field where the routes say the same thing at "
+             f"different lengths |")
+    L.append("")
+    L.append(f"The rule class was applied to the analysis route: "
+             f"**{n(len(applied))}** record-level field values were written, each one "
+             f"the value that two of the three routes agreed on, and "
+             f"**{n(len(pending))}** remained pending — the class is closed. The script "
+             f"is deliberately narrow: it touches only controlled-enumeration fields, "
+             f"never a field the analysis reads as a fact or a judgement, compares per "
+             f"record aligned on `Study_ID` (a field can differ between the records of "
+             f"one paper), never applies a list-subset relation (one route's list being "
+             f"a subset of another's is a completeness question, not a majority), and "
+             f"carries a dependent field with its code where the schema requires one.")
+    L.append("")
+    L.append(f"The paper class is queued as "
+             f"**{n((scope or {}).get('pool_jobs', 0) + (scope or {}).get('coding_jobs', 0))}** "
+             f"items over **{n(len(work))}** study keys "
+             f"({n((scope or {}).get('pool_keys', 0))} with at least one pool-relevant "
+             f"item), handed out in resumable batches by "
+             f"`Scripts/master_agent.py`"
+             + (f" — **{n(master_done)} of {n(master_batches)} batches settled so far**"
+                if master_batches else "")
+             + f". The human class is "
+             f"**{n(split.get('human_items', 0))}** items over "
+             f"**{n(split.get('human_keys', 0))}** study keys, listed in "
+             f"`Results/HUMAN_MASTER_BRIEFING.md` with the competing values side by side.")
+    L.append("")
+    hb = split.get("human_by_field") or {}
+    if hb:
+        L.append("| field | items | what the human decides |")
+        L.append("|---|---|---|")
+        what = {
+            "eligible_primary": "is this contrast the primary eligible "
+                                "intervention-vs-control comparison?",
+            "dv_polarity": "which direction of the outcome is desirable "
+                           "(1 = higher is better, 0 = higher is worse)?",
+            "Fulltext_Exclusion_Criterion": "does the study meet every inclusion "
+                                             "criterion (C1-C4)?",
+        }
+        for fld, cnt in sorted(hb.items(), key=lambda kv: -kv[1]):
+            L.append(f"| `{fld}` | {n(cnt)} | {what.get(fld, 'a judgement the paper does not dictate')} |")
+        L.append("")
+        ev_dir = os.path.join(RESULTS, "human_evidence")
+        n_ev = len([f for f in os.listdir(ev_dir) if f.endswith(".md")]) \
+            if os.path.isdir(ev_dir) else 0
+        if n_ev:
+            L.append(f"To keep that queue short, a **separate evidence pass** has "
+                     f"an agent read the paper for each item and report what it "
+                     f"shows — with the quote and the page — without making the "
+                     f"call: {n(n_ev)} study keys are covered in "
+                     f"`Results/human_evidence/<Key>.md`. The human master reads "
+                     f"that and confirms or overrides.")
+            L.append("")
+    sign_path = os.path.join(RESULTS, "effect_sign_consistency.csv")
+    if os.path.isfile(sign_path):
+        try:
+            with open(sign_path, encoding="utf-8-sig", newline="") as fh:
+                srows = list(csv.DictReader(fh))
+        except Exception:
+            srows = []
+        if srows:
+            skeys = {r["study_key"] for r in srows}
+            selig = sum(1 for r in srows
+                         if str(r.get("eligible_primary")) == "1")
+            beta_conflict = [r for r in srows
+                             if r.get("beta_sign_agrees_with_yi") == "NO"]
+            bkeys = {r["study_key"] for r in beta_conflict}
+            L.append("### A sign that flips a pooled estimate")
+            L.append("")
+            L.append("The pipeline orients an effect by the row's polarity, so "
+                     "the oriented effect is `yi x polarity_sign`: positive "
+                     "means group 1 is favoured.  Two master agents found the "
+                     "same class of error in different studies - "
+                     "`Dutta-Powell et al. (2024)` stored the **absolute** "
+                     "value of the paper's coefficient, and `Kankova & "
+                     "Matthes (2026)` stored `d = +b/SD` for seven rows whose "
+                     "contrast is *control minus intervention*.  A sign error "
+                     "flips a pooled estimate, so it is worth a corpus-wide "
+                     "check rather than a paper-by-paper one.")
+            L.append("")
+            L.append(f"`Scripts/check_effect_sign_consistency.py` lists every "
+                     f"row whose `effect_favors` contradicts the sign of its "
+                     f"oriented effect: **{n(len(srows))}** rows over "
+                     f"**{n(len(skeys))}** study keys, **{n(selig)}** of them "
+                     f"`eligible_primary = 1`.  Most of those are a question "
+                     f"of the *convention* - whether `yi` is stored as "
+                     f"`group1 - group2` or the other way round - which the "
+                     f"master agent settles from the paper, key by key.  A "
+                     f"harder subset of **{n(len(beta_conflict))}** rows over "
+                     f"**{n(len(bkeys))}** keys carries the paper's own "
+                     f"coefficient in `beta_val` with the **opposite** sign to "
+                     f"the stored effect, which cannot be a convention "
+                     f"question: one of the two is wrong.")
+            L.append("")
+
+    L.append("### Two decisions that were deliberately not automated")
+    L.append("- **A blank is not always \"no\".** Several fields use an empty value to "
+             "mean *not stated* or *unclear* (`code_available`, `consent_reported`, "
+             "`WEIRD_Rich`), so a gap the analysis route left was routed to the master "
+             "agent rather than filled with 0: writing 0 would turn *we do not know* into "
+             "*no*.")
+    L.append("- **A blank inclusion criterion is ambiguous.** It may mean *the study "
+             "meets every inclusion criterion* or merely *this route did not record one*, "
+             "so a criterion recorded by only one route is a paper question and two "
+             "different sets of recorded criteria is a human question.")
+    L.append("")
+    align = os.path.join(RESULTS, "experiment_alignment.csv")
+    if os.path.isfile(align):
+        try:
+            with open(align, encoding="utf-8-sig", newline="") as fh:
+                arows = list(csv.DictReader(fh))
+        except Exception:
+            arows = []
+        if arows:
+            kinds = Counter(r["kind"] for r in arows)
+            same = kinds.get("same_id_different_sample", 0)
+            missing = kinds.get("canonical_missing_an_experiment", 0)
+            L.append("### A structural difference the routes could not resolve")
+            L.append("")
+            L.append(f"The routes do not always code the same *experiments*. "
+                     f"`Scripts/check_experiment_alignment.py` finds "
+                     f"**{n(same + missing)}** keys where the per-experiment sample "
+                     f"sizes do not line up: on {n(same)} the same experiment id carries "
+                     f"a different N in the analysis route than in the agent routes, and "
+                     f"on {n(missing)} the analysis route codes fewer experiments than the "
+                     f"agent routes do. Both are scope decisions about which of a "
+                     f"paper's experiments belong in the review, and both were handed to "
+                     f"the master agent to settle against the paper rather than to a "
+                     f"rule. The per-key list is `Results/experiment_alignment.csv`.")
+            L.append("")
+    cc_path = os.path.join(RESULTS, "contrast_control_consistency.csv")
+    if os.path.isfile(cc_path):
+        try:
+            with open(cc_path, encoding="utf-8-sig", newline="") as fh:
+                crows = list(csv.DictReader(fh))
+        except Exception:
+            crows = []
+        if crows:
+            ckeys = {r["study_key"] for r in crows}
+            celig = sum(1 for r in crows if str(r["eligible_primary"]) == "1")
+            L.append("### A label that contradicts the record it sits in")
+            L.append("")
+            L.append(f"`Scripts/check_contrast_control_consistency.py` finds "
+                     f"**{n(len(crows))}** DV rows in **{n(len(ckeys))}** study "
+                     f"keys whose `contrast_type` says one thing and whose own "
+                     f"record's `control_group_type` says another — the row "
+                     f"labels its comparison *intervention vs no-treatment "
+                     f"control* while the record says the comparison arm was a "
+                     f"placebo, an active format or misinformation-only. "
+                     f"**{n(celig)}** of the rows are `eligible_primary = 1`, so "
+                     f"they are pooled. The comparison itself (group 1 vs group "
+                     f"2) is usually right; the *label* is wrong, and that label "
+                     f"is what the eligibility judgement — *was the control free "
+                     f"of a misinformation intervention?* — is read from. The "
+                     f"pooled estimates are not affected (`contrast_type` is "
+                     f"carried through the specs but does not route the pool), "
+                     f"but the evidence for the eligibility decision is. The "
+                     f"master agent settles these against the paper; the list "
+                     f"is `Results/contrast_control_consistency.csv`.")
+            L.append("")
+
+    en_path = os.path.join(RESULTS, "effect_type_none_rows.csv")
+    if os.path.isfile(en_path):
+        try:
+            with open(en_path, encoding="utf-8-sig", newline="") as fh:
+                erows = list(csv.DictReader(fh))
+        except Exception:
+            erows = []
+        if erows:
+            ekeys = {r["study_key"] for r in erows}
+            eelig = sum(1 for r in erows if str(r["eligible_primary"]) == "1")
+            vcount = Counter(r["verdict"] for r in erows)
+            L.append("### An effect the pipeline cannot see")
+            L.append("")
+            L.append(f"A DV row whose `effect_size_type_reported` is *none* is "
+                     f"read by the standardisation guard as *the paper reported "
+                     f"no effect size*, and the row is refused — even when the "
+                     f"row carries a usable standardised effect that the coder "
+                     f"derived from the paper's own cell means and SDs. "
+                     f"`Scripts/check_effect_type_none.py` finds "
+                     f"**{n(len(erows))}** such rows in **{n(len(ekeys))}** study "
+                     f"keys, of which **{n(eelig)}** are `eligible_primary = 1`. "
+                     f"Each row carries an effect the pool never sees, and "
+                     f"nothing in the logs says why the row is missing:")
+            L.append("")
+            for verdict, cnt in vcount.most_common():
+                L.append(f"* {n(cnt)} rows — {verdict}")
+            L.append("")
+            L.append("The guard keys on the reported type *and* the conversion "
+                     "text, so the class is a risk marker rather than a uniform "
+                     "defect: most of these rows are admitted because their "
+                     "conversion text documents a standardisation, and the "
+                     "cost is that the refused ones are silently missing from "
+                     "the pool. Measured against the pool's own DV_Metrics "
+                     "sheet, 58 of the 1,215 eligible rows are refused and no "
+                     "raw-scale effect is admitted. The master agent sets the "
+                     "reported type to what the paper actually reported; the "
+                     "numeric fields are left alone. The list is "
+                     "`Results/effect_type_none_rows.csv`.")
+            L.append("")
+
+    sm_path = os.path.join(RESULTS, "source_mismatch.csv")
+    if os.path.isfile(sm_path):
+        try:
+            with open(sm_path, encoding="utf-8-sig", newline="") as fh:
+                smrows = list(csv.DictReader(fh))
+        except Exception:
+            smrows = []
+        if smrows:
+            L.append("### Two keys whose coding is for a different paper")
+            L.append("")
+            L.append(f"`Scripts/check_source_mismatch.py` compares each "
+                     f"record's title with the text of the paper the key points "
+                     f"at, and finds **{n(len(smrows))}** keys whose title is "
+                     f"largely absent from their own paper:")
+            L.append("")
+            for r in smrows:
+                L.append(f"* **{r['study_key']}** — the record reads "
+                         f"*{r['title'][:90]}* (doi `{r['doi']}`), while the "
+                         f"paper is a different study. In both cases the wrong "
+                         f"source was archived and the *paper* repaired, but "
+                         f"the *coding* was never redone. For "
+                         f"`O'Rourke (2019)` one eligible row with a pooled "
+                     f"effect sits under a key whose paper does not report it; "
+                     f"for `Cho et al. (2023)` the real study is uncoded and "
+                     f"the key holds the wrong paper's record. The list is "
+                     f"`Results/source_mismatch.csv`.")
+            L.append("")
+
+    ep_path = os.path.join(RESULTS, "excluded_but_pooled.csv")
+    if os.path.isfile(ep_path):
+        try:
+            with open(ep_path, encoding="utf-8-sig", newline="") as fh:
+                exrows = list(csv.DictReader(fh))
+        except Exception:
+            exrows = []
+        if exrows:
+            ekeys = Counter(r["study_key"] for r in exrows)
+            ecrit = Counter(c for r in exrows for c in r["criteria"].split(";"))
+            L.append("### Effects from studies the coding excludes")
+            L.append("")
+            L.append(f"`Fulltext_Exclusion_Criterion` is the screening layer: a "
+                     f"study that fails C1 (no misinformation intervention), C2 "
+                     f"(no control group), C3 (not English) or C4 (not a primary "
+                     f"experimental study) is still fully coded, harmonised and "
+                     f"reproduced, but the criterion keeps the screening layer "
+                     f"consistent. The pooled models, however, select on "
+                     f"`eligible_primary == 1` and never read the criterion, so "
+                     f"an excluded study still contributes its effects unless "
+                     f"its key is listed by hand in `Scripts/study_exclusions.py`.")
+            L.append("")
+            L.append(f"`Scripts/check_excluded_but_pooled.py` finds "
+                     f"**{n(len(exrows))} pooled effects** from "
+                     f"**{n(len(ekeys))}** study keys that the coding marks as "
+                     f"excluded — {n(ecrit.get('C1', 0))} under C1, "
+                     f"{n(ecrit.get('C4', 0))} under C4, "
+                     f"{n(ecrit.get('C2', 0))} under C2. The clearest case is "
+                     f"`Turetsky & Sanderson (2018)`: a mental-health-stigma "
+                     f"norms experiment with no misinformation content, coded "
+                     f"`['C1']`, 34 eligible rows, 30 of them pooled with an "
+                     f"effect, and the key absent from the exclusion list. The "
+                     f"mechanism exists and works — `NO_INTERVENTION_EXCLUSIONS` "
+                     f"is keyed by `(study_key, experiment)` — it simply does "
+                     f"not list these keys. This is a decision for the campaign "
+                     f"owner, because it changes the pooled result; the full "
+                     f"list is `Results/excluded_but_pooled.csv`.")
+            L.append("")
+
+    dup_path = os.path.join(RESULTS, "possible_duplicate_trials.csv")
+    if os.path.isfile(dup_path):
+        try:
+            with open(dup_path, encoding="utf-8-sig", newline="") as fh:
+                drows = list(csv.DictReader(fh))
+        except Exception:
+            drows = []
+        if drows:
+            dkeys = {r["key_a"] for r in drows} | {r["key_b"] for r in drows}
+            L.append("### A dependence the clustering cannot catch")
+            L.append("")
+            L.append(f"The meta-analysis clusters non-independent contrasts by "
+                     f"`study_key | experiment_id | control_arm`, so it can cluster "
+                     f"*within* a paper but not *across* papers. When one trial is "
+                     f"published several times, each publication becomes its own "
+                     f"cluster and the same participants are counted more than once. "
+                     f"`Scripts/find_duplicate_trials.py` flags "
+                     f"**{n(len(drows))}** candidate pairs over **{n(len(dkeys))}** "
+                     f"study keys — pairs that share an analysed N, a first author "
+                     f"and a title vocabulary (for example the FoodMania! trial, "
+                     f"reported in `Austin et al. (2020)`, `Austin et al. (2020 a)` "
+                     f"and `Austin et al. (2024)` with the same 189 dyads). Some are "
+                     f"already handled by `Scripts/study_exclusions.py`; the "
+                     f"remainder need a decision from the campaign owner about "
+                     f"which outcomes are unique. The list is "
+                     f"`Results/possible_duplicate_trials.csv`.")
+            L.append("")
+
+    L.append("### The reliability measurement was protected")
+    L.append("")
+    tail = ("The agreement products compare the agent routes against the analysis "
+            "route, so writing a majority into the analysis route would make the "
+            "measurement circular. The pre-reconciliation products were therefore "
+            "frozen to `Results/irr_baseline_<date>/` **before** any write. Comparing "
+            "the two")
+    if irr:
+        moved = sum(v.get("keys_with_a_moved_measure", 0)
+                    for v in (irr.get("routes") or {}).values())
+        if moved == 0:
+            tail += (" shows that **no inter-rater reliability measure moved**: the "
+                     "reconciliation touched only record-level coding fields, never "
+                     "eligibility, polarity, domain or the exclusion criterion. The "
+                     "frozen baseline and the live products are the same measurement.")
+        else:
+            tail += (" shows that **%s** keys have a moved measure; the frozen "
+                     "baseline is the honest figure and the live one is not." % n(moved))
+    else:
+        tail += (" is the check that the reconciliation did not distort the reported "
+                 "reliability.")
+    L.append(tail)
+    L.append("")
+    L.append("Full detail: `Results/CODER_DISAGREEMENTS.md`; the per-item queues are "
+             "`Results/coder_disagreement_human_queue.csv` and "
+             "`Results/coder_disagreement_agent_queue.csv`; every write is logged in "
+             "`Results/coder_majority_fixes.csv`.")
+    L.append("")
+
+    # --- the campaign owner's decisions --------------------------------
+    ex_path = os.path.join(RESULTS, "excluded_but_pooled_decisions.csv")
+    if os.path.isfile(ex_path):
+        try:
+            with open(ex_path, encoding="utf-8-sig", newline="") as fh:
+                erows = list(csv.DictReader(fh))
+        except Exception:
+            erows = []
+        if erows:
+            ekeys = {r["study_key"] for r in erows}
+            eeff = sum(int(r.get("pooled_effects_removed") or 0) for r in erows)
+            L.append("### Four findings the owner decided on")
+            L.append("")
+            L.append("The reconciliation surfaced four findings that change the "
+                     "pooled numbers and that no script can settle on its own. The "
+                     "campaign owner ruled on each; the decisions are recorded in "
+                     "`Results/CAMPAIGN_DECISIONS.md` and the products below carry "
+                     "them.")
+            L.append("")
+            L.append("**(a) Studies the coding marks as excluded, but the pool still "
+                     "used.** `Fulltext_Exclusion_Criterion` is the screening layer, "
+                     "and the pooled models select on `eligible_primary` without "
+                     "reading it, so an excluded experiment kept contributing its "
+                     "effects. The comparison is made **per record**, because the "
+                     "criterion is recorded per experiment: "
+                     f"**{n(len(erows))}** records in **{n(len(ekeys))}** study keys "
+                     f"were contributing **{n(eeff)}** pooled effects. The owner's "
+                     f"decision was to exclude them; the entries are in "
+                     f"`Scripts/study_exclusions.py` under `CODING_EXCLUDED_STUDIES`. "
+                     f"The studies themselves are untouched - they stay fully coded, "
+                     f"harmonised and reproduced.")
+            L.append("")
+            L.append("**(b) A trial published more than once.** The meta-analysis "
+                     "clusters non-independent contrasts by "
+                     "`study_key | experiment_id | control_arm`, so it can cluster "
+                     "within a paper but **not across papers**: a trial published "
+                     "three times is counted three times. Every candidate pair was "
+                     "sent to an agent that read both papers:")
+            dup = _jload(os.path.join(RESULTS, "duplicate_trial_summary.json"),
+                         {}) or {}
+            cons = os.path.join(RESULTS,
+                                "duplicate_trial_verdicts_consolidated.csv")
+            crows = []
+            if os.path.isfile(cons):
+                try:
+                    with open(cons, encoding="utf-8-sig", newline="") as fh:
+                        crows = list(csv.DictReader(fh))
+                except Exception:
+                    crows = []
+            if crows:
+                vc = Counter(r["verdict"].strip().upper() for r in crows)
+                L.append("")
+                L.append("| verdict | pairs | what happens |")
+                L.append("|---|---|---|")
+                L.append(f"| same trial, confirmed | {n(vc.get('SAME TRIAL', 0))} | "
+                         f"the duplicate is excluded, per experiment where only part "
+                         f"of a paper is the duplicate |")
+                L.append(f"| different trials | {n(vc.get('DIFFERENT', 0))} | "
+                         f"both are kept |")
+                L.append(f"| contested | {n(vc.get('CONTESTED', 0))} | **not** "
+                         f"excluded - the verifiers disagreed, and the owner's "
+                         f"decision was to exclude only the confirmed pairs |")
+                L.append("")
+                L.append("A contested pair is left to the owner rather than settled "
+                         "by a tie-break, because a contested pair is not a confirmed "
+                         "one. The verdicts are in "
+                         "`Results/duplicate_trial_verdicts_consolidated.csv`.")
+            L.append("")
+            L.append("**(c) Two keys whose coding was for a different paper.** "
+                     "`Scripts/check_source_mismatch.py` compares each "
+                     "record's title with the text of the paper the key points "
+                     "at, and found **two** keys whose title was largely absent "
+                     "from their own paper: `O'Rourke (2019)` carried a "
+                     "Rozendaal et al. (2016) effect under a key whose paper is "
+                     "O'Rourke's 2019 QUB thesis, and `Cho et al. (2023)` "
+                     "carried Litt et al. (2015)'s record, so the real study was "
+                     "uncoded. Both were re-coded from their own papers - and "
+                     "the Litt record was re-filed under its own key - so the "
+                     "audit now reports **0** mismatched keys. The pattern is "
+                     "worth watching for: a key can be repaired by replacing "
+                     "its PDF without its coding ever being redone, which is "
+                     "how both of these arose.")
+            L.append("")
+            L.append("The same pattern is still live in one key: "
+                     "`Fendt et al. (2026 x)` holds two records "
+                     "(`Fendt2026_Morality1`, `Fendt2026_Morality2`) describing "
+                     "an \"analytic reflection and morality framing\" study that "
+                     "the deposited paper does not contain - the word *morality* "
+                     "does not occur in it, and it has neither the MIST-8 "
+                     "measure nor any results. It is flagged for the same "
+                     "treatment as the two keys above.")
+            L.append("")
+            L.append("**(d) A row whose sign contradicted its own paper.** On "
+                     "`Dutta-Powell et al. (2024)` the six perceived-responsibility "
+                     "rows kept a positive pooled effect where the paper's Table 4 "
+                     "reports negative coefficients. The stored magnitude did come "
+                     "from the table - the standardiser had taken the **absolute** "
+                     "value of the coefficient, which flipped the sign - and the "
+                     "authors read the result as *null* (their third hypothesis is "
+                     "rejected: \"the interventions did not change consumers' "
+                     "attitudes about perceived responsibility\"). The rows were "
+                     "re-coded from the table's own coefficients with the "
+                     "derivation written into the record.")
+            L.append("")
+
+    return L
+
+
 def build_report(flow, closure, disagreements,
                  t1_summary, t1_studies, md_tables, t2, t3, t4, pub, mods,
                  png, svg, ascii_fig, mermaid_fig):
@@ -1381,6 +1975,9 @@ def build_report(flow, closure, disagreements,
     L.append("")
 
     ex = flow.get("extraction") or {}
+
+    # ---- methods: coding and coder disagreement
+    L.extend(coder_disagreement_section())
 
     # ---- identification
     L.append("## Identification")

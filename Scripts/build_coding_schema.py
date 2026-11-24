@@ -256,6 +256,57 @@ def apply_campaign_overrides(payload):
     common = payload.get("common_fields") or []
     dv = payload.get("dv_fields") or []
 
+    # Corresponding author (name and address in SEPARATE fields) — the contact a
+    # reader, reviewer or meta-analyst can reach about the paper.  Two fields,
+    # not one blob: the name is searchable metadata, the address is a string
+    # whose shape varies by publisher and is often absent from the deposit.
+    if not any(f.get("name") == "Corresponding_Author_Name" for f in common):
+        common.append({
+            "name": "Corresponding_Author_Name",
+            "label": "Corresponding author (name)",
+            "group": "Metadata & Identification",
+            "type": "string|null",
+            "base_type": "string",
+            "description": ("Name of the author the paper directs correspondence to, "
+                            "e.g. \"Jane Roe\". Empty when the paper names no "
+                            "corresponding author. Recorded separately from the "
+                            "address in 'Corresponding_Author_Email'."),
+            "required": False,
+            "derived": False,
+            "module": None,
+            "editor": "text",
+        })
+    if not any(f.get("name") == "Corresponding_Author_Email" for f in common):
+        common.append({
+            "name": "Corresponding_Author_Email",
+            "label": "Corresponding author (email)",
+            "group": "Metadata & Identification",
+            "type": "string|null",
+            "base_type": "string",
+            "description": ("E-mail address of the corresponding author, as printed "
+                            "in the paper. Empty when no address is printed or none "
+                            "could be resolved to the corresponding author."),
+            "required": False,
+            "derived": False,
+            "module": None,
+            "editor": "text",
+        })
+    if not any(f.get("name") == "Corresponding_Author_Source" for f in common):
+        common.append({
+            "name": "Corresponding_Author_Source",
+            "label": "Corresponding author (source)",
+            "group": "Metadata & Identification",
+            "type": "string|null",
+            "base_type": "string",
+            "description": ("Where the corresponding author was read from, e.g. "
+                            "\"pdf: correspondence note, p. 1\" or "
+                            "\"openalex: corresponding_author_ids\"."),
+            "required": False,
+            "derived": False,
+            "module": None,
+            "editor": "text",
+        })
+
     # Full-text inclusion criteria (C1-C4): recorded on EVERY coding, so a study that fails an
     # inclusion criterion is still fully coded / harmonized / reproduced as normal (see AGENTS.md).
     if not any(f.get("name") == "Fulltext_Exclusion_Criterion" for f in common):
