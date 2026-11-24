@@ -36,7 +36,15 @@ Scripts/                  essential Python used by the campaign
 Scripts/analysis/         the analysis pipeline (metaanalysis.py, reanalysis.py, state.py,
                           run_harmonizers.py, run_reproducers.py)
 run_analysis.py           one entry point that runs the analysis pipeline (see below)
-master_dataset.xlsx       the master screening dataset (abstract + full-text verdicts)
+master_dataset.xlsx       the master screening dataset (abstract + full-text verdicts) -
+                          DERIVED since 2026-11-24: built by `Scripts/compile_master.py`
+                          from Project/master_base.xlsx + Screening/<Tag>.json +
+                          Fulltext/<Tag>.json; never edit it by hand
+Fulltext/<Tag>.json       per-coder full-text decisions (owned by the tag)
+Project/master_base.xlsx  the workbook with decision columns blanked (keeps the
+                          curated Effective_Verdict stage); hidden while blinded
+Project/master_records.csv.gz  decision-free record list (an, title, abstract,
+                          authors, year, doi, source); screening falls back to it
 Results/                  EVERY analysis product (metaanalysis.xlsx, reanalysis.xlsx,
                           reanalysis_all.csv, state.json, harmonization_mapping.xlsx,
                           reproduction_summary.xlsx, combined_harmonized.csv.gz,
