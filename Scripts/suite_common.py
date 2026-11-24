@@ -69,6 +69,7 @@ import study_exclusions as SE  # noqa: E402
 # contract (contract).  suite_common re-exports them unchanged for back-compat.
 import contract as CT  # noqa: E402
 import stat_core as _sc  # noqa: E402
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 _st = _sc._st  # one scipy handle for the whole module
 
@@ -766,7 +767,7 @@ def _meta_did(dv, r=0.5):
 def _data_available_map():
     """study_key (lower) -> 1 if a harmonized participant dataset exists."""
     out = {}
-    for f in glob.glob(os.path.join(DS, "*", "* - harmonized.csv")):
+    for f in CSVIO.glob(os.path.join(DS, "*", "* - harmonized.csv")):
         key = os.path.basename(os.path.dirname(f))
         out[key.lower()] = 1
     return out
@@ -1939,7 +1940,7 @@ def _datasets_with_condition():
     out = set()
     for folder in sorted(glob.glob(os.path.join(DS, "*"))):
         key = os.path.basename(folder)
-        f = os.path.join(folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(f):
             continue
         try:
@@ -1959,7 +1960,7 @@ def _sdt_condition_audit():
         key = os.path.basename(folder)
         if SE.is_fulltext_excluded(key):
             continue
-        f = os.path.join(folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(f):
             continue
         try:
@@ -2329,7 +2330,7 @@ def _newest_spec_input_mtime(layer="meta"):
     pats = ([os.path.join(EXTRACT, "*.json")] if layer == "meta"
             else [os.path.join(DS, "*", "* - harmonized.csv")])
     for pat in pats:
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 newest = max(newest, os.path.getmtime(f))
             except OSError:

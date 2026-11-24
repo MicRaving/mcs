@@ -511,7 +511,13 @@ class Syncer:
 
     # -- pull ----------------------------------------------------------------------------------------
 
-    def pull(self) -> dict:
+    def pull(self, progress=None) -> dict:
+        """Bring the mirror in line with the manifest.
+
+        *progress* (optional) is called ``progress(done, total, path)`` for
+        every candidate the round examines, so a batched on-demand fetch
+        (:meth:`OnlineStore.ensure_many`) can report how far it is.
+        """
         with self.mirror.lock:
             since = int(self.mirror.state.get("seq") or 0)
             epoch = self.mirror.state.get("visibility_epoch")
@@ -553,9 +559,14 @@ class Syncer:
             for path in self._retire(rel):
                 touched.append(path)
         self._process_restores()
-        for rel in candidates:
+        for _i, rel in enumerate(candidates):
             if self._reconcile(rel):
                 touched.append(rel)
+            if progress is not None:
+                try:
+                    progress(_i + 1, len(candidates), rel)
+                except Exception:        # a progress callback may never break a pull
+                    pass
         with self.mirror.lock:
             self.mirror.state["seq"] = max(int(man.get("seq") or 0), since if not full else 0)
             self.mirror.state["visibility_epoch"] = man.get("visibility_epoch")

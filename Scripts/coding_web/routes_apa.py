@@ -1020,12 +1020,17 @@ def _apa_reliability():
         data = _agreement_index()
     except Exception:
         return {"available": False, "note": "Agreement backend unavailable."}
+    fetch = data.get("rater_fetch") or {}
+    missing = list(fetch.get("missing") or [])
     raters = data.get("rater_names") or []
     if len(raters) < 2:
-        return {"available": False,
-                "note": (f"Only {len(raters)} rater(s) available "
-                         f"({', '.join(raters) or 'none'}), so Gwet's AC could not be computed; "
-                         "at least two coders (or coder files) are required.")}
+        note = (f"Only {len(raters)} rater(s) available "
+                f"({', '.join(raters) or 'none'}), so Gwet's AC could not be computed; "
+                "at least two coders (or coder files) are required.")
+        if missing:
+            note += (" Not available offline: " + ", ".join(os.path.basename(p) for p in missing[:5])
+                     + (f" and {len(missing) - 5} more" if len(missing) > 5 else "") + ".")
+        return {"available": False, "note": note, "not_available_offline": missing}
     per, wsum, acc = [], 0.0, 0.0
     for f in data["fields"]:
         cmap = _field_case_map(data["raters"], f["name"])
@@ -1046,7 +1051,8 @@ def _apa_reliability():
             wsum += res["n2"]
     overall = (acc / wsum) if wsum else None
     return {"available": bool(per), "overall_ac1": overall,
-            "n_fields": len(per), "n_items": wsum, "rows": per}
+            "n_fields": len(per), "n_items": wsum, "rows": per,
+            "not_available_offline": missing}
 
 def _apa_context(payload):
     layer = (payload.get("layer") or "meta").strip()

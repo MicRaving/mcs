@@ -5,7 +5,8 @@ tier       content                                                         evict
 =========  ==============================================================  ==========
 core       ``protocol.is_core`` (Project/, Codings/, Extraction/, ...; and  never
            only the small ``Datasets/`` metadata CSVs - ``harmonized.csv``,
-           ``prepared*.csv`` etc. are on demand)
+           ``prepared*.csv`` etc. are on demand; the AI route codings
+           ``Codings/<Key> - SB|MM|DS.json`` are on demand too)
 pinned     every file of a pinned key: assigned keys + "take offline"      never
 lru        any other downloaded file (PDFs, ``Datasets/`` products,         LRU, ``limit_mb``
            Results ...)

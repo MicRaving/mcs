@@ -91,8 +91,11 @@ CLASSIFY_CASES = [
         "Datasets/K/K - variable_assignments.csv",
         FileClass("shared", key="K", task="harmonize"),
     ),
-    # Rule 9 — dataset products
+    # Rule 9 — dataset products (a gzip-compressed product is the same product)
     ("Datasets/K/K - harmonized.csv", FileClass("shared", key="K", task="reproduce")),
+    ("Datasets/K/K - harmonized.csv.gz", FileClass("shared", key="K", task="reproduce")),
+    ("Datasets/K/K - prepared.csv.gz", FileClass("shared", key="K", task="reproduce")),
+    ("Datasets/K/K - harmonized - SB.csv.gz", FileClass("shared", key="K", task="reproduce")),
     ("Datasets/K/K - variables.json", FileClass("shared", key="K", task="reproduce")),
     ("Datasets/K/K - dv_direction.csv", FileClass("shared", key="K", task="reproduce")),
     # Rule 10 — dataset code
@@ -167,7 +170,7 @@ def test_file_class_rejects_unknown_kind():
 CORE_CASES = [
     # core
     ("Project/project.json", True),
-    ("Codings/Amar et al. (2026) - MM.json", True),
+    ("Codings/Amar et al. (2026) - A.json", True),
     ("Extraction/Key (2021).json", True),
     ("Screening/OG.json", True),
     ("Screening/abc.csv", True),          # admin under a core prefix
@@ -187,10 +190,18 @@ CORE_CASES = [
     ("Datasets/K/K - codebook.md", True),
     # not core: the dataset data products are fetched on demand (INTERFACES 4)
     ("Datasets/K/K - harmonized.csv", False),
+    ("Datasets/K/K - harmonized.csv.gz", False),
     ("Datasets/K/K - harmonized - SB.csv", False),
+    ("Datasets/K/K - harmonized - SB.csv.gz", False),
     ("Datasets/K/K - prepared.csv", False),
     ("Datasets/K/K - prepared 2.csv", False),
+    ("Datasets/K/K - prepared.csv.gz", False),
     ("Datasets/K/K - dataset.csv", False),
+    # not core: the AI coding routes are fetched on demand (AI_ROUTE_TAGS)
+    ("Codings/Amar et al. (2026) - SB.json", False),
+    ("Codings/Amar et al. (2026) - SB.md", False),
+    ("Codings/Amar et al. (2026) - MM.json", False),
+    ("Codings/Amar et al. (2026) - DS.json", False),
     # not core
     ("Papers/Smith (2020).pdf", False),
     ("Supplements/Smith (2020) Supplement 2.pdf", False),
@@ -206,6 +217,84 @@ CORE_CASES = [
 def test_is_core(path, expected):
     assert is_core(path) is expected
     assert is_core(path, classify(path)) is expected
+
+
+def test_gzip_product_is_classified_exactly_like_its_plain_twin():
+    """A ``.csv.gz`` product must not fall through to rule 11 (immutable raw data).
+
+    ``.csv`` matched rule 9 and ``.csv.gz`` used to fall to the raw-data rule, which
+    lost the shared/reproduce semantics and made every reader treat it as source.
+    """
+    for base in ("harmonized", "prepared", "prepared 2", "harmonized - SB",
+                 "dataset", "variables", "dv_direction", "exclusions", "conditions",
+                 "repro_results"):
+        plain = f"Datasets/K/K - {base}.csv"
+        gz = plain + ".gz"
+        assert classify(gz) == classify(plain), (plain, classify(plain), classify(gz))
+        assert is_core(gz) is is_core(plain), (plain, is_core(plain), is_core(gz))
+    # ... and a sidecar keeps its core-tier membership in both spellings
+    assert is_core("Datasets/K/K - variables.csv.gz") is True
+    assert is_core("Datasets/K/K - harmonized_variables.csv.gz") is True
+
+
+# --- the AI coding routes are on demand (AI_ROUTE_TAGS, 2026-11-24) ---------
+
+from online_shared.protocol import AI_ROUTE_TAGS, is_ai_route_file  # noqa: E402
+
+
+def test_ai_route_tags_are_the_three_routes():
+    assert AI_ROUTE_TAGS == frozenset({"SB", "MM", "DS"})
+
+
+@pytest.mark.parametrize("tag", sorted(AI_ROUTE_TAGS))
+@pytest.mark.parametrize("ext", ["json", "md"])
+def test_ai_route_coding_files_are_on_demand(tag, ext):
+    """``Codings/<Key> - SB|MM|DS.json(.md)``: owned like any coder, not core."""
+    path = f"Codings/Amar et al. (2026) - {tag}.{ext}"
+    fc = classify(path)
+    assert fc == FileClass("owned", key="Amar et al. (2026)", tag=tag, stage="coding")
+    assert is_ai_route_file(path) is True
+    assert is_ai_route_file(path, fc) is True
+    assert is_core(path) is False and is_core(path, fc) is False
+
+
+@pytest.mark.parametrize("tag", sorted(AI_ROUTE_TAGS))
+def test_ai_route_owned_drafts_and_stage_files_stay_core(tag):
+    """Only the route's *coding* file is on demand - its tiny owned neighbours stay.
+
+    A harmonizer/assignment draft is walked by its own tab on disk and a
+    screening/full-text decision file is read offline by every coder, so both
+    keep the old core rule even when the tag is an AI route.
+    """
+    for path in (f"Codings/Key (2021) - harmonizer - {tag}.json",
+                 f"Codings/Key (2021) - assignments - {tag}.json",
+                 f"Screening/{tag}.json",
+                 f"Screening/fulltext - {tag}.json",
+                 f"Fulltext/{tag}.json"):
+        assert is_ai_route_file(path) is False, path
+        assert is_core(path) is True, path
+
+
+def test_a_human_tag_that_contains_an_ai_route_name_is_not_matched():
+    """The match is the whole tag after the LAST `` - `` (a key may contain it)."""
+    # 'MM' as part of a longer coder name is a different coder
+    assert is_ai_route_file("Codings/Key (2021) - MM2.json") is False
+    assert is_core("Codings/Key (2021) - MM2.json") is True
+    # lower-case tag: classification is case-sensitive, so this is a human coder
+    assert is_core("Codings/Key (2021) - mm.json") is True
+    # a study key that itself ends in ' - SB' keeps its own coder file core
+    assert is_core("Codings/Foo - SB (2021) - A.json") is True
+
+
+def test_ai_route_artefacts_are_never_excluded_from_the_manifest():
+    """On demand means "synced, listed, fetched lazily" - not "excluded".
+
+    ``classify`` still says ``owned`` so the route stays a normal coder to every
+    visibility/push rule; only the cache tier changes.
+    """
+    fc = classify("Codings/K (2021) - MM.json")
+    assert fc.kind == "owned" and fc.stage == "coding" and fc.tag == "MM"
+    assert fc.blind_stages == ()            # blinded through its stage, as before
 
 
 # --- hashing ---------------------------------------------------------------

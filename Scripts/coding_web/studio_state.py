@@ -16,6 +16,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from datetime import datetime
 
 FROZEN = getattr(sys, "frozen", False)
@@ -27,9 +28,24 @@ EXE_DIR = os.path.dirname(os.path.abspath(sys.executable)) if FROZEN else REPO
 CONFIG_NAME = "codingstudio.config.json"
 
 #: Project-relative prefixes whose files are fetched on demand in an online
-#: project (audit §2: Papers/, Text/, Supplements/ and the raw data under
-#: Datasets/).  ``State.ensure_local`` is a no-op for a local project.
-ONLINE_FETCH_PREFIXES = ("Papers/", "Text/", "Supplements/", "Datasets/")
+#: project (audit §2: Papers/, Text/, Supplements/, the raw data under
+#: Datasets/, and the AI coding routes ``Codings/<Key> - SB|MM|DS.json``, which
+#: are on demand since 2026-11-24 - see ``protocol.AI_ROUTE_TAGS``).
+#: ``State.ensure_local`` is a no-op for a local project, and a no-op in online
+#: mode for a path outside these prefixes (a human coder's ``Codings/`` file is
+#: core and therefore always local).
+ONLINE_FETCH_PREFIXES = ("Papers/", "Text/", "Supplements/", "Datasets/", "Codings/")
+
+#: Progress of the current/last on-demand download batch
+#: (:meth:`State.ensure_many`), read by :func:`prefetch_progress` and shown by
+#: the online status so a whole-corpus view can report what it is fetching.
+_PREFETCH = {"running": False, "phase": "idle", "label": "", "done": 0,
+             "total": 0, "bytes": 0, "missing": 0, "at": 0.0}
+
+
+def prefetch_progress():
+    """``{running, phase, label, done, total, bytes, missing, at}`` of the batch."""
+    return dict(_PREFETCH)
 
 
 
@@ -388,6 +404,11 @@ class State:
         #: Extra cache resets registered by modules that learn a root late.
         self._root_hooks = []
         self._lock = threading.RLock()
+        #: ``(root, prefix, suffix) -> (stamp, at, entries)`` for :meth:`names`.
+        self._names_cache = {}
+        #: Safety net only: the entry's *stamp* (manifest seq/epoch + folder
+        #: mtime) is the real freshness test, so a long TTL costs no correctness.
+        self.NAMES_TTL = 300.0
 
     # -- online project ----------------------------------------------------
 
@@ -450,12 +471,14 @@ class State:
 
         This is the helper the audit's read sites call before opening a file of
         ``Papers/``, ``Text/``, ``Supplements/`` or the raw data under
-        ``Datasets/``.  For a local folder project it is a **no-op**: the same
+        ``Datasets/`` - and, since the AI coding routes are on demand
+        (``protocol.AI_ROUTE_TAGS``), before opening one ``Codings/<Key> -
+        SB|MM|DS.json``.  For a local folder project it is a **no-op**: the same
         path comes back.  For an online project it asks the store's syncer to
         fetch the file when it is missing or outdated (blocking), and returns
         the path unchanged when that is not possible (a genuinely missing file,
         or an offline mirror without a copy) so the caller's existing error
-        path still applies.
+        path still applies.  A whole-corpus reader uses :meth:`ensure_many`.
         """
         raw = str(path) if path is not None else ""
         if not self.online or self.store is None or not self.ROOT:
@@ -467,6 +490,163 @@ class State:
             return self.store.ensure_local(rel) or raw
         except Exception:  # noqa: BLE001 - OfflineError/FileNotFoundError: keep the old behaviour
             return raw
+
+    def names(self, prefix="", suffix=""):
+        """The files directly in one folder: ``[{name, path, size, hash, local, mtime_ns}]``.
+
+        In an online project the **manifest is the authority**, so a file that
+        is known but not downloaded still appears - that is what lets
+        ``n_coders`` and the coder lists count an on-demand AI route
+        (``Codings/<Key> - SB.json``) without fetching it (INTERFACES 4).
+        A local project (or an offline listing that failed) scans the disk.
+
+        The answer is cached per (root, folder, suffix), keyed on the manifest's
+        seq/epoch and the folder's mtime: a whole-corpus view asks once per
+        paper, and re-listing a folder of thousands of names 826 times cost
+        ~26 s (see ``agreement_lib``).  A new or deleted file changes both
+        stamps, so the cache never hides a change.
+        """
+        prefix = str(prefix or "").strip("/").replace("\\", "/")
+        if os.path.isabs(prefix):
+            prefix = self.relpath(prefix) or ""
+        suffix = str(suffix or "").lower()
+        stamp = self._folder_stamp(prefix)
+        key = (self.ROOT, prefix, suffix)
+        now = time.monotonic()
+        with self._lock:
+            cached = self._names_cache.get(key)
+            if cached is not None and cached[0] == stamp and now - cached[1] < self.NAMES_TTL:
+                return cached[2]        # a shared, cached view - do not mutate
+        out = []
+        listed = False
+        if self.online and self.store is not None:
+            try:
+                for e in self.store.listdir(prefix):
+                    if e.get("is_dir"):
+                        continue
+                    if suffix and not e["name"].lower().endswith(suffix):
+                        continue
+                    local = bool(e.get("local"))
+                    out.append({"name": e["name"], "path": e["path"],
+                                "size": e.get("size"), "hash": e.get("hash"),
+                                "local": local,
+                                "mtime_ns": self._mtime_ns(e["path"]) if local else None})
+                listed = True
+            except Exception:  # noqa: BLE001 - offline: fall back to the disk
+                out = []
+        if not listed:
+            folder = self.abspath(prefix) if prefix else self.ROOT
+            try:
+                with os.scandir(folder) as it:
+                    for e in it:
+                        try:
+                            if not e.is_file():
+                                continue
+                            if suffix and not e.name.lower().endswith(suffix):
+                                continue
+                            st = e.stat()
+                        except OSError:
+                            continue
+                        out.append({"name": e.name, "path": prefix + "/" + e.name if prefix else e.name,
+                                    "size": st.st_size, "hash": None, "local": True,
+                                    "mtime_ns": st.st_mtime_ns})
+            except OSError:
+                out = []
+        out.sort(key=lambda e: e["name"].lower())
+        with self._lock:
+            self._names_cache[key] = (stamp, now, out)
+        return out
+
+    def _mtime_ns(self, relpath):
+        try:
+            return os.stat(self.abspath(relpath)).st_mtime_ns
+        except OSError:
+            return None
+
+    def _folder_stamp(self, prefix):
+        """A cheap "did this folder's names change?" stamp (manifest + disk)."""
+        stamp = [self.online]
+        if self.online and self.store is not None:
+            mirror = getattr(self.store, "mirror", None)
+            state = getattr(mirror, "state", None)
+            try:
+                with mirror.lock:
+                    stamp.append(state.get("seq"))
+                    stamp.append(state.get("visibility_epoch"))
+            except Exception:  # noqa: BLE001 - a missing state only defeats the cache
+                stamp.append(None)
+        try:
+            stamp.append(os.stat(self.abspath(prefix) if prefix else self.ROOT).st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+        return tuple(stamp)
+
+    def ensure_many(self, paths, progress=None, label=""):
+        """Fetch a **batch** of on-demand files in one sync round (online only).
+
+        The whole-corpus counterpart of :meth:`ensure_local`: a view that scores
+        every coder's file (the agreement / IRR tab reads every
+        ``Codings/<Key> - <coder>.json``) asks for all of them at once instead
+        of issuing one blocking request per file inside its page loop.  The
+        files are queued as ``stale`` and downloaded by a single
+        ``Syncer.pull`` (one manifest request, one state save; a crash mid-batch
+        resumes on the next tick), and ``progress(done, total, path)`` is
+        reported per file together with :func:`prefetch_progress`.
+
+        For a local project nothing is fetched.  ``missing`` names the paths
+        that are still absent afterwards (offline, or unknown to the server), so
+        the caller can say so instead of quietly computing a different number.
+
+        Returns ``{total, needed, fetched, missing, offline, bytes}``.
+        """
+        rels = []
+        for raw in paths or ():
+            text = str(raw or "")
+            rel = (self.relpath(text) or "") if os.path.isabs(text) else text.strip("/")
+            rel = rel.replace("\\", "/")
+            if rel and rel not in rels:
+                rels.append(rel)
+        result = {"total": len(rels), "needed": 0, "fetched": 0, "missing": [],
+                  "offline": False, "bytes": 0}
+        if not rels:
+            return result
+        if not self.online or self.store is None:
+            return result
+        batch = getattr(self.store, "ensure_many", None)
+        if batch is None:                       # an older store: one at a time
+            for rel in rels:
+                try:
+                    self.store.ensure_local(rel)
+                except Exception:  # noqa: BLE001
+                    result["missing"].append(rel)
+            return result
+        total = len(rels)
+        done = {"n": 0}
+        _PREFETCH.update(running=True, phase="fetching", label=str(label or ""),
+                         done=0, total=total, bytes=0, missing=0, at=time.time())
+
+        def _report(done_n, _total, path):
+            done["n"] = max(done["n"], int(done_n))
+            _PREFETCH.update(done=done["n"], total=total, at=time.time())
+            if progress is not None:
+                try:
+                    progress(done["n"], total, path)
+                except Exception:  # noqa: BLE001 - progress may never fail a view
+                    pass
+
+        try:
+            result = batch(rels, progress=_report)
+        except Exception as exc:  # noqa: BLE001 - offline / server refusal
+            log(f"prefetch {label or 'files'} failed: {exc!r}")
+            result = {"total": total, "needed": total, "fetched": 0,
+                      "missing": list(rels), "offline": True, "bytes": 0}
+        finally:
+            _PREFETCH.update(running=False, phase="done",
+                             done=min(done["n"], total), total=total,
+                             bytes=int(result.get("bytes") or 0),
+                             missing=len(result.get("missing") or []),
+                             at=time.time())
+        return result
 
     def exists(self, path):
         """Whether *path* exists locally **or** in the online project's manifest."""
@@ -645,6 +825,8 @@ class State:
             self.PDFIMG = self.TEMP
         tempfile.tempdir = self.TEMP
         self.ROOT = root
+        with self._lock:
+            self._names_cache.clear()
         # The project context follows the app: the scheme, the criteria and the
         # manifest are read from the active root, so a re-root (POST /api/root)
         # switches the scheme with the project.

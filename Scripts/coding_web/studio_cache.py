@@ -19,6 +19,7 @@ warm: the snapshot is read only while its stamps still match the folders.
 
 import json
 import os
+import re
 import time
 
 from studio_lib import APP_VERSION
@@ -296,6 +297,27 @@ _RESP_DIRTY = False
 _RESP_ROOT = None   # the project the entries above belong to
 _LAST_CORE = {}     # the last coding-folder stamp a miss saw (see _from_cache)
 
+#: Views whose answer can be **partial** because they read on-demand files (the
+#: AI route codings, ``protocol.AI_ROUTE_TAGS``): they carry
+#: ``not_available_offline`` - the files they could not fetch - and a partial
+#: answer is not a cacheable answer.
+PARTIAL_PATHS = ("/api/agreement/reliability", "/api/agreement/conflicts")
+_PARTIAL_ANY = re.compile(r'"not_available_offline"\s*:')
+_PARTIAL_EMPTY = re.compile(r'"not_available_offline"\s*:\s*\[\s*\]')
+
+
+def _is_partial(key, body):
+    """True when *body* is an agreement answer that names files it could not fetch.
+
+    Matched on the serialised field (compact or pretty separators - the app may
+    run with ``debug``), never by re-parsing a body that can be megabytes.
+    """
+    if not isinstance(body, str) or key.split("?", 1)[0] not in PARTIAL_PATHS:
+        return False
+    if _PARTIAL_ANY.search(body) is None:
+        return False
+    return _PARTIAL_EMPTY.search(body) is None
+
 
 def _follow_root():
     """Drop the cached answers when the app was pointed at another project.
@@ -442,6 +464,11 @@ def cached_body(key, stamp=None):
     _load_resp_snapshot()
     hit = _RESP.get(key)
     if not hit:
+        return None
+    if _is_partial(key, hit[1]):
+        # a partial answer (some on-demand coder files are not available
+        # offline) is never served from the cache: the next visit asks for them
+        # again and can be complete, and the warning must disappear then
         return None
     if stamp is None:
         stamp = response_stamp(key.split("?", 1)[0])

@@ -44,6 +44,7 @@ sys.path.insert(0, SCRIPTS)
 sys.path.insert(0, ANALYSIS)
 
 import reanalysis as RA            # noqa: E402  (helpers; main() is not called)
+import csvio as CSVIO              # noqa: E402  (plain or gzip-compressed dataset products)
 import suite_common as SC          # noqa: E402
 import dv_polarity as DP           # noqa: E402
 import domain_restriction as DR    # noqa: E402
@@ -151,7 +152,7 @@ def _cell_dv_info(g):
 def build_cells(study_key, folder):
     """Replicate reanalysis.collect_datasets for one study (no collect_datasets call)."""
     meta = RA.meta_for(folder)
-    f = os.path.join(folder, study_key + " - harmonized.csv")
+    f = CSVIO.resolve(os.path.join(folder, study_key + " - harmonized.csv"))
     try:
         d = pd.read_csv(f, encoding="utf-8-sig", low_memory=False)
     except Exception:
@@ -316,7 +317,8 @@ def main():
     all_effect, all_level, no_pid = [], [], []
     for folder in sorted(glob.glob(os.path.join(B, "Datasets", "*"))):
         key = os.path.basename(folder)
-        if not os.path.isfile(os.path.join(folder, key + " - harmonized.csv")):
+        wide = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
+        if not os.path.isfile(wide):
             continue
         if SE.is_fulltext_excluded(key):
             continue
@@ -326,8 +328,7 @@ def main():
         if not e and not l:
             continue
         try:
-            cols = pd.read_csv(os.path.join(folder, key + " - harmonized.csv"),
-                               encoding="utf-8-sig", nrows=0).columns
+            cols = pd.read_csv(wide, encoding="utf-8-sig", nrows=0).columns
             if "pid" not in cols:
                 no_pid.append(key)
         except Exception:

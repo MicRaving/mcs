@@ -18,6 +18,11 @@ import time
 from statslib import BAYES_MU_SD, BAYES_MU_SD_PRESETS, BAYES_TAU_PRESETS, BAYES_TAU_SD, _bayes_pool, _wls
 from studio_lib import _is_continuous, _is_object_field, _norm, _schema, _summary_field_lists, _values, atomic_replace, load_extraction
 from studio_state import FROZEN, S, log, paper_keys, run_analysis_locally
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
 
 # Per-intervention model (Scripts/PER_INTERVENTION_MODEL.md): route every coding
 # read through suite_common's record_interventions / effective_record so
@@ -104,11 +109,17 @@ ANALYSIS_CACHE = os.path.join(S.TEMP, ".analysis_cache.json")
 def _analysis_fingerprint():
     """Hash of the inputs that drive publication_bias.py / figures.py."""
     items = []
-    patterns = [os.path.join(S.EXTRACTION, "*.json"),
-                os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
-                os.path.join(S.ROOT, "Scripts", "*.py")]
+    patterns = [os.path.join(S.EXTRACTION, "*.json")]
     for pat in patterns:
         for f in glob.glob(pat):
+            try:
+                st = os.stat(f)
+                items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
+            except OSError:
+                pass
+    for pat in (os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
+                os.path.join(S.ROOT, "Scripts", "*.py")):
+        for f in CSVIO.glob(pat):
             try:
                 st = os.stat(f)
                 items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
@@ -795,7 +806,7 @@ def _inputs_fingerprint():
     for pat in (os.path.join(S.EXTRACTION, "*.json"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized_variables.csv")):
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 st = os.stat(f)
                 items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
@@ -829,7 +840,8 @@ def _prewarm_analysis():
     threading.Thread(target=work, daemon=True).start()
 
 def _study_has_data(key):
-    return S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv"))
+    return S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv")) or \
+        S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv.gz"))
 
 def _common_cat_fields():
     return _summary_field_lists()[0]
@@ -2742,7 +2754,7 @@ def _newest_data_input_mtime():
     for pat in (os.path.join(S.EXTRACTION, "*.json"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized_variables.csv")):
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 newest = max(newest, os.path.getmtime(f))
             except OSError:

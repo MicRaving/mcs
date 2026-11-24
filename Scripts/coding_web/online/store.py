@@ -320,6 +320,78 @@ class OnlineStore:
         """
         return self._require()[2].fetch(relpath)
 
+    def ensure_many(self, relpaths, progress=None) -> dict:
+        """Make a **batch** of on-demand paths local in one sync round.
+
+        The bulk counterpart of :meth:`ensure_local`, for a view that reads a
+        whole corpus (the agreement / IRR tab opens every
+        ``Codings/<Key> - <coder>.json``, including the on-demand AI routes).
+        The paths are queued as ``stale`` and downloaded by a single
+        ``Syncer.pull`` - one manifest request and one state save for the whole
+        batch instead of a ``fetch``/state-save per file - so a crash mid-batch
+        resumes on the next tick.  ``progress(done, total, path)`` is called as
+        the batch advances.
+
+        Returns ``{total, needed, fetched, missing, offline, bytes}``;
+        ``missing`` lists the paths that are still absent afterwards (offline,
+        or unknown to the server), so the caller can report them.
+        """
+        _client, mirror, syncer = self._require()
+        rels: list[str] = []
+        for raw in relpaths or ():
+            rel = protocol.normalize_path(str(raw or ""))
+            if rel and rel not in rels:
+                rels.append(rel)
+        needed = []
+        for rel in rels:
+            with mirror.lock:
+                r = mirror.remote.get(rel)
+                head = mirror.heads.get(rel)
+            if r is None or not r.get("hash") or r.get("deleted"):
+                continue                      # unknown to the server: reported missing
+            if head and head.get("hash") == r.get("hash") and os.path.exists(mirror.abspath(rel)):
+                continue                      # already current
+            needed.append(rel)
+        out = {"total": len(rels), "needed": len(needed), "fetched": 0,
+               "missing": [], "offline": False, "bytes": 0}
+        if needed:
+            pending = set(needed)
+            with mirror.lock:
+                for rel in needed:
+                    mirror.add_stale(rel)
+                mirror.save()
+
+            def _report(done_n, total_n, rel):
+                if rel not in pending:
+                    return
+                pending.discard(rel)
+                if progress is not None:
+                    try:
+                        progress(len(needed) - len(pending), len(needed), rel)
+                    except Exception:        # a progress callback may never break a fetch
+                        pass
+
+            try:
+                with syncer.sync_lock:        # one round, never interleaved with a tick
+                    syncer.pull(progress=_report)
+            except OfflineError:
+                out["offline"] = True
+            except OnlineError:
+                pass                          # a refused batch: the loop below reports it
+        for rel in rels:
+            full = mirror.abspath(rel)
+            if os.path.exists(full):
+                out["fetched"] += 1
+                try:
+                    out["bytes"] += os.path.getsize(full)
+                except OSError:
+                    pass
+            else:
+                out["missing"].append(rel)
+        if needed:
+            mirror.save()
+        return out
+
     #: How long a manifest view may be reused when the state stamp is unchanged.
     #: ``/api/papers`` lists ``Papers/`` and ``Supplements/`` once per paper; a
     #: fresh copy of the whole manifest per call cost O(papers x files) - tens of

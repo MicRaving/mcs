@@ -443,10 +443,11 @@ def _coder_names(names):
 
 
 def _harmonized_datasets(folder):
-    """Datasets that hold a ``<Key> - harmonized.csv`` (cheap: names only)."""
+    """Datasets that hold a ``<Key> - harmonized.csv`` (or its ``.gz`` twin)."""
     count = 0
     for name in _dataset_dirs(folder):
-        if _files_in(os.path.join(folder, name), "- harmonized.csv"):
+        d = os.path.join(folder, name)
+        if _files_in(d, "- harmonized.csv") or _files_in(d, "- harmonized.csv.gz"):
             count += 1
     return count
 

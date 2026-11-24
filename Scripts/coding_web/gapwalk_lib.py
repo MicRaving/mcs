@@ -33,6 +33,12 @@ from collections import OrderedDict
 
 from studio_state import S
 
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
+
 # ---------------------------------------------------------------------------
 # the ten questions, in plain words (approved wording)
 # ---------------------------------------------------------------------------
@@ -403,7 +409,7 @@ def profile_columns(key, folder):
     cands = []
     for p in sorted(_glob(folder, key + " - prepared*.csv")):
         cands.append((p, "prepared", _artifact_of(os.path.basename(p), key)))
-    harm = os.path.join(folder, f"{key} - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     if S.has_file(harm):
         cands.append((harm, "harmonized", "*"))
     best = None
@@ -771,10 +777,10 @@ def load_sidecar(key):
 
 def load_wide_columns(key):
     folder = os.path.join(S.DATASETS or "", key)
-    path = os.path.join(folder, f"{key} - harmonized.csv")
+    path = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     path = S.ensure_local(path)
     try:
-        with open(path, encoding="utf-8-sig", newline="", errors="replace") as fh:
+        with CSVIO.open_text(path, newline="", errors="replace") as fh:
             for row in csv.reader(fh):
                 return [str(c).strip() for c in row if str(c).strip()]
     except OSError:

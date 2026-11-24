@@ -12,6 +12,11 @@ import tempfile
 import threading
 from studio_lib import atomic_replace, domain_vocab, safe_token
 from studio_state import S
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
 
 bp = Blueprint("harmonizer", __name__)
 
@@ -50,7 +55,7 @@ def safe_study_key(key):
 def harmonized_paths(key):
     folder = os.path.join(S.DATASETS or "", key)
     return (os.path.join(folder, key + " - harmonized_variables.csv"),
-            os.path.join(folder, key + " - harmonized.csv"))
+            CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv")))
 
 def _dataset_paths(folder, pattern):
     """Dataset file paths matching *pattern* (manifest-aware in an online project).
@@ -482,7 +487,7 @@ def api_harmonizer_decode():
 # ------------------------------------------------------------------ rawvar
 def _header_of_csv(path):
     try:
-        with open(path, encoding="utf-8-sig", newline="") as fh:
+        with CSVIO.open_text(path, newline="") as fh:
             return [str(c).strip().lstrip("\ufeff") for c in next(csv.reader(fh))]
     except (OSError, StopIteration):
         return []
@@ -764,7 +769,7 @@ def _dataset_preview(key, folder, var, uniform, artifact):
     for c in csvs:
         if all(c != p for p, _ in cands):
             cands.append((c, "prepared"))
-    harm = os.path.join(folder, f"{key} - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     if os.path.isfile(harm):
         cands.append((harm, "harmonized"))
     srcs = _rawvar_sources(folder, key)

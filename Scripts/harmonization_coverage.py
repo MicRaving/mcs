@@ -56,6 +56,8 @@ ROOT = os.path.dirname(HERE)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
+
 try:
     import contract as _contract
     HAS_CONTRACT = True
@@ -217,7 +219,7 @@ def coverage_for_study(key, folder):
     """Return (list_of_matrix_rows, summary_dict) for one study."""
     rows = []
     side_path = os.path.join(folder, f"{key} - harmonized_variables.csv")
-    wide_path = os.path.join(folder, f"{key} - harmonized.csv")
+    wide_path = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     var_path = os.path.join(folder, f"{key} - variables.csv")
     excl_path = os.path.join(folder, f"{key} - exclusions.csv")
     cond_path = os.path.join(folder, f"{key} - conditions.csv")

@@ -729,11 +729,34 @@ def insufficient_note(coverage, matched_pairs=None):
 # ---------------------------------------------------------------- corpus files
 # One directory listing per folder per request.  The old loader globbed
 # ``Codings/`` once per paper (826 x ~3,900 entries = 3.3 M names, ~26 s).
+# The listing is the **manifest** in an online project (``S.names``): an AI route
+# coding that is on demand (``Codings/<Key> - SB|MM|DS.json``, see
+# ``protocol.AI_ROUTE_TAGS``) is still a rater, and its content is fetched in one
+# batch by :func:`ensure_rater_files` before the index reads it.
 
 def _scan(folder):
-    """{file name: (mtime_ns, size)} for the ``*.json`` files of one folder."""
+    """{file name: signature} for the ``*.json`` files of one folder.
+
+    The signature changes whenever the content this layer reads may have
+    changed: ``(mtime_ns, size)`` of a local file, and ``("blob", hash, size)``
+    of a file the manifest knows but the mirror has not downloaded (it has no
+    mtime; the hash is the server's content id).
+    """
     out = {}
-    if not folder or not os.path.isdir(folder):
+    if not folder:
+        return out
+    rel = S.relpath(folder) if S.ROOT else None
+    if S.online and S.store is not None and rel is not None:
+        try:
+            for e in S.names(rel, ".json"):
+                if e.get("local"):
+                    out[e["name"]] = (int(e.get("mtime_ns") or 0), int(e.get("size") or 0))
+                else:
+                    out[e["name"]] = ("blob", str(e.get("hash") or ""), int(e.get("size") or 0))
+            return out
+        except Exception as exc:  # noqa: BLE001 - offline: use the disk
+            log(f"agreement: manifest listing of {folder} failed: {exc!r}")
+    if not os.path.isdir(folder):
         return out
     try:
         with os.scandir(folder) as it:
@@ -800,6 +823,43 @@ def _read_records(path):
     if isinstance(data, dict):
         return [data]
     return data if isinstance(data, list) else None
+
+
+def rater_paths(files=None):
+    """The project-relative rater files of the corpus (``Codings/<Key> - ...``)."""
+    files = corpus_files() if files is None else files
+    out = set()
+    for f in files.values():
+        for path, _sig in f["raters"].values():
+            rel = S.relpath(path)
+            if rel:
+                out.add(rel)
+    return sorted(out)
+
+
+def ensure_rater_files(files=None, label="agreement: coder files"):
+    """Make every rater file local - the on-demand routes in **one batch**.
+
+    The agreement/IRR index opens every ``Codings/<Key> - <coder>.json``, and
+    the AI route codings are on demand (``protocol.AI_ROUTE_TAGS``): the tab
+    asks for the missing ones once (``State.ensure_many``, one sync round with
+    progress) instead of one blocking request per file per page load.  A local
+    project fetches nothing.
+
+    Returns ``{total, needed, fetched, missing, offline, bytes}``.  ``missing``
+    is what is still absent afterwards - offline, or unknown to the server - and
+    the routes report it as ``not_available_offline`` so the view never shows a
+    quietly different number.
+    """
+    empty = {"total": 0, "needed": 0, "fetched": 0, "missing": [],
+             "offline": False, "bytes": 0}
+    if not S.online or S.store is None:
+        return empty
+    try:
+        return S.ensure_many(rater_paths(files), label=label)
+    except Exception as exc:  # noqa: BLE001 - a fetch failure is reported, not raised
+        log(f"agreement: coder-file prefetch failed: {exc!r}")
+        return dict(empty, missing=rater_paths(files), offline=True)
 
 
 def norm_sid(sid):
@@ -1070,11 +1130,18 @@ def _agreement_index():
             _INDEX.update(sig=None, data=None)
             _CACHE_META.update(root=S.ROOT, schema=schema, disk_loaded=False)
         files = corpus_files()
+        # The AI route codings are on demand: fetch the missing ones in ONE batch
+        # before the index reads them (INTERFACES 4).  Offline, the ones that stay
+        # absent are reported by the route as `not_available_offline`.
+        fetch = ensure_rater_files(files)
+        if fetch.get("needed"):
+            files = corpus_files()      # the downloaded files now carry a local stamp
         ext_rater = _extraction_is_rater(c for f in files.values() for c in f["raters"])
         _ANCHOR["rater"] = _project_anchor(files)
         mode = (bool(ext_rater), _ANCHOR["rater"])
         sigs = {k: _key_sig(f, mode) for k, f in files.items()}
-        gsig = hash((S.ROOT, schema, tuple(sorted(sigs.items()))))
+        gsig = hash((S.ROOT, schema, tuple(sorted(sigs.items())),
+                     tuple(fetch.get("missing") or [])))
         if _INDEX["sig"] == gsig and _INDEX["data"] is not None:
             return _INDEX["data"]
         if not _CACHE_META["disk_loaded"]:
@@ -1110,7 +1177,10 @@ def _agreement_index():
                 "rater_names": sorted(summary, key=str.lower),
                 "rater_summary": [summary[r] for r in sorted(summary, key=str.lower)],
                 "by_key": by_key, "sig": gsig, "ext_rater": bool(ext_rater),
-                "anchor": _ANCHOR["rater"]}
+                "anchor": _ANCHOR["rater"],
+                # what the on-demand prefetch did (one batch, with progress) and
+                # what stayed absent (offline) - the routes report it, never hide it
+                "rater_fetch": fetch}
         _INDEX.update(sig=gsig, data=data)
         _DV_ALIGN_CACHE.clear()
         _REL_CACHE.clear()

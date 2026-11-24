@@ -52,6 +52,19 @@ def _store_or_error():
         return None, (jsonify({"ok": False, "error": str(exc)}), 500)
 
 
+def _fetch_note(data):
+    """What the on-demand coder-file prefetch did, and what stayed absent offline.
+
+    The AI route codings (``Codings/<Key> - SB|MM|DS.json``) are fetched on
+    demand, so a whole-corpus view has to say when a route is simply not
+    available offline: otherwise the tab would show agreement over the coders
+    that happen to be downloaded and look like a different result.
+    """
+    fetch = data.get("rater_fetch") or {}
+    return {"prefetch": fetch,
+            "not_available_offline": list(fetch.get("missing") or [])}
+
+
 @bp.get("/api/agreement/reliability")
 def api_agreement_reliability():
     exclude = {x.strip() for x in (request.args.get("exclude") or "").split(",") if x.strip()}
@@ -62,7 +75,8 @@ def api_agreement_reliability():
                                                                  else "consensus"),
                     "anchor_rater": data.get("anchor"), "exclude": sorted(exclude),
                     "raters": data["rater_names"], "rater_summary": data["rater_summary"],
-                    "fields": rows, "overall": overall, "dv_alignment": summary})
+                    "fields": rows, "overall": overall, "dv_alignment": summary,
+                    **_fetch_note(data)})
 
 
 @bp.get("/api/agreement/masters")
@@ -154,7 +168,8 @@ def api_agreement_conflicts():
                     "study_status": study_state.get(study_filter) if study_filter else None,
                     "totals": totals,
                     "raters": data["rater_names"], "consensus": CONSENSUS,
-                    "store": SETTLEMENTS_NAME})
+                    "store": SETTLEMENTS_NAME,
+                    **_fetch_note(data)})
 
 
 def conflict_state(case, sidx):

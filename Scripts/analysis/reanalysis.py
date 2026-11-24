@@ -84,6 +84,7 @@ import domain_restriction as DR  # noqa: E402
 import study_exclusions as SE  # noqa: E402
 import suite_common as SC  # noqa: E402  (dependence-aware pooling: 3-level + RVE)
 import analysis_log as AL  # noqa: E402  (durable drop log, Results/analysis_log.jsonl)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 try:  # console-safe output for study names with non-cp1252 characters
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -572,6 +573,7 @@ def collect_datasets(no_excl, write_catalog=True):
     for folder in sorted(glob.glob(os.path.join(DS, "*"))):
         f = os.path.join(folder, os.path.basename(folder) + " - harmonized.csv")
         side = os.path.join(folder, os.path.basename(folder) + " - harmonized_variables.csv")
+        f = CSVIO.resolve(f)          # the product may be stored gzip-compressed
         if not os.path.isfile(f):
             continue
         # Whole-study full-text exclusion agreed by coders in Coding Studio.

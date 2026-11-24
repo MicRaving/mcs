@@ -55,6 +55,25 @@ CORE_PREFIXES = (
 
 CORE_ROOT_FILES = ("master_dataset.xlsx",)
 
+#: Coder tags of the **AI coding routes** - the independent reliability routes
+#: that re-code the corpus (AGENTS.md): SB = Space Bunny
+#: (``opencode-go/space-bunny-free``), MM = MiniMax
+#: (``opencode/minimax-m3.1-flash-free``), DS = DeepSeek.
+#:
+#: Their artefacts are ``Codings/<Key> - SB|MM|DS.json`` (+ ``.md``).  They are
+#: ~264 MB - 43 % of a co-author's first-login download - and no coding workflow
+#: needs them, so they are **on demand** in the core tier (``is_core`` False):
+#: the app lists them from the manifest (``n_coders``, coder lists) and fetches
+#: them only when a view that scores every route is opened (the agreement/IRR
+#: tab, ``agreement_lib.ensure_rater_files``).  A pinned key still pulls them
+#: (an explicit "take offline").
+#:
+#: The routes' *other* owned files stay core: a harmonizer/assignments draft
+#: (``Codings/<Key> - harmonizer|assignments - <Tag>.json``) and every
+#: screening/full-text decision file (``Screening/``, ``Fulltext/``) are small
+#: and read by their own tabs.
+AI_ROUTE_TAGS = frozenset({"SB", "MM", "DS"})
+
 #: ``Datasets/<Key>/<Key> - <tail>`` CSV products that stay in the core tier.
 #: They are the small metadata sidecars the listing/summary code reads without
 #: opening a study (``variables.csv`` and ``harmonized_variables.csv`` are
@@ -107,6 +126,9 @@ _EXCLUDED_ANY = (
     # build outputs and tool caches anywhere in the tree (the app build in
     # Scripts/coding_web/dist/ alone is ~530 MB of DLLs)
     re.compile(r"^Scripts/coding_web/(?:dist|build)(?:/|$)"),
+    # the owner's separate metacognition strand: stays in the project folder
+    # (its scripts read the project root) but is never synced (decision 2026-11-24)
+    re.compile(r"^metacognition(?:/|$)"),
     re.compile(r"(?:^|/)(?:\.ruff_cache|\.pytest_cache|\.mypy_cache|\.openchamber)(?:/|$)"),
     re.compile(r"\.(?:exe|pyc)$"),
     re.compile(r"^~\$"),          # Office lock files: ~$report.docx
@@ -136,10 +158,10 @@ _RESOLUTIONS = re.compile(r"^Codings/_resolutions/")
 _EXTRACTION = re.compile(r"^Extraction/(?P<key>[^/]+)\.(json|md)$")
 _REPRODUCTION = re.compile(r"^Reproduction/(?P<key>[^/]+)\.md$")
 _DATASET_VAR_ASSIGN = re.compile(
-    r"^Datasets/(?P<key>[^/]+)/(?P=key) - variable_assignments\.csv$"
+    r"^Datasets/(?P<key>[^/]+)/(?P=key) - variable_assignments\.csv(?:\.gz)?$"
 )
 _DATASET_PRODUCT = re.compile(
-    r"^Datasets/(?P<key>[^/]+)/(?P=key) - [^/]+\.(csv|json|md)$"
+    r"^Datasets/(?P<key>[^/]+)/(?P=key) - [^/]+\.(?:csv(?:\.gz)?|json|md)$"
 )
 _DATASET_CODE = re.compile(r"^Datasets/(?P<key>[^/]+)/[^/]+\.py$")
 _DATASET_ANY = re.compile(r"^Datasets/(?P<key>[^/]+)/")
@@ -213,7 +235,7 @@ def classify(path: str) -> FileClass:
     6  ``Extraction/<key>.(json|md)``                                      shared (settle)
     7  ``Reproduction/<key>.md``                                           shared (reproduce)
     8  ``Datasets/<K>/<K> - variable_assignments.csv``                     shared (harmonize)
-    9  ``Datasets/<K>/<K> - <anything>.(csv|json|md)``                     shared (reproduce)
+    9  ``Datasets/<K>/<K> - <anything>.(csv[.gz]|json|md)``                 shared (reproduce)
     10 ``Datasets/<K>/<anything>.py``                                      shared (reproduce)
     11 ``Datasets/<K>/<anything else>``  (raw data)                        immutable
     12 ``Papers/``, ``Text/``, ``Supplements/``                            immutable
@@ -328,19 +350,47 @@ def classify(path: str) -> FileClass:
     return FileClass("admin")
 
 
+def is_ai_route_file(path: str, fc: FileClass | None = None) -> bool:
+    """True for the AI coding-route artefacts ``Codings/<Key> - SB|MM|DS.json(.md)``.
+
+    Those are the independent reliability codings (AGENTS.md: the SB / MM / DS
+    routes).  They are owned coding files like any other coder's, but they are
+    fetched **on demand** (:data:`AI_ROUTE_TAGS`, see :func:`is_core`) because
+    they are ~264 MB and no coding workflow reads them.
+
+    Everything else a route owns stays core: a harmonizer or variable-assignment
+    draft (``Codings/<Key> - harmonizer|assignments - <Tag>.json``) is a tiny
+    override file its own tab walks, and a screening/full-text decision file is
+    not a coding file at all.
+    """
+    p = normalize_path(path)
+    if fc is None:
+        fc = classify(p)
+    return (fc.kind == "owned" and fc.stage == "coding" and fc.tag in AI_ROUTE_TAGS
+            and p.lower().endswith((".json", ".md"))
+            and _CODING_HARM.match(p) is None)
+
+
 def is_core(path: str, fc: FileClass | None = None) -> bool:
     """True when *path* must always be mirrored into the client's working copy.
 
     Core means: anything under :data:`CORE_PREFIXES`, ``master_dataset.xlsx``,
-    and every ``owned``/``shared`` file - **except** a dataset CSV product that
-    is not one of the small metadata sidecars in :data:`DATASET_CORE_CSVS`
-    (``Datasets/<Key>/<Key> - harmonized.csv``, ``- prepared*.csv``, the raw
-    copies ...): those are fetched on demand (``ensure_local``), because they
-    are 2.2 GB of the real project's 2.65 GB core tier.  Immutable sources
-    (``Papers/``, ``Supplements/``, raw ``Datasets/`` data) and ``derived``
-    ``Results/`` are **not** core - they are fetched on demand / pulled
-    separately.  Excluded paths are never core, even when they sit under a core
-    prefix (e.g. ``Codings/__pycache__/x.pyc``).
+    and every ``owned``/``shared`` file - **except**
+
+    * a dataset CSV product that is not one of the small metadata sidecars in
+      :data:`DATASET_CORE_CSVS` (``Datasets/<Key>/<Key> - harmonized.csv``,
+      ``- prepared*.csv``, the raw copies ... and their ``.csv.gz`` twins):
+      those are fetched on demand (``ensure_local``), because they are 2.2 GB of
+      the real project's 2.65 GB core tier;
+    * an **AI route coding file** (``Codings/<Key> - SB|MM|DS.json``, see
+      :data:`AI_ROUTE_TAGS` / :func:`is_ai_route_file`): ~264 MB of reliability
+      codings that only the agreement/IRR views read, so they are fetched on
+      demand too.
+
+    Immutable sources (``Papers/``, ``Supplements/``, raw ``Datasets/`` data)
+    and ``derived`` ``Results/`` are **not** core - they are fetched on demand /
+    pulled separately.  Excluded paths are never core, even when they sit under
+    a core prefix (e.g. ``Codings/__pycache__/x.pyc``).
     """
     p = normalize_path(path)
     if fc is None:
@@ -352,6 +402,8 @@ def is_core(path: str, fc: FileClass | None = None) -> bool:
         return True
     if fc.kind == "shared" and p.startswith("Datasets/"):
         return _dataset_product_is_core(p)
+    if is_ai_route_file(p, fc):
+        return False   # the AI reliability codings are fetched on demand
     if fc.kind in ("owned", "shared"):
         return True
     if fc.kind == "derived" and p.startswith("Results/"):
@@ -366,12 +418,21 @@ def _dataset_product_is_core(p: str) -> bool:
     Only the ``.csv`` products can leave the core tier; every sidecar the app
     reads across all studies without opening one (:data:`DATASET_CORE_CSVS`)
     stays.  Code, notes and JSON products (small) are unaffected.
+
+    A gzip-compressed product (``<Key> - harmonized.csv.gz``) is the same file
+    as far as this rule is concerned: it is classified ``shared`` and it leaves
+    the core tier exactly like its plain twin.
     """
     m = _DATASET_PRODUCT.match(p)
-    if m is None or not p.lower().endswith(".csv"):
+    if m is None:
         return True
-    prefix = "Datasets/" + m.group("key") + "/" + m.group("key") + " - "
-    return p[len(prefix):] in DATASET_CORE_CSVS
+    low = p.lower()
+    if not (low.endswith(".csv") or low.endswith(".csv.gz")):
+        return True
+    tail = p[len("Datasets/" + m.group("key") + "/" + m.group("key") + " - "):]
+    if tail.lower().endswith(".gz"):
+        tail = tail[:-3]
+    return tail in DATASET_CORE_CSVS
 
 
 # --- hashing --------------------------------------------------------------

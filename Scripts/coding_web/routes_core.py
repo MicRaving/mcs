@@ -153,6 +153,9 @@ def api_coding(key, coder):
     if key not in S.KEYS:
         abort(404)
     path = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    # an on-demand AI route coding is fetched here (one explicit request for one
+    # study, not a whole-corpus loop); a human coder's file is already local
+    path = S.ensure_local(path)
     if not os.path.exists(path):
         abort(404)
     with open(path, encoding="utf-8") as fh:
@@ -525,6 +528,7 @@ def api_coding_delete():
     if not coder:
         return jsonify({"ok": False, "error": "coder name is required"}), 400
     target = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    target = S.ensure_local(target)      # an on-demand AI route coding is fetched first
     if not os.path.exists(target):
         return jsonify({"ok": False, "error": "no coding of this study by that coder"}), 404
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

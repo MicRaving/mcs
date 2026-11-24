@@ -44,6 +44,7 @@ B = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, B)
 sys.path.insert(0, os.path.join(B, "Scripts"))
 import suite_common as SC  # noqa: E402
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 import analysis_multiverse_sdt as AMS  # noqa: E402
 import covariate_restriction as CR  # noqa: E402
 
@@ -226,7 +227,7 @@ def main():
         if not SC.include_fully_within() and SC.study_fully_within(key):
             fw_skipped.append(key)
             continue
-        f = os.path.join(folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         vfile = os.path.join(folder, key + " - harmonized_variables.csv")
         if not (os.path.isfile(f) and os.path.isfile(vfile)):
             continue

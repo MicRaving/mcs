@@ -383,9 +383,20 @@ def load_extraction(key):
     return data if isinstance(data, list) else [data]
 
 def coder_files(key):
+    """The coder files of one study: ``{coder, file, modified, local}``.
+
+    Listed from the **manifest** in an online project (``S.names``), so a
+    route file that is on demand (``Codings/<Key> - SB.json``, see
+    ``protocol.AI_ROUTE_TAGS``) is still counted in ``n_coders`` and named in
+    the coder list without being downloaded.  A local project lists the disk.
+    """
+    prefix = key + " - "
     out = []
-    for f in glob.glob(os.path.join(S.CODINGS, glob.escape(key) + " - *.json")):
-        base = os.path.basename(f)[: -len(".json")]
+    for entry in S.names("Codings", ".json"):
+        name = entry["name"]
+        if not name.startswith(prefix):
+            continue
+        base = name[: -len(".json")]
         # A harmonizer coder file (`<Key> - harmonizer - <coder>.json`) is NOT a paper
         # coding: it holds harmonized-variable overrides.  Without this guard it would be
         # counted as an extra ratER by the agreement layer and would inflate `n_coders`.
@@ -395,11 +406,14 @@ def coder_files(key):
         # "Consensus" and "_*" are the settlement route's names, not coders.
         if not coder or coder == "Consensus" or coder.startswith("_"):
             continue
+        mtime_ns = entry.get("mtime_ns")
         try:
-            stamp = datetime.fromtimestamp(os.path.getmtime(f)).isoformat(timespec="seconds")
-        except OSError:
+            stamp = datetime.fromtimestamp(mtime_ns / 1e9).isoformat(timespec="seconds") \
+                if mtime_ns else None
+        except (OSError, OverflowError, ValueError):
             stamp = None
-        out.append({"coder": coder, "file": os.path.basename(f), "modified": stamp})
+        out.append({"coder": coder, "file": name, "modified": stamp,
+                    "local": bool(entry.get("local", True))})
     return sorted(out, key=lambda d: d["coder"].lower())
 
 def _num(v):
@@ -1036,6 +1050,9 @@ def _observed_levels(rows, names):
 def _own_coding(key, coder):
     """The records of ``Codings/<key> - <coder>.json``, else None."""
     path = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    # the coder's own file is core, but an AI route tag (SB/MM/DS) is on demand:
+    # this read is a single explicit request for one study, so fetch it
+    S.ensure_local(path)
     if not os.path.exists(path):
         return None
     try:

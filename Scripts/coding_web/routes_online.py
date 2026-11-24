@@ -53,7 +53,7 @@ from online.errors import (
 )
 from online.store import OnlineStore
 
-from studio_state import S, log, run_analysis_locally
+from studio_state import S, log, prefetch_progress, run_analysis_locally
 
 bp = Blueprint("online", __name__)
 
@@ -265,6 +265,7 @@ def _local_status():
         "run_analysis_locally": run_analysis_locally(),
         # served through the browser gateway (browser_worker); static/browser.js keys off it
         "browser": bool(getattr(S, "browser", False)),
+        "prefetch": prefetch_progress(),
     }
 
 
@@ -294,6 +295,9 @@ def _online_status(store):
     payload.setdefault("next_retry_in", None)
     payload.setdefault("backend", "server")
     payload.setdefault("guarantees", "strong")
+    # the on-demand batch (the AI route codings an agreement view fetches) is
+    # reported while it runs, so a long first visit explains itself
+    payload["prefetch"] = prefetch_progress()
     return payload
 
 

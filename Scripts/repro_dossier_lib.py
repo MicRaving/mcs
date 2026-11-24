@@ -35,6 +35,7 @@ ROOT = os.path.dirname(_HERE)
 SCRIPTS = _HERE
 if SCRIPTS not in sys.path:
     sys.path.insert(0, SCRIPTS)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 RESULTS = os.path.join(ROOT, "Results")
 DATASETS = os.path.join(ROOT, "Datasets")
 EXTRACTION = os.path.join(ROOT, "Extraction")
@@ -671,6 +672,8 @@ _PRODUCT_SUFFIXES = (" - prepared", " - harmonized", " - variables", " - dv_dire
 
 def _role_of(fn, key):
     low = fn.lower()
+    if low.endswith(".gz"):          # a gzip-compressed product keeps its role
+        low = low[:-3]
     if low == "harmonizer.py":
         return "harmonizer"
     if low == key.lower() + " - reproduction.py":
@@ -879,8 +882,8 @@ def build_study(key, domains_df, woe, prov, md_status_map=None, audit_map=None):
     if not originals and not cands:
         study_gaps.append("no_eligible_primary_contrast_coded")
 
-    has_harm = os.path.isfile(os.path.join(DATASETS, key, key + "- harmonized.csv")) or \
-        os.path.isfile(os.path.join(DATASETS, key, key + " - harmonized.csv"))
+    has_harm = CSVIO.exists(os.path.join(DATASETS, key, key + " - harmonized.csv")) or \
+        os.path.isfile(os.path.join(DATASETS, key, key + "- harmonized.csv"))
     fw = _fully_within(key)
 
     for o in originals:

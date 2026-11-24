@@ -105,6 +105,7 @@ def api_summary_save():
             continue
         target = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
         records = None
+        target = S.ensure_local(target)      # on demand only for an AI route tag
         if os.path.exists(target):
             try:
                 with open(target, encoding="utf-8") as fh:

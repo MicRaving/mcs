@@ -46,6 +46,11 @@ import time
 
 from studio_state import FROZEN, S, log
 from studio_lib import atomic_replace
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
 
 bp = Blueprint("repro", __name__)
 
@@ -318,6 +323,8 @@ def _staleness(key, generated_at):
 def _role_of(fn, key):
     """Filename-contract role (mirrors repro_dossier_lib._role_of)."""
     low = fn.lower()
+    if low.endswith(".gz"):          # a gzip-compressed product keeps its role
+        low = low[:-3]
     if low == "harmonizer.py":
         return "harmonizer"
     if low == key.lower() + " - reproduction.py":
@@ -528,7 +535,7 @@ def _known_key(key):
 def _synth_dossier(key):
     """A clearly-marked minimal v0 when Results/repro_dossier/<Key>.json is absent."""
     idx = _dossier_index().get(key, {})
-    harmonized = os.path.join(_datasets_dir(), key, key + " - harmonized.csv")
+    harmonized = CSVIO.resolve(os.path.join(_datasets_dir(), key, key + " - harmonized.csv"))
     return {
         "schema_version": 0,
         "synthesized": True,
@@ -721,6 +728,7 @@ def _study_keys():
         n = name["name"]
         if ("harmonizer.py" in files or n + " - reproduction.py" in files
                 or n + " - harmonized.csv" in files
+                or n + " - harmonized.csv.gz" in files
                 or n + " - harmonized_variables.csv" in files):
             keys.add(n)
     if not (S.online and S.store is not None) and os.path.isdir(ds):
@@ -732,8 +740,9 @@ def _study_keys():
             if (os.path.isfile(os.path.join(folder, "harmonizer.py"))
                     or os.path.isfile(os.path.join(folder, name + " - reproduction.py"))
                     or os.path.isfile(os.path.join(folder, name + " - harmonized.csv"))
+                    or os.path.isfile(os.path.join(folder, name + " - harmonized.csv.gz"))
                     or os.path.isfile(os.path.join(folder,
-                                                    name + " - harmonized_variables.csv"))):
+                                                   name + " - harmonized_variables.csv"))):
                 keys.add(name)
     for r in _harmonization_summary():
         k = _s(r.get("study_key"))
@@ -750,7 +759,8 @@ def _study_flags(key, ds):
     folder = os.path.join(ds, key)
     return {
         "has_harmonizer": S.has_file(os.path.join(folder, "harmonizer.py")),
-        "has_harmonized": S.has_file(os.path.join(folder, key + " - harmonized.csv")),
+        "has_harmonized": S.has_file(os.path.join(folder, key + " - harmonized.csv"))
+        or S.has_file(os.path.join(folder, key + " - harmonized.csv.gz")),
         "has_sidecar": S.has_file(
             os.path.join(folder, key + " - harmonized_variables.csv")),
         "has_reproducer": S.has_file(
@@ -839,7 +849,7 @@ def _repro_overview_row(key, harm_by_key, repro_by_key, ds):
     log_present = bool(log_abs and os.path.isfile(log_abs))
 
     sidecar = os.path.join(ds, key, key + " - harmonized_variables.csv")
-    harmonized = os.path.join(ds, key, key + " - harmonized.csv")
+    harmonized = CSVIO.resolve(os.path.join(ds, key, key + " - harmonized.csv"))
 
     n_reproduced = _int(r.get("n_reproduced"))
     n_not_repro = _int(r.get("n_not_reproduced"))

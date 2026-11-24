@@ -20,9 +20,17 @@ Idempotent: existing split columns are replaced.
 """
 
 import os
+import sys
 
 import numpy as np
 import pandas as pd
+
+# ``csvio`` lives one level up (Scripts/); importing it must work whether this
+# module is loaded from Scripts/ or from a script inside a Datasets/ folder.
+_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Scripts")
+if _SCRIPTS not in sys.path:
+    sys.path.insert(0, _SCRIPTS)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 
 def _domain_of(name, raw=""):
@@ -61,7 +69,7 @@ def _read(p):
 def attach(key, folder, sources):
     """sources: list of {path, artifact, pid_col, veracity_col, true_values, false_values}
     (optional 'ren' rename map). Returns (n_new_columns, n_sources_used)."""
-    harm = os.path.join(folder, key + " - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
     side = os.path.join(folder, key + " - harmonized_variables.csv")
     if not (os.path.isfile(harm) and os.path.isfile(side)):
         return 0, 0

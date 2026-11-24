@@ -12,7 +12,8 @@ def test_build_outputs_and_caches_are_excluded():
               "Scripts/coding_web/dist/",
               "Scripts/coding_web/build/x/y.toc",
               ".ruff_cache/0.1/abc", "Scripts/.pytest_cache/v/x",
-              ".openchamber/state.json"):
+              ".openchamber/state.json",
+              "metacognition/metacog_studies.xlsx", "metacognition/Scripts/metacognition.py"):
         assert P.classify(p).kind == "excluded", p
 
 
