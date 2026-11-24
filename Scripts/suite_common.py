@@ -69,6 +69,7 @@ import study_exclusions as SE  # noqa: E402
 # contract (contract).  suite_common re-exports them unchanged for back-compat.
 import contract as CT  # noqa: E402
 import stat_core as _sc  # noqa: E402
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 _st = _sc._st  # one scipy handle for the whole module
 
@@ -697,7 +698,11 @@ def is_omnibus_eligible(dv):
     """
     if not isinstance(dv, dict) or dv.get("eligible_primary") != 1:
         return False
-    if str(dv.get("contrast_type") or "").strip() == "11":
+    # Compare numerically: a row that went through pandas/CSV carries 11.0, and
+    # str(11.0) == "11.0" slipped past a plain string test.
+    _ct = num(dv.get("contrast_type"))
+    if (_ct is not None and np.isfinite(_ct) and _ct == 11) \
+            or str(dv.get("contrast_type") or "").strip() == "11":
         return True
     if not has_multidf_omnibus(dv):
         return False
@@ -762,7 +767,7 @@ def _meta_did(dv, r=0.5):
 def _data_available_map():
     """study_key (lower) -> 1 if a harmonized participant dataset exists."""
     out = {}
-    for f in glob.glob(os.path.join(DS, "*", "* - harmonized.csv")):
+    for f in CSVIO.glob(os.path.join(DS, "*", "* - harmonized.csv")):
         key = os.path.basename(os.path.dirname(f))
         out[key.lower()] = 1
     return out
@@ -1287,6 +1292,38 @@ def derive_specs(df, layer):
 # printed by analysis_multiverse_meta.py, so it was deliberately left here this pass.
 NONREDUNDANCY_LOG = os.path.join(B, "Scripts", "NONREDUNDANCY_SUPPRESSED.csv")
 COMPONENTS_SPEC = os.path.join(TMP, "meta_specs_components.csv")
+
+
+def partial_output_path(path):
+    """Scratch twin under temp/ for an atomic write of ``path`` (same volume as
+    the project, so :func:`publish_output` can ``os.replace`` it)."""
+    stem, ext = os.path.splitext(os.path.basename(path))
+    os.makedirs(TMP, exist_ok=True)
+    return os.path.join(TMP, f"{stem}.partial{ext}")
+
+
+def publish_output(tmp, path, retries=6):
+    """Atomically move a finished product into place.
+
+    Writing a workbook in place has two failure modes: a crash mid-write leaves a
+    truncated product, and on Windows a workbook that is open in Excel raises
+    ``PermissionError`` -- after the whole analysis has run.  The product is
+    therefore written to ``tmp`` first and moved here, retrying a transient lock
+    (sync client, antivirus).  A lock that persists raises a clear error that
+    names the file and where the fresh results were left.
+    """
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    for attempt in range(retries):
+        try:
+            os.replace(tmp, path)
+            return path
+        except PermissionError:
+            if attempt == retries - 1:
+                raise PermissionError(
+                    f"{path} is locked (is it open in Excel?). Close it and re-run; "
+                    f"the new results were left in {tmp}") from None
+            time.sleep(0.5 * (attempt + 1))
+    return path
 
 
 def write_nonredundancy_log(rows, path=None):
@@ -1943,7 +1980,7 @@ def _datasets_with_condition():
     out = set()
     for folder in sorted(glob.glob(os.path.join(DS, "*"))):
         key = os.path.basename(folder)
-        f = os.path.join(folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(f):
             continue
         try:
@@ -1963,7 +2000,7 @@ def _sdt_condition_audit():
         key = os.path.basename(folder)
         if SE.is_fulltext_excluded(key):
             continue
-        f = os.path.join(folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(f):
             continue
         try:
@@ -2333,7 +2370,7 @@ def _newest_spec_input_mtime(layer="meta"):
     pats = ([os.path.join(EXTRACT, "*.json")] if layer == "meta"
             else [os.path.join(DS, "*", "* - harmonized.csv")])
     for pat in pats:
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 newest = max(newest, os.path.getmtime(f))
             except OSError:

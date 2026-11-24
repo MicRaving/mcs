@@ -1,52 +1,53 @@
 """Screening logic: the master workbook index, per-coder decisions and verdict helpers."""
 
-from contextlib import contextmanager
-from datetime import datetime
-import hashlib
+from datetime import date, datetime
 import json
+import math
 import os
 import re
+import shutil
 import tempfile
 import threading
-import time
 from studio_lib import atomic_replace, safe_token
 from studio_state import S, log
 
 
 # ---------------------------------------------------------------- abstract screening tab
-# Human abstract screening against the four inclusion criteria (C1-C4).
-# Abstracts are read (never written) from the master screening workbook
-# (master_dataset.xlsx; the "Search" sheet when present, else the first sheet,
-# the same rule as Scripts/prisma_report.py).  Each completed abstract is
-# written to Screening/<coder>.json immediately (one file per coder).  The
-# "Merge" action writes a COPY of the workbook with the coder's verdicts in the
-# C*_verdict columns to Results/screening_merge/; the master itself stays the
-# AI screening reference the Agreement tab compares against.
+# Human abstract screening against the inclusion criteria (C1-C4 by default,
+# the scheme's own criteria when it has some).  Abstracts are read from the
+# master screening workbook (master_dataset.xlsx).  Each completed abstract is
+# written to Screening/<coder>.json immediately (one file per coder); a manual
+# "Merge to master" action writes the coder's decisions back into the
+# workbook's <key>_verdict / _certainty / _rationale columns (backup + atomic
+# replace, run in a background thread).
 #
-# Decision rule (matches the PRISMA flow of master_dataset.xlsx, where every
-# record with an Unsure and no No went on to full text):
-#   any No                      -> Exclude
-#   all Yes                     -> Include
-#   no No, every criterion set  -> Unsure (advances to full text)
-#   otherwise                   -> ""      (incomplete)
-# human_screen_decision / ai_screen_decision keep their historical two-valued
-# return ("Include" / "Exclude" / ""); screen_outcome() is the four-valued form.
+# The front-end pre-selects "Unsure" for criteria whose keywords do not occur
+# in the title/abstract, then drives inclusion with the Tab key: Tab accepts
+# the focused criterion without overwriting an existing verdict and advances;
+# once the last criterion is done, the next Tab saves the record and loads the
+# next abstract in the same DOM position.
+#
+# In a *compiled* project (``Project/master_base.xlsx`` exists) the workbook is
+# not written by this merge any more: ``Scripts/compile_master.py`` rebuilds it
+# from every coder's file, and the per-cell rule below (``screening_merge_plan``
+# / ``apply_screening_decision``) is the core that compiler reuses - so the
+# manual merge and the compiled master can never disagree.
 
 SCREENING_CRITERIA = [
-    {"label": "C1", "key": "C1", "kind": "verdict", "title": "Misinformation intervention",
+    {"label": "C1", "kind": "verdict", "title": "Misinformation intervention",
      "instruction": "Does the study feature an intervention aimed at reducing susceptibility to "
                     "misinformation (inoculation/prebunking, debunking, media literacy, "
                     "source-credibility or lateral-reading training, accuracy nudges, social norms, "
                     "platform exposure reduction)?",
      "options": ["Yes", "No", "Unsure"]},
-    {"label": "C2", "key": "C2", "kind": "verdict", "title": "Control group",
+    {"label": "C2", "kind": "verdict", "title": "Control group",
      "instruction": "Does the study include a control, placebo, or comparison group that does NOT "
                     "receive the misinformation intervention?",
      "options": ["Yes", "No", "Unsure"]},
-    {"label": "C3", "key": "C3", "kind": "verdict", "title": "Language (English)",
+    {"label": "C3", "kind": "verdict", "title": "Language (English)",
      "instruction": "Is the paper in English?",
      "options": ["Yes", "No", "Unsure"]},
-    {"label": "C4", "key": "C4", "kind": "verdict", "title": "Experimental (primary quantitative study)",
+    {"label": "C4", "kind": "verdict", "title": "Experimental (primary quantitative study)",
      "instruction": "Is this a primary empirical study with a quantitative experimental or "
                     "quasi-experimental design?",
      "options": ["Yes", "No", "Unsure"]},
@@ -54,566 +55,1057 @@ SCREENING_CRITERIA = [
 
 _SCREEN_LABELS = [c["label"] for c in SCREENING_CRITERIA]
 
-_VERDICTS = {"yes": "Yes", "no": "No", "unsure": "Unsure"}
-
-_CERTAINTIES = {"high": "High", "medium": "Medium", "low": "Low"}
-
-_RATIONALE_MAX = 2000
-
-_MASTER_SHEET = "Search"
-
 _SCREEN_INDEX_LOCK = threading.Lock()
 
-_SCREEN_BUILD_LOCK = threading.Lock()
-
-_SCREEN_INDEX = {"sig": None, "path": None, "rows": None, "by_id": None, "aux": None,
-                 "error": ""}
+_SCREEN_INDEX = {"stamp": None, "rows": None, "by_id": None, "info": None}
 
 _SCREEN_MERGE_LOCK = threading.Lock()
 
+# Held by EVERY writer of master_dataset.xlsx (this merge and the full-text
+# "mark" worker in fulltext_lib): each reads the workbook, rewrites it in full
+# and replaces the file, so two at once would drop one writer's changes.
+MASTER_WRITE_LOCK = threading.Lock()
+
 _SCREEN_MERGE = {"running": False, "coder": None, "ok": None, "error": "", "log": "",
-                 "started": None, "finished": None, "matched": 0, "changed": 0,
-                 "unmatched": 0, "output": None, "backup": None}
+                 "started": None, "finished": None, "matched": 0, "changed": 0, "backup": None}
 
-_DEC_CACHE = {}           # path -> {"sig": (mtime_ns, size), "data": dict}
-_DEC_CACHE_LOCK = threading.Lock()
-_DEC_LOCKS = {}           # path -> threading.Lock (serialises read-modify-write)
-_DEC_LOCKS_GUARD = threading.Lock()
+# Bumped whenever the shape of an index row changes, so a stale on-disk cache
+# (temp/screening_index.json) written by an older build is never served.
+#
+# v5: the in-memory rows no longer carry the abstract text or the long AI
+# rationale/certainty text.  Those are the bulk of the 73 MB cache (abstract
+# 47 MB, ai 15 MB) and no list/filter/sort needs them: they are read from the
+# side file temp/screening_text.sqlite for the one record the abstract pane
+# shows (see `record_text`; PLAN_online_only §6.3.1).
+# v6: the index can be built from the decision-free records table
+# (Project/master_records.csv.gz) when the master workbook is not readable; the
+# info carries the source, so a stale cache from v5 is rebuilt.
+_INDEX_VERSION = 6
 
-_LOCK_TIMEOUT = 15.0
-_LOCK_STALE = 60.0
+#: The compact side file of the long texts: one SQLite row per record, keyed by
+#: the index key (master path + stamp + version) so a stale file is never read.
+_TEXT_DB_NAME = "screening_text.sqlite"
+_TEXT_BATCH = 500
 
-_WIN_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(1, 10)),
-                 *(f"lpt{i}" for i in range(1, 10))}
+_TEXT_LOCK = threading.RLock()
+_TEXT_STATE = {"key": None, "conn": None}
 
-
-class ScreeningStoreError(Exception):
-    """A coder's decision file cannot be read or written safely."""
-
-
-def screening_criteria():
-    """The abstract criteria (C1-C4): the one list the screening and agreement tabs share.
-
-    There is no per-project screening scheme on disk, so this is the built-in
-    list.  It is returned as-is (no copy) because the agreement tab calls it once
-    per record; callers must treat it as read-only.
-    """
-    return SCREENING_CRITERIA
+# Decisions are re-read only when the coder's file changed on disk (one coder
+# file can hold tens of thousands of records, 30 MB of JSON): the file stays
+# authoritative, the cache only saves the re-parse.  One lock serialises every
+# read-modify-write of a decision file, so two quick saves cannot lose one.
+_DECISIONS_LOCK = threading.RLock()
+_DECISIONS_CACHE = {}
 
 
 def screening_master_path():
     return os.path.join(S.ROOT, "master_dataset.xlsx")
 
 
-def coder_token(coder):
-    """The file-name form of a coder name, or "" when the name is unusable."""
-    name = str(coder or "").strip()
-    if not name:
-        return ""
-    if not re.search(r"[0-9A-Za-z\u00c0-\uffff]", name):
-        return ""
-    tok = safe_token(name)
-    if not re.search(r"[0-9A-Za-z\u00c0-\uffff]", tok):
-        return ""
-    if tok.split(".")[0].lower() in _WIN_RESERVED:
-        tok = "_" + tok
-    return tok
+#: The decision-free records table ``compile_master`` writes beside the base: the
+#: bibliographic columns the index reads, no verdict/stage column.  A blinded
+#: coder's mirror receives this file instead of the master workbook (the master
+#: carries every coder's and the AI's verdicts), so the screening tab reads it
+#: when the workbook is absent.
+RECORDS_REL = os.path.join("Project", "master_records.csv.gz")
+#: Extensions the index can read: the workbook, and the records table.
+_TABLE_SUFFIXES = (".xlsx", ".xlsm", ".csv", ".csv.gz", ".tsv", ".tsv.gz")
+
+
+def screening_records_path():
+    return os.path.join(S.ROOT, RECORDS_REL)
+
+
+def screening_source():
+    """``(path, kind)`` the screening tab reads: the master workbook, else the records.
+
+    The workbook wins because it carries the AI verdicts the tab's "AI" column
+    shows.  A blinded coder's mirror has no workbook (``master_dataset.xlsx`` is
+    a derived consensus file, hidden while a screening stage is blinded), so the
+    index falls back to ``Project/master_records.csv.gz`` - the same rows, the
+    same ids, no verdict - and the tab works with the coder's own decisions only.
+    """
+    master = screening_master_path()
+    if os.path.isfile(master):
+        return master, "master"
+    records = screening_records_path()
+    if os.path.isfile(records):
+        return records, "records"
+    return master, "missing"
 
 
 def screening_decision_path(coder):
-    tok = coder_token(coder)
-    return os.path.join(S.SCREENING, f"{tok}.json") if tok else ""
+    return os.path.join(S.SCREENING, f"{safe_token(coder)}.json")
 
 
-# ---------------------------------------------------------------- decision files
-def _sig(path):
+def _file_stamp(path):
+    """(size, mtime_ns): changes on every rewrite, even within the same second."""
     try:
         st = os.stat(path)
     except OSError:
         return None
-    return (st.st_mtime_ns, st.st_size)
+    return (st.st_size, st.st_mtime_ns)
 
 
-def _parse_decisions(path):
+class ScreeningFileError(RuntimeError):
+    """A coder's decision file exists but cannot be read; never overwrite it."""
+
+
+def _read_decisions(path):
     with open(path, encoding="utf-8") as fh:
-        text = fh.read()
-    if not text.strip():
-        return {}
-    data = json.loads(text)
+        data = json.load(fh)
     if not isinstance(data, dict):
-        raise ValueError("top-level value is not an object")
+        raise ValueError("the file does not hold a JSON object")
     return data
 
 
-def _read_cached(path):
-    """The parsed decision file (shared, read-only); raises ScreeningStoreError."""
-    sig = _sig(path)
-    if sig is None:
+def load_screening_decisions(coder, strict=False):
+    """The coder's decisions ``{uid: record}``.
+
+    The returned dict is shared with the cache: treat it as read-only (use
+    ``record_screening_decision`` / ``update_screening_decisions`` to write).
+    A missing file is ``{}``; an unreadable one is ``{}`` too unless *strict*,
+    which raises ``ScreeningFileError`` so a writer never replaces a file it
+    could not read (that would silently drop every earlier decision).
+    """
+    if not coder or not str(coder).strip():
         return {}
-    with _DEC_CACHE_LOCK:
-        hit = _DEC_CACHE.get(path)
-        if hit and hit["sig"] == sig:
-            return hit["data"]
-    try:
-        data = _parse_decisions(path)
-    except Exception as exc:  # noqa: BLE001
-        raise ScreeningStoreError(
-            f"{os.path.basename(path)} cannot be read ({exc}); it is left untouched") from exc
-    with _DEC_CACHE_LOCK:
-        _DEC_CACHE[path] = {"sig": sig, "data": data}
-    return data
-
-
-def _copy_decisions(data):
-    out = {}
-    for uid, rec in data.items():
-        if isinstance(rec, dict):
-            rec = dict(rec)
-            crits = rec.get("criteria")
-            if isinstance(crits, dict):
-                rec["criteria"] = {k: (dict(v) if isinstance(v, dict) else v)
-                                   for k, v in crits.items()}
-        out[uid] = rec
-    return out
-
-
-def decisions_view(coder):
-    """Read-only decisions of a coder (shared cache, do NOT mutate) and an error string."""
     path = screening_decision_path(coder)
-    if not path:
-        return {}, ""
-    try:
-        return _read_cached(path), ""
-    except ScreeningStoreError as exc:
-        log(f"screening: {exc}")
-        return {}, str(exc)
-
-
-def load_screening_decisions(coder):
-    """A private (mutable) copy of a coder's decisions; {} when none or unreadable."""
-    data, _err = decisions_view(coder)
-    return _copy_decisions(data)
-
-
-def _thread_lock(path):
-    with _DEC_LOCKS_GUARD:
-        lock = _DEC_LOCKS.get(path)
-        if lock is None:
-            lock = _DEC_LOCKS[path] = threading.Lock()
-        return lock
-
-
-@contextmanager
-def _coder_lock(path):
-    """Serialise writers of one decision file, across threads and app instances."""
-    with _thread_lock(path):
-        lock_dir = os.path.join(S.TEMP, "screening_locks")
-        os.makedirs(lock_dir, exist_ok=True)
-        lock = os.path.join(lock_dir, os.path.basename(path) + ".lock")
-        deadline = time.monotonic() + _LOCK_TIMEOUT
-        while True:
-            try:
-                fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                break
-            except FileExistsError:
-                try:
-                    if time.time() - os.path.getmtime(lock) > _LOCK_STALE:
-                        os.remove(lock)
-                        continue
-                except OSError:
-                    continue
-                if time.monotonic() > deadline:
-                    raise ScreeningStoreError(
-                        f"{os.path.basename(path)} is being saved by another window; try again")
-                time.sleep(0.05)
+    stamp = _file_stamp(path)
+    if stamp is None:
+        return {}
+    with _DECISIONS_LOCK:
+        hit = _DECISIONS_CACHE.get(path)
+        if hit and hit[0] == stamp:
+            return hit[1]
         try:
-            os.write(fd, str(os.getpid()).encode())
-            yield
-        finally:
-            os.close(fd)
-            try:
-                os.remove(lock)
-            except OSError:
-                pass
-
-
-def _dump_decisions(decisions):
-    """One record per line: valid JSON, diff-friendly and ~5x faster than indent=1."""
-    if not decisions:
-        return "{}\n"
-    lines = [json.dumps(str(uid), ensure_ascii=False) + ": "
-             + json.dumps(decisions[uid], ensure_ascii=False, sort_keys=True)
-             for uid in sorted(decisions, key=str)]
-    return "{\n" + ",\n".join(lines) + "\n}\n"
-
-
-def _write_decisions(path, decisions):
-    """Atomic write (caller holds the coder lock); refuses to clobber an unreadable file."""
-    if os.path.exists(path):
-        _read_cached(path)          # raises if the existing file is corrupt / mid-sync
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(_dump_decisions(decisions))
-        atomic_replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-    sig = _sig(path)
-    with _DEC_CACHE_LOCK:
-        if sig is not None:
-            _DEC_CACHE[path] = {"sig": sig, "data": decisions}
-        else:
-            _DEC_CACHE.pop(path, None)
+            data = _read_decisions(path)
+        except Exception as exc:  # noqa: BLE001
+            if strict:
+                raise ScreeningFileError(
+                    f"{os.path.basename(path)} cannot be read ({exc}); fix or move it "
+                    "before screening more abstracts") from exc
+            log(f"screening: cannot read {path}: {exc}")
+            return {}
+        _DECISIONS_CACHE[path] = (stamp, data)
+        return data
 
 
 def save_screening_decisions(coder, decisions):
-    """Replace a coder's whole decision file (atomic, locked).
-
-    Prefer :func:`update_screening_decisions` for a read-modify-write: it reads
-    the file under the lock, so a save from another window is never lost.
-    """
     path = screening_decision_path(coder)
-    if not path:
-        raise ScreeningStoreError("a valid coder name is required")
-    with _coder_lock(path):
-        _write_decisions(path, _copy_decisions(decisions))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(S.TEMP, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
+    with _DECISIONS_LOCK:
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(decisions, fh, ensure_ascii=False, indent=1, sort_keys=True)
+                fh.write("\n")
+            atomic_replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        stamp = _file_stamp(path)
+        if stamp is not None:
+            _DECISIONS_CACHE[path] = (stamp, decisions)
     return path
 
 
 def update_screening_decisions(coder, mutate):
-    """Locked read-modify-write: ``mutate(decisions)`` edits a private copy in place.
+    """Read-modify-write one coder's file under the lock: ``mutate(dict)``.
 
-    Returns ``(path, decisions_after)``.  Raises ScreeningStoreError when the
-    coder name is unusable, the file is unreadable or another writer holds it.
+    The dict handed to *mutate* is a fresh shallow copy, so the cached object
+    other requests may be iterating is never changed under them.
     """
-    path = screening_decision_path(coder)
-    if not path:
-        raise ScreeningStoreError("a valid coder name is required")
-    with _coder_lock(path):
-        current = _read_cached(path)
-        # shallow top-level copy: records are replaced, never edited in place
-        work = dict(current)
-        mutate(work)
-        _write_decisions(path, work)
-    return path, work
+    with _DECISIONS_LOCK:
+        current = dict(load_screening_decisions(coder, strict=True))
+        result = mutate(current)
+        save_screening_decisions(coder, current)
+        return current, result
 
 
-# ---------------------------------------------------------------- verdict helpers
-def norm_verdict(value):
-    return _VERDICTS.get(str(value or "").strip().lower(), "")
+# ---------------------------------------------------------------- workbook columns
+# Column detection is case-, space- and punctuation-insensitive and accepts the
+# common export names (EBSCO, Scopus/WoS RIS-style tags, Zotero/EndNote CSV), so
+# a re-exported workbook whose header reads "Title" or "Abstract Note" still
+# loads.  The first alias that is present wins.
+_COLUMN_ALIASES = {
+    "id": ["an", "accession number", "accession no", "record id", "recordid", "uid", "id",
+           "key", "record number"],
+    "title": ["title", "article title", "primary title", "document title", "ti"],
+    "abstract": ["abstract", "abstract note", "abstract text", "ab", "summary"],
+    "authors": ["authors", "author", "author full names", "author names", "au",
+                "contributors", "creators"],
+    "year": ["year", "publication year", "pub year", "py", "publicationdate",
+             "publication date", "date"],
+    "doi": ["doi", "di", "doids"],
+    "source": ["source", "source title", "journal", "journal title", "publication title",
+               "secondary title", "so", "t2"],
+    "fulltext": ["fulltext verdict", "full text verdict", "fulltext_verdict"],
+}
+
+# Without a title the tab has nothing to show; without an id the records fall
+# back to row numbers (fragile when the workbook is re-sorted) - say so.
+_REQUIRED = ["title"]
+_RECOMMENDED = ["id", "abstract"]
+
+_NOT_CRITERIA = {"fulltext", "full_text", "effective", "final", "ai", "human"}
 
 
-def norm_certainty(value):
-    return _CERTAINTIES.get(str(value or "").strip().lower(), "")
+def _norm(name):
+    return re.sub(r"[^0-9a-z]+", "_", str(name or "").strip().lower()).strip("_")
 
 
-def screen_outcome(verdicts):
-    """Four-valued decision from C1-C4 verdicts: Include / Exclude / Unsure / ""."""
-    vs = [norm_verdict(v) for v in verdicts]
-    if any(v == "No" for v in vs):
-        return "Exclude"
-    if vs and all(v == "Yes" for v in vs):
-        return "Include"
-    if vs and all(vs):
-        return "Unsure"
-    return ""
-
-
-def _ai_verdicts(rec):
-    ai = (rec or {}).get("ai") or {}
-    return [(ai.get(lab) or {}).get("verdict") for lab in _SCREEN_LABELS]
-
-
-def _human_verdicts(dec):
-    crits = (dec or {}).get("criteria") or {}
-    return [(crits.get(lab) or {}).get("verdict") if isinstance(crits.get(lab), dict) else ""
-            for lab in _SCREEN_LABELS]
-
-
-def ai_screen_outcome(rec):
-    return screen_outcome(_ai_verdicts(rec))
-
-
-def human_screen_outcome(dec):
-    if not dec:
-        return ""
-    vs = _human_verdicts(dec)
-    if any(norm_verdict(v) for v in vs):
-        return screen_outcome(vs)
-    stored = str(dec.get("decision") or "").strip()
-    return stored if stored in ("Include", "Exclude", "Unsure") else ""
-
-
-def ai_screen_decision(rec):
-    """Include iff C1-C4 are all Yes; Exclude as soon as one is No; else blank."""
-    out = ai_screen_outcome(rec)
-    return out if out in ("Include", "Exclude") else ""
-
-
-def human_screen_decision(dec):
-    """Like ai_screen_decision, from the criteria (the stored ``decision`` is only a
-    fallback for a record without verdicts, so a later edit of a criterion is never
-    masked by a stale stored decision)."""
-    out = human_screen_outcome(dec)
-    return out if out in ("Include", "Exclude") else ""
-
-
-# ---------------------------------------------------------------- master index
-def title_fingerprint(title):
-    norm = re.sub(r"[^0-9a-z]+", " ", str(title or "").lower()).strip()
-    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:12] if norm else ""
-
-
-def decision_is_stale(rec, dec):
-    """A positional ``row-N`` decision whose stored title fingerprint no longer
-    matches the row: the workbook was re-ordered since it was saved."""
-    if not rec or not dec or not str(rec.get("id", "")).startswith("row-"):
-        return False
-    fp = dec.get("fp")
-    return bool(fp) and fp != title_fingerprint(rec.get("title"))
-
-
-def _screen_cell(row, header, name):
-    i = header.get(name)
+def _cell(row, i):
+    """A workbook cell as JSON-safe text/number ("" for empty or NaN)."""
     if i is None or i >= len(row):
         return ""
     v = row[i]
     if v is None:
         return ""
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, float):
+        if math.isnan(v) or math.isinf(v):
+            return ""
+        return int(v) if v.is_integer() else v
+    if isinstance(v, int):
         return v
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
     return str(v).strip()
 
 
-def _master_sheet(wb):
-    return wb[_MASTER_SHEET] if _MASTER_SHEET in wb.sheetnames else wb.worksheets[0]
+def _id_text(value):
+    """An id cell as text: 186260530.0 (a numeric cell) reads as "186260530"."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip()
 
 
-class _RowIds:
-    """Record ids: the ``an`` accession, else ``row-<excel row>``; repeats get ``#n``.
+def _year_of(value):
+    if isinstance(value, int):
+        return value
+    m = re.search(r"(1[89]\d\d|20\d\d)", str(value or ""))
+    return int(m.group(1)) if m else (value or "")
 
-    The index and the merge both use this so they can never disagree.
+
+def _locate_columns(head):
+    """Map the header row to the fields the tab needs + the criterion columns.
+
+    Returns ``(cols, criteria)``: ``cols[field] -> index`` for the fields that
+    were found, ``criteria[key] -> {"verdict": i, "certainty": i, "rationale": i}``
+    for every ``<key>_verdict`` column (``C1_verdict``, ``Intervention verdict`` ...).
     """
+    normed = {}
+    for i, h in enumerate(head):
+        n = _norm(h)
+        if n and n not in normed:
+            normed[n] = i
+    cols = {}
+    for field, aliases in _COLUMN_ALIASES.items():
+        for alias in aliases:
+            i = normed.get(_norm(alias))
+            if i is not None:
+                cols[field] = i
+                break
+    criteria = {}
+    for i, h in enumerate(head):
+        raw = str(h or "").strip()
+        m = re.match(r"^(.+?)[\s_\-]*verdict$", raw, flags=re.IGNORECASE)
+        if not m:
+            continue
+        key = m.group(1).strip()
+        if not key or _norm(key) in _NOT_CRITERIA:
+            continue
+        nk = _norm(key)
+        criteria[key] = {"verdict": i,
+                         "certainty": normed.get(f"{nk}_certainty"),
+                         "rationale": normed.get(f"{nk}_rationale")}
+    return cols, criteria
 
-    def __init__(self):
-        self.seen = {}
 
-    def __call__(self, row, header, excel_row):
-        an = str(_screen_cell(row, header, "an") or "").strip()
-        uid = an or f"row-{excel_row}"
-        if uid in self.seen:
-            self.seen[uid] += 1
-            uid = f"{uid}#{self.seen[uid]}"
-        else:
-            self.seen[uid] = 1
-        return an, uid
+def _find_header(rows):
+    """The header among the first rows: the first that names a title column."""
+    for n, row in enumerate(rows):
+        cols, _ = _locate_columns(row or ())
+        if "title" in cols:
+            return n
+    return 0
 
 
-def _build_screening_index():
-    """Extract the columns the screening tab needs from the master workbook."""
+def _unique_uid(an, rownum, seen):
+    """The record id: the accession number, else ``row-<excel row>``.
+
+    A repeated accession number gets ``#2``, ``#3`` ... in workbook order.  The
+    index and the merge both use this helper, so a decision saved for
+    ``X#2`` is merged back into the second ``X`` row and nowhere else.
+    """
+    uid = an or f"row-{rownum}"
+    if uid in seen:
+        seen[uid] += 1
+        return f"{uid}#{seen[uid]}"
+    seen[uid] = 1
+    return uid
+
+
+def _pick_sheet(wb):
+    """The first sheet whose header names a title column (else the first)."""
+    for ws in wb.worksheets:
+        head = []
+        for row in ws.iter_rows(max_row=10, values_only=True):
+            head.append(row)
+        n = _find_header(head)
+        if head and "title" in _locate_columns(head[n] or ())[0]:
+            return ws, n
+    return wb.worksheets[0], 0
+
+
+def _index_key(path, stamp):
+    """The identity of one parsed master workbook (JSON-safe, for the caches)."""
+    return [os.path.abspath(path), stamp[0], stamp[1], _INDEX_VERSION]
+
+
+def _table_source(path):
+    """``(title, header_row, header, rows, close)`` for a workbook or a records table.
+
+    ``.xlsx``/``.xlsm`` are read through openpyxl (read-only); ``.csv``,
+    ``.csv.gz``, ``.tsv`` and ``.tsv.gz`` through :mod:`csv` (gzip when the name
+    says so).  Both give *header_row* as the **0-based** index of the header row
+    in the file and *rows* starting at the first data row, so the screening row
+    numbers (``header_row + 2 + n``) are the same for the workbook and for the
+    records file - that is what keeps the record ids identical.
+    """
+    low = str(path).lower()
+    if low.endswith(_TABLE_SUFFIXES[2:]) or low.endswith((".csv", ".tsv")):
+        import csv
+        import gzip
+
+        opener = gzip.open if low.endswith(".gz") else open
+        fh = opener(path, "rt", encoding="utf-8", newline="")
+        reader = csv.reader(fh, delimiter="\t" if low.endswith((".tsv", ".tsv.gz")) else ",")
+        header = [str(h) for h in (next(reader, None) or [])]
+        return ("records", 0, header, reader, fh.close)
     import openpyxl
 
-    path = screening_master_path()
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
-        ws = _master_sheet(wb)
+        ws, header_row = _pick_sheet(wb)
         it = ws.iter_rows(values_only=True)
-        head = next(it, None) or ()
-        header = {str(h).strip(): i for i, h in enumerate(head) if h is not None}
+        head = ()
+        for _ in range(header_row + 1):
+            head = next(it, None) or ()
+    except Exception:
+        wb.close()
+        raise
+    return (ws.title, header_row,
+            [str(h) if h is not None else "" for h in head], it, wb.close)
+
+
+def _text_db_path():
+    return os.path.join(S.TEMP, _TEXT_DB_NAME)
+
+
+def _close_text_db():
+    """Forget the cached side-file connection (the file is about to change)."""
+    with _TEXT_LOCK:
+        conn = _TEXT_STATE.get("conn")
+        _TEXT_STATE.update(key=None, conn=None)
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:  # noqa: BLE001 - closing a connection never fails a read
+            pass
+
+
+def _text_db_conn(key):
+    """A read connection to the side file **when it belongs to** *key*.
+
+    ``None`` when the file is missing, unreadable or built for another master
+    stamp: the caller then rebuilds the index (which rewrites both caches).
+    """
+    import sqlite3
+
+    with _TEXT_LOCK:
+        if _TEXT_STATE["conn"] is not None and _TEXT_STATE["key"] == key:
+            return _TEXT_STATE["conn"]
+        _close_text_db()
+        path = _text_db_path()
+        if not os.path.isfile(path):
+            return None
+        try:
+            conn = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
+            row = conn.execute("SELECT value FROM meta WHERE name='key'").fetchone()
+            if row is None or json.loads(row[0]) != key:
+                conn.close()
+                return None
+        except Exception as exc:  # noqa: BLE001 - a broken cache is a slow start
+            log(f"screening: ignoring the text cache {path}: {exc!r}")
+            return None
+        _TEXT_STATE.update(key=list(key), conn=conn)
+        return conn
+
+
+def _build_screening_index(path=None, key=None):
+    """Extract the columns the screening tab needs from the master workbook.
+
+    The long texts (``abstract``, the AI ``rationale``/``certainty``) are written
+    to the side file as the workbook is read and are NOT kept in the returned
+    rows; the rows keep what the list, the filters, the search and the AI
+    decision need (ids, bibliographic fields and the AI **verdicts**).  Writing
+    them out while iterating also keeps the xlsx parse's peak low: the strings
+    are discarded one row at a time instead of being held in every row dict.
+
+    The source may be the workbook or the decision-free records file (see
+    :func:`_table_source`); the rows are the same either way, and the records
+    file simply has no verdict columns, so ``ai`` stays empty.
+    """
+    path = path or screening_master_path()
+    key = key or _index_key(path, _file_stamp(path) or (0, 0))
+    title, header_row, head, it, close = _table_source(path)
+    tmp = None
+    conn = None
+    inline = False
+    try:
+        cols, crits = _locate_columns(head)
+        info = {
+            "sheet": title,
+            "source": "records" if str(path).lower().endswith(
+                (".csv", ".csv.gz", ".tsv", ".tsv.gz")) else "master",
+            "source_path": os.path.abspath(path),
+            "header_row": header_row + 1,
+            "columns": {f: str(head[i]).strip() for f, i in cols.items()},
+            "criteria_columns": sorted(crits),
+            "missing": [f for f in _REQUIRED if f not in cols],
+            "missing_recommended": [f for f in _RECOMMENDED if f not in cols],
+        }
+        # The side file is written next to the index cache and swapped in whole,
+        # so a reader never sees a half-written one.
+        batch = []
+        try:
+            os.makedirs(S.TEMP, exist_ok=True)
+            db_path = _text_db_path()
+            tmp = db_path + ".tmp"
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            _close_text_db()
+            conn = _begin_text_db(tmp)
+        except Exception as exc:  # noqa: BLE001 - fall back to texts in memory
+            log(f"screening: no text side file, keeping texts in memory: {exc!r}")
+            inline = True
+            conn = None
         rows = []
-        ids = _RowIds()
+        seen = {}
         for n, row in enumerate(it):
-            an, uid = ids(row, header, n + 2)
+            rownum = header_row + 2 + n        # the Excel row number
+            if not any(v not in (None, "") for v in row):
+                continue                       # a blank spacer row is no record
+            an = _id_text(_cell(row, cols.get("id")))
+            uid = _unique_uid(an, rownum, seen)
+            abstract = str(_cell(row, cols.get("abstract")))
             ai = {}
-            for lab in _SCREEN_LABELS:
-                ai[lab] = {
-                    "verdict": _screen_cell(row, header, f"{lab}_verdict"),
-                    "certainty": _screen_cell(row, header, f"{lab}_certainty"),
-                    "rationale": _screen_cell(row, header, f"{lab}_rationale"),
+            verdicts = {}
+            for crit, ix in crits.items():
+                entry = {
+                    "verdict": _cell(row, ix["verdict"]),
+                    "certainty": _cell(row, ix["certainty"]),
+                    "rationale": _cell(row, ix["rationale"]),
                 }
-            rows.append({
+                ai[crit] = entry
+                verdict = str(entry["verdict"]).strip()
+                if verdict:
+                    # the verdict is all the list/filter/agreement need in memory
+                    verdicts[crit] = verdict
+            extra = {}
+            if "#" in uid:
+                # Some decision files (e.g. a batch-coded Screening/OG.json) key a
+                # repeated accession number by its Excel row instead of "X#2".
+                # Both spellings must find the record; see decision_for().
+                extra["alt"] = f"row-{rownum}"
+            rec = {
+                **extra,
                 "id": uid,
                 "an": an,
-                "title": _screen_cell(row, header, "title"),
-                "abstract": _screen_cell(row, header, "abstract"),
-                "authors": _screen_cell(row, header, "authors"),
-                "year": _screen_cell(row, header, "year"),
-                "doi": _screen_cell(row, header, "doi"),
-                "source": _screen_cell(row, header, "source"),
-                "ai": ai,
-                "fulltext": _screen_cell(row, header, "Fulltext_Verdict"),
-            })
-        return rows
+                "row": rownum,
+                "title": str(_cell(row, cols.get("title"))),
+                "authors": str(_cell(row, cols.get("authors"))),
+                "year": _year_of(_cell(row, cols.get("year"))),
+                "doi": str(_cell(row, cols.get("doi"))),
+                "source": str(_cell(row, cols.get("source"))),
+                "ai": ai if inline else verdicts,
+                "fulltext": str(_cell(row, cols.get("fulltext"))),
+            }
+            if inline:
+                # no side file: the row itself has to carry the text
+                rec["abstract"] = abstract
+            rows.append(rec)
+            if conn is not None:
+                batch.append((uid, json.dumps({"abstract": abstract, "ai": ai},
+                                              ensure_ascii=False)))
+                if len(batch) >= _TEXT_BATCH:
+                    conn.executemany("INSERT OR REPLACE INTO records (uid, payload) "
+                                     "VALUES (?, ?)", batch)
+                    batch.clear()
+        if conn is not None:
+            if batch:
+                conn.executemany("INSERT OR REPLACE INTO records (uid, payload) "
+                                 "VALUES (?, ?)", batch)
+            _finish_text_db(conn, key)
+            conn = None
+            atomic_replace(tmp, _text_db_path())
+            tmp = None
+        info["records"] = len(rows)
+        info["duplicate_ids"] = sum(v - 1 for v in seen.values() if v > 1)
+        info["row_ids"] = sum(1 for r in rows if not r["an"])
+        info["texts_inline"] = bool(inline)
+        return rows, info
     finally:
-        wb.close()
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+        if tmp and os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - closing a reader never fails the index
+            pass
 
 
-def _aux_for(rows):
-    """Per-row values the list route needs on every request, computed once per index."""
-    aux = {}
-    for r in rows:
-        hay = " ".join(str(r.get(k) or "") for k in ("title", "authors", "doi", "an")).lower()
-        aux[r["id"]] = {"hay": hay, "ai": ai_screen_outcome(r)}
-    return aux
+def _begin_text_db(tmp):
+    import sqlite3
+
+    conn = sqlite3.connect(tmp)
+    conn.execute("PRAGMA journal_mode=OFF")
+    conn.execute("PRAGMA synchronous=OFF")
+    conn.execute("CREATE TABLE meta (name TEXT PRIMARY KEY, value TEXT)")
+    conn.execute("CREATE TABLE records (uid TEXT PRIMARY KEY, payload TEXT)")
+    return conn
 
 
-def _load_disk_cache(cache, path, sig):
-    if not os.path.exists(cache):
-        return None
-    try:
-        with open(cache, encoding="utf-8") as fh:
-            blob = json.load(fh)
-    except Exception:  # noqa: BLE001
-        return None
-    if not isinstance(blob.get("rows"), list):
-        return None
-    if blob.get("sig") == list(sig) and blob.get("path") == path:
-        return blob["rows"]
-    # cache written before the (mtime_ns, size) signature: whole-second mtime only
-    if "sig" not in blob and blob.get("mtime") == int(sig[0] // 1_000_000_000):
-        return blob["rows"]
-    return None
+def _finish_text_db(conn, key):
+    conn.execute("INSERT INTO meta (name, value) VALUES ('key', ?)",
+                 (json.dumps(list(key), ensure_ascii=False),))
+    conn.commit()
+    conn.close()
+
 
 
 def screening_index():
-    """{"available", "rows", "by_id", "aux", "error"} for the master workbook.
+    """The screening index, cached by file stamp (size + mtime_ns).
 
-    Cached in memory and in temp/screening_index.json, keyed by the workbook's
-    (mtime_ns, size): a 30k-row workbook takes ~25 s to parse with openpyxl.
+    The source is the master workbook when it is there, else the decision-free
+    records file (:func:`screening_source`) - a blinded coder's mirror has no
+    workbook.  The table is parsed once per change (tens of seconds for a 30k-row
+    workbook; seconds for the records CSV); the parsed rows are also kept in
+    temp/screening_index.json so a restart does not re-parse an unchanged file,
+    and the long texts the rows do not carry live in temp/screening_text.sqlite
+    (see :func:`record_text`).  The file on disk stays authoritative: any rewrite
+    (a merge, an edit in Excel, a new records file) changes the stamp, and both
+    caches are rebuilt.  Returns ``{"available", "rows", "by_id", "info", "error"}``.
     """
-    path = screening_master_path()
-    sig = _sig(path)
-    if sig is None:
-        return {"available": False, "rows": [], "by_id": {}, "aux": {},
-                "error": "master_dataset.xlsx not found"}
+    path, source = screening_source()
+    stamp = _file_stamp(path)
+    if stamp is None:
+        return {"available": False, "rows": [], "by_id": {}, "info": {},
+                "error": f"neither {os.path.basename(screening_master_path())} nor "
+                         f"{RECORDS_REL.replace(os.sep, '/')} was found in the project "
+                         f"folder ({S.ROOT})."}
+    key = _index_key(path, stamp)
     with _SCREEN_INDEX_LOCK:
-        if (_SCREEN_INDEX["rows"] is not None and _SCREEN_INDEX["sig"] == sig
-                and _SCREEN_INDEX["path"] == path):
+        if _SCREEN_INDEX["rows"] is not None and _SCREEN_INDEX["stamp"] == key:
             return {"available": True, "rows": _SCREEN_INDEX["rows"],
-                    "by_id": _SCREEN_INDEX["by_id"], "aux": _SCREEN_INDEX["aux"], "error": ""}
-    with _SCREEN_BUILD_LOCK:          # one build at a time; the others wait and reuse it
-        with _SCREEN_INDEX_LOCK:
-            if (_SCREEN_INDEX["rows"] is not None and _SCREEN_INDEX["sig"] == sig
-                    and _SCREEN_INDEX["path"] == path):
-                return {"available": True, "rows": _SCREEN_INDEX["rows"],
-                        "by_id": _SCREEN_INDEX["by_id"], "aux": _SCREEN_INDEX["aux"],
-                        "error": ""}
+                    "by_id": _SCREEN_INDEX["by_id"], "info": _SCREEN_INDEX["info"],
+                    "error": _SCREEN_INDEX["info"].get("error", "")}
+        # Built under the lock: the first requests after a start arrive together
+        # (meta + list + agreement) and must not parse a 30 MB workbook in parallel.
         cache = os.path.join(S.TEMP, "screening_index.json")
-        rows = _load_disk_cache(cache, path, sig)
+        rows = info = None
+        try:
+            if os.path.exists(cache):
+                with open(cache, encoding="utf-8") as fh:
+                    blob = json.load(fh)
+                if blob.get("key") == key and isinstance(blob.get("rows"), list):
+                    # the rows are only useful with the texts they point at: a
+                    # missing/stale side file means both caches are rebuilt
+                    if _text_db_conn(key) is not None or not blob["rows"]:
+                        rows, info = blob["rows"], blob.get("info") or {}
+        except Exception:  # noqa: BLE001
+            rows = None
         if rows is None:
             try:
-                rows = _build_screening_index()
+                rows, info = _build_screening_index(path, key)
             except Exception as exc:  # noqa: BLE001
                 log(f"screening: cannot read {path}: {exc}")
-                return {"available": False, "rows": [], "by_id": {}, "aux": {},
-                        "error": f"master_dataset.xlsx cannot be read: {exc}"}
-            fd, tmp = tempfile.mkstemp(suffix=".json", dir=S.TEMP)
+                return {"available": False, "rows": [], "by_id": {}, "info": {},
+                        "error": f"{os.path.basename(path)} could not be read: {exc}"}
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    json.dump({"sig": list(sig), "path": path, "rows": rows}, fh,
+                os.makedirs(S.TEMP, exist_ok=True)
+                tmp = cache + ".tmp"
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump({"key": key, "info": info, "rows": rows}, fh,
                               ensure_ascii=False)
                 atomic_replace(tmp, cache)
-            except OSError as exc:
-                log(f"screening: index cache not written: {exc}")
-            finally:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
+            except OSError:
+                pass
+        if info.get("missing"):
+            looked = "; ".join(f"{f}: {', '.join(_COLUMN_ALIASES[f])}" for f in info["missing"])
+            info["error"] = (f"{os.path.basename(path)} (sheet '{info.get('sheet')}') has no "
+                             f"{', '.join(info['missing'])} column (looked for {looked}, "
+                             "case-insensitive).")
         by_id = {r["id"]: r for r in rows}
-        aux = _aux_for(rows)
-        with _SCREEN_INDEX_LOCK:
-            _SCREEN_INDEX.update(sig=sig, path=path, rows=rows, by_id=by_id, aux=aux, error="")
-    return {"available": True, "rows": rows, "by_id": by_id, "aux": aux, "error": ""}
+        alias = {}
+        for r in rows:
+            alt = r.get("alt")
+            if alt and alt not in by_id:
+                by_id[alt] = r          # /abstract/row-30348 opens the "#2" record
+                alias[alt] = r["id"]
+        info["alias"] = alias
+        info.setdefault("source", source)
+        info.setdefault("source_path", os.path.abspath(path))
+        _SCREEN_INDEX.update(stamp=key, rows=rows, by_id=by_id, info=info)
+        return {"available": True, "rows": rows, "by_id": by_id, "info": info,
+                "error": info.get("error", "")}
 
 
-# ---------------------------------------------------------------- merge (copy)
-def screening_merge_output(coder):
-    return os.path.join(S.ROOT, "Results", "screening_merge",
-                        f"master_dataset - {coder_token(coder)}.xlsx")
+def record_text(rec):
+    """The long texts of one index record: ``(abstract, ai)``.
+
+    ``abstract`` is the workbook's abstract text and ``ai`` the full AI verdict
+    entries (``verdict``/``certainty``/``rationale``).  Both are read from the
+    side file for the ONE record the abstract pane shows, never held for the
+    whole corpus; a list/filter/search never calls this.  A row built with the
+    in-memory fallback (no side file) carries them itself.
+    """
+    if not rec:
+        return "", {}
+    if "abstract" in rec:
+        return rec.get("abstract") or "", rec.get("ai") or {}
+    key = _SCREEN_INDEX.get("stamp")
+    with _TEXT_LOCK:
+        conn = _text_db_conn(key) if key is not None else None
+        if conn is not None:
+            try:
+                row = conn.execute("SELECT payload FROM records WHERE uid = ?",
+                                   (rec["id"],)).fetchone()
+                if row is not None:
+                    payload = json.loads(row[0])
+                    return payload.get("abstract") or "", payload.get("ai") or {}
+            except Exception as exc:  # noqa: BLE001 - a read must not fail the pane
+                log(f"screening: cannot read the text of {rec.get('id')}: {exc!r}")
+                _close_text_db()
+    return "", {}
+
+
+def abstract_record(rec, criteria=None):
+    """The abstract pane's record dict, in the shape the old index had.
+
+    ``record_text`` supplies the abstract and the full AI entries; the key order
+    is the historical one (``alt``, ``id``, ``an``, ``row``, ``title``,
+    ``abstract``, ``authors``, ...), so the response is unchanged byte for byte.
+    """
+    abstract, ai = record_text(rec)
+    out = {}
+    for field, value in rec.items():
+        if field == "authors":
+            out["abstract"] = abstract
+        out[field] = value
+    if "abstract" not in out:
+        out["abstract"] = abstract
+    out["ai"] = ai_for_criteria(ai, criteria or [])
+    return out
+
+
+
+def decision_for(decisions, rec):
+    """The coder's decision for an index record, under its id or its row alias."""
+    if not decisions or not rec:
+        return None
+    dec = decisions.get(rec["id"])
+    if dec is None and rec.get("alt"):
+        dec = decisions.get(rec["alt"])
+    return dec
+
+
+def canonical_uid(uid, idx=None):
+    """A decision-file key as the index id (``row-30348`` -> ``X#2``)."""
+    idx = idx if idx is not None else screening_index()
+    return ((idx.get("info") or {}).get("alias") or {}).get(uid, uid)
+
+
+def ai_entry(ai, key):
+    """The workbook's verdict entry for a criterion key (case-insensitive).
+
+    The in-memory index keeps only the verdict strings (``{"C1": "Yes"}``); the
+    full entry (``certainty``/``rationale``) comes from the side file and is a
+    dict.  Both shapes are accepted, so a caller never has to know which one it
+    was handed.
+    """
+    ai = ai or {}
+    if key in ai:
+        value = ai[key]
+        return value if isinstance(value, dict) else ({"verdict": value} if value else {})
+    nk = _norm(key)
+    for k, v in ai.items():
+        if _norm(k) == nk:
+            return v if isinstance(v, dict) else ({"verdict": v} if v else {})
+    return {}
+
+
+def ai_for_criteria(ai, criteria):
+    """The AI verdicts keyed exactly by the criteria keys the tab shows."""
+    out = dict(ai or {})
+    for c in criteria:
+        key = c.get("key") or c.get("label") or ""
+        if key and key not in out:
+            entry = ai_entry(ai, key)
+            if entry:
+                out[key] = entry
+    return out
+
+
+def _screen_verdict_of(ai, label):
+    return str(ai_entry(ai, label).get("verdict") or "").strip()
+
+
+def _scheme_criteria():
+    """The abstract criteria of the active project's scheme.
+
+    The hardcoded ``SCREENING_CRITERIA`` below is the FALLBACK for a project
+    that carries no criteria of its own; a scheme's criteria win, so a
+    criterion added in the Scheme editor really appears in the screening tab.
+
+    Normalising the scheme's criteria is cheap per call (~2 ms) but not free:
+    the abstract-agreement view calls the decision helpers once per record, and
+    at 30k records that was 183 s on the real corpus.  The result is therefore
+    memoised **for the current request** (Flask ``g``), which cannot go stale:
+    a scheme edit is another request.  Callers outside a request still get a
+    fresh normalisation, and passing the value to the helpers stays the fastest
+    form for a loop.
+    """
+    try:
+        from flask import g, has_request_context
+
+        if has_request_context():
+            hit = g.get("_screen_scheme_criteria")
+            if hit is not None and hit[0] == S.ROOT:
+                return hit[1]
+    except Exception:  # noqa: BLE001 - no Flask request: no memo
+        pass
+    try:
+        import project_context
+        criteria = (project_context.criteria() or {}).get("abstract") or []
+    except Exception:  # noqa: BLE001
+        criteria = []
+    if not criteria:
+        criteria = [
+            {"key": c["label"], "label": c["title"], "kind": c.get("kind", "verdict"),
+             "prompt_text": c.get("instruction", ""), "options": c.get("options") or [],
+             "pass_values": ["Yes"], "gating": True}
+            for c in SCREENING_CRITERIA
+        ]
+    try:
+        from flask import g, has_request_context
+
+        if has_request_context():
+            g._screen_scheme_criteria = (S.ROOT, criteria)
+    except Exception:  # noqa: BLE001
+        pass
+    return criteria
+
+
+def screening_criteria():
+    """The abstract criteria, in the shape the screening tab expects.
+
+    The scheme's criteria win: a criterion added in the Scheme editor really
+    appears in the screening tab, with its own options, pass values, gating
+    flag and auto-approval rules.  The hardcoded ``SCREENING_CRITERIA`` is the
+    fallback for a project that carries no criteria of its own.
+    """
+    out = []
+    for criterion in _scheme_criteria():
+        key = str(criterion.get("key") or criterion.get("label") or "").strip()
+        if not key:
+            continue
+        out.append({
+            "key": key,
+            "label": key,
+            "kind": criterion.get("kind") or "verdict",
+            "title": criterion.get("label") or criterion.get("title") or key,
+            "instruction": criterion.get("prompt_text")
+                          or criterion.get("instruction") or "",
+            "options": criterion.get("options") or ["Yes", "No", "Unsure"],
+            "pass_values": criterion.get("pass_values") or ["Yes"],
+            "gating": criterion.get("gating", True),
+            "auto_approve": criterion.get("auto_approve") or {},
+        })
+    return out
+
+
+def _criterion_passes(criterion, verdict):
+    """Whether a criterion's verdict passes it (its own pass values decide)."""
+    verdict = str(verdict or "").strip().lower()
+    if not verdict:
+        return False
+    wanted = criterion.get("pass_values") or ["yes"]
+    return verdict in {str(v).strip().lower() for v in wanted}
+
+
+def _decide(criteria, verdict_of):
+    """Include iff every decided GATING criterion passes; Exclude if one fails."""
+    decided = []
+    for criterion in criteria:
+        key = criterion.get("key") or criterion.get("label") or ""
+        if not key or not criterion.get("gating", True):
+            continue        # informational: reported, never blocking
+        verdict = verdict_of(key)
+        if verdict:
+            decided.append((criterion, verdict))
+    if any(not _criterion_passes(c, v) for c, v in decided):
+        return "Exclude"
+    if decided:
+        return "Include"
+    return ""
+
+
+def ai_screen_decision(rec, criteria=None):
+    """The workbook (AI) decision of one record.
+
+    The criteria and their pass values come from the project's scheme, so a
+    criterion added in the Scheme editor takes part in the decision.  Pass
+    *criteria* (``_scheme_criteria()``) when calling this in a loop.
+    """
+    criteria = _scheme_criteria() if criteria is None else criteria
+    verdicts = rec.get("ai", {}) or {}
+    return _decide(criteria, lambda key: _screen_verdict_of(verdicts, key))
+
+
+def human_screen_decision(dec, criteria=None):
+    if not dec:
+        return ""
+    decision = str(dec.get("decision") or "").strip()
+    if decision:
+        return decision
+    criteria = _scheme_criteria() if criteria is None else criteria
+    crits = dec.get("criteria") or {}
+    return _decide(criteria,
+                   lambda key: str((crits.get(key) or {}).get("verdict") or "").strip())
+
+
+def record_screening_decision(coder, uid, record, alt=None):
+    """Store one record in the coder's file (locked read-modify-write).
+
+    *alt* is the record's row alias: an older decision stored under it is
+    replaced by this one, so a record is never counted (or merged) twice.
+    """
+    def mutate(current):
+        existed = uid in current or bool(alt and alt in current)
+        if alt:
+            current.pop(alt, None)
+        current[uid] = record
+        return existed
+    decisions, existed = update_screening_decisions(coder, mutate)
+    return len(decisions), existed
+
+
+# ---------------------------------------------------------------- merge core
+# The cell rule of "merge a coder's decisions into the workbook" lives here, in
+# ONE place: the app's manual merge below and the compiler
+# (``Scripts/compile_master.py``) both call these helpers, so the derived master
+# can never drift from what the app's merge would have written.
+def screening_row_uid(row, rownum, seen, cols):
+    """The record uid of a workbook row (``_unique_uid`` on the id column)."""
+    return _unique_uid(_id_text(_cell(row, cols.get("id"))), rownum, seen)
+
+
+def row_uids(rows, header_row=1, cols=None):
+    """``(rownum, row, uid)`` for every row of a workbook's data area.
+
+    ``uid`` is ``None`` for a blank spacer row.  The duplicate numbering
+    (``X``, ``X#2`` ...) is computed over **all** rows, so every consumer - the
+    app's merge, the compiler and the full-text migration - agrees about which
+    duplicate is ``#2``.  Numbering over a filtered subset (say, only the rows
+    that carry a full-text verdict) silently mismatches every later duplicate.
+    """
+    cols = cols or {}
+    seen = {}
+    for rownum, row in enumerate(rows, start=header_row + 2):
+        if not any(value not in (None, "") for value in row):
+            yield rownum, row, None
+            continue
+        yield rownum, row, _unique_uid(_id_text(_cell(row, cols.get("id"))), rownum, seen)
+
+
+def screening_merge_plan(header, criteria_keys, extra_keys=()):
+    """The merge's column plan: which cells every criterion is written to.
+
+    *header* is a list and is **extended in place** with the columns the merge
+    needs, exactly as the workbook write always did: the criteria keys of the
+    project's scheme, plus every key the decisions carry that already has a
+    ``<key>_verdict`` column (a legacy classification such as ``Intervention``),
+    then ``Screened_By`` / ``Screened_At``.
+
+    Returns ``{"header", "cols", "target", "by", "at"}``: ``cols`` is the
+    screening field map (``id``/``title``/...), ``target[key]`` the three cell
+    indexes of a criterion, ``by``/``at`` the provenance columns.
+    """
+    cols, crit_cols = _locate_columns(header)
+    normed = {_norm(h): i for i, h in reversed(list(enumerate(header))) if h}
+
+    def column(name):
+        i = normed.get(_norm(name))
+        if i is None:
+            i = len(header)
+            header.append(name)
+            normed[_norm(name)] = i
+        return i
+
+    existing = {_norm(k): k for k in crit_cols}
+    keys = list(criteria_keys)
+    for key in sorted(extra_keys):
+        if key not in keys and _norm(key) in existing:
+            keys.append(key)
+    target = {}
+    for key in keys:
+        base = existing.get(_norm(key), key)
+        target[key] = {part: column(f"{base}_{part}")
+                       for part in ("verdict", "certainty", "rationale")}
+    return {"header": header, "cols": cols, "target": target,
+            "by": column("Screened_By"), "at": column("Screened_At")}
+
+
+def screening_decision_for(decisions, uid, rownum):
+    """A coder's decision for a row, under its id or its ``row-<n>`` alias."""
+    dec = decisions.get(uid)
+    if dec is None and "#" in uid:
+        dec = decisions.get(f"row-{rownum}")     # the row alias, see decision_for()
+    return dec
+
+
+def apply_screening_decision(vals, decision, coder, plan):
+    """Write one coder's decision into *vals*; True when it matched a row.
+
+    Only non-empty values are written, so a criterion the coder left blank keeps
+    whatever the workbook already held - the rule the manual merge has always
+    had.  *vals* must already be padded to ``len(plan["header"])``.
+    """
+    if not decision:
+        return False
+    crits = decision.get("criteria") or {}
+    for key, where in plan["target"].items():
+        entry = crits.get(key) or {}
+        for part, i in where.items():
+            value = str(entry.get(part) or "").strip()
+            if value:
+                vals[i] = value
+    vals[plan["by"]] = str(coder).strip()
+    vals[plan["at"]] = decision.get("saved_at") or datetime.now().isoformat(timespec="seconds")
+    return True
 
 
 def _screen_merge_worker(coder):
-    """Write a copy of the master with the coder's verdicts; the master is never written."""
     state = _SCREEN_MERGE
     matched = 0
     wb_in = None
     try:
         import openpyxl
         from openpyxl import Workbook
+    except Exception as exc:  # noqa: BLE001
+        state.update(running=False, ok=False, error=f"openpyxl unavailable: {exc}",
+                     finished=datetime.now().isoformat(timespec="seconds"))
+        return
+    try:
+        decisions = load_screening_decisions(coder, strict=True)
+    except ScreeningFileError as exc:
+        state.update(running=False, ok=False, error=str(exc),
+                     finished=datetime.now().isoformat(timespec="seconds"))
+        return
+    if not decisions:
+        state.update(running=False, ok=False, error="no screened abstracts for this coder",
+                     finished=datetime.now().isoformat(timespec="seconds"))
+        return
+    master = screening_master_path()
+    if not os.path.exists(master):
+        state.update(running=False, ok=False, error="master_dataset.xlsx not found",
+                     finished=datetime.now().isoformat(timespec="seconds"))
+        return
+    try:
+        import compile_master
 
-        decisions, err = decisions_view(coder)
-        if err:
-            raise ScreeningStoreError(err)
-        if not decisions:
-            raise ScreeningStoreError("no screened abstracts for this coder")
-        master = screening_master_path()
-        if not os.path.exists(master):
-            raise ScreeningStoreError("master_dataset.xlsx not found")
-        out = screening_merge_output(coder)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        if compile_master.enabled(S.ROOT):
+            state.update(running=False, ok=False,
+                         error="the master is derived from the decision files; "
+                               "a recompile does this, not a per-coder merge",
+                         finished=datetime.now().isoformat(timespec="seconds"))
+            return
+    except Exception:  # noqa: BLE001 - a legacy project always merges
+        pass
+    MASTER_WRITE_LOCK.acquire()
+    try:
+        backup_dir = os.path.join(S.ROOT, "archive", "coding_app_ui_backups",
+                                  "screening_merge_" + datetime.now().strftime("%Y%m%d_%H%M%S"))
+        os.makedirs(backup_dir, exist_ok=True)
+        backup = os.path.join(backup_dir, os.path.basename(master))
+        shutil.copy2(master, backup)
+        state["backup"] = os.path.relpath(backup, S.ROOT).replace("\\", "/")
+        state["log"] = f"backup -> {state['backup']}\n"
 
-        verdict_cols = {lab: (f"{lab}_verdict", f"{lab}_certainty", f"{lab}_rationale")
-                        for lab in _SCREEN_LABELS}
-        extra = ["Screened_By", "Screened_At"]
-
+        # The criteria written back: the scheme's, plus any other criterion the
+        # coder's decisions carry that already has a column (e.g. the legacy
+        # "Intervention" classification) - see screening_merge_plan().
         wb_in = openpyxl.load_workbook(master, read_only=True, data_only=False)
+        ws_in, header_row = _pick_sheet(wb_in)
         wb_out = Workbook(write_only=True)
-        ws_in = _master_sheet(wb_in)
-        it = ws_in.iter_rows(values_only=True)
-        header = [str(h).strip() if h is not None else "" for h in (next(it, None) or ())]
-        H = {h: i for i, h in enumerate(header) if h}
-        for name in extra + [c for cols in verdict_cols.values() for c in cols]:
-            if name not in H:
-                H[name] = len(header)
-                header.append(name)
         ws_out = wb_out.create_sheet(title=ws_in.title or "Sheet1")
+        it = ws_in.iter_rows(values_only=True)
+        for _ in range(header_row):
+            ws_out.append(list(next(it, None) or ()))       # rows above the header, verbatim
+        header = [str(h).strip() if h is not None else "" for h in (next(it, None) or ())]
+        # The criteria written back: the scheme's, plus any other criterion the
+        # coder's decisions carry that already has a column (e.g. the legacy
+        # "Intervention" classification).
+        plan = screening_merge_plan(header, [c["key"] for c in screening_criteria()],
+                                    {k for d in decisions.values()
+                                     for k in ((d or {}).get("criteria") or {})})
         ws_out.append(header)
-        ids = _RowIds()
-        seen = set()
-        for r, row in enumerate(it, start=2):
-            _an, uid = ids(row, H, r)
-            dec = decisions.get(uid)
-            vals = list(row) + [None] * (len(header) - len(row))
-            if dec and not decision_is_stale({"id": uid, "title": _screen_cell(row, H, "title")}, dec):
+        for r, row, uid in row_uids(it, header_row, plan["cols"]):
+            vals = list(row) + [None] * (len(plan["header"]) - len(row))
+            if uid is None:
+                ws_out.append(vals)
+                continue
+            dec = screening_decision_for(decisions, uid, r)
+            if apply_screening_decision(vals, dec, coder, plan):
                 matched += 1
-                seen.add(uid)
-                crits = dec.get("criteria") or {}
-                for lab in _SCREEN_LABELS:
-                    entry = crits.get(lab) or {}
-                    for col, key in zip(verdict_cols[lab], ("verdict", "certainty", "rationale")):
-                        value = str(entry.get(key) or "").strip()
-                        if value:
-                            vals[H[col]] = value
-                vals[H["Screened_By"]] = str(coder).strip()
-                vals[H["Screened_At"]] = dec.get("saved_at") or datetime.now().isoformat(timespec="seconds")
             ws_out.append(vals)
+        os.makedirs(S.TEMP, exist_ok=True)
+        tmp = os.path.join(S.TEMP, "master_dataset.merge.xlsx")
+        wb_out.save(tmp)
         wb_in.close()
-        wb_in = None
-        fd, tmp = tempfile.mkstemp(suffix=".xlsx", dir=S.TEMP)
-        os.close(fd)
-        try:
-            wb_out.save(tmp)
-            atomic_replace(tmp, out)
-        finally:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        rel = os.path.relpath(out, S.ROOT).replace("\\", "/")
-        state.update(matched=matched, changed=matched, unmatched=len(set(decisions) - seen),
-                     output=rel, ok=True)
-        state["log"] += (f"wrote {matched} screened record(s) to {rel}; "
-                         f"{os.path.basename(master)} was not modified\n")
+        atomic_replace(tmp, master)
+        state.update(matched=matched, changed=matched)
+        state["log"] += f"merged {matched} screened record(s) into {os.path.basename(master)}\n"
+        missing = len(decisions) - matched
+        if missing > 0:
+            state["log"] += (f"! {missing} decision(s) match no row of the workbook "
+                             "(their id is not in the current master)\n")
     except Exception as exc:  # noqa: BLE001
         state.update(ok=False, error=str(exc))
         state["log"] += f"! merge failed: {exc}\n"
     finally:
-        if wb_in is not None:
-            try:
+        try:
+            if wb_in is not None:
                 wb_in.close()
-            except Exception:  # noqa: BLE001
-                pass
+        except Exception:  # noqa: BLE001
+            pass
+        MASTER_WRITE_LOCK.release()
         state["running"] = False
         if state.get("ok") is None:
-            state["ok"] = False
+            state["ok"] = True
         state["finished"] = datetime.now().isoformat(timespec="seconds")
         log(f"screening merge coder={coder} matched={matched} ok={state['ok']}")

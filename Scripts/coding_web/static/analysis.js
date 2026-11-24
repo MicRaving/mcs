@@ -85,7 +85,7 @@
   const COLUMN_LABEL = {
     layer: "Layer", spec: "Specification", exclusions: "Exclusions",
     study_key: "Study", experiment_id: "Experiment", k: "k",
-    n_studies: "Studies", n_quality_excluded: "Excluded (quality guard)",
+    n_studies: "Studies in pool", n_quality_excluded: "Excluded (quality guard)",
     n_data_available: "With primary data", n_paper_only: "Paper only",
     n_fallback_sharing: "Sharing fallback",
     dl_est: "Effect (DL, single-level)", est: "Effect", dl_se: "SE", se: "SE",
@@ -192,7 +192,7 @@
     if (state.spec) p.set("spec", state.spec);
     p.set("exclusions", state.exclusions);
     p.set("fully_within", state.fullyWithin ? "1" : "0");
-    return api(`/api/analysis/table?${p}`);
+    return api(`api/analysis/table?${p}`);
   }
 
   function renderTable(columns, rows, { numeric = "auto" } = {}) {
@@ -305,7 +305,8 @@
                     agreement: $("#view-agreement"),
                     coverage: $("#view-coverage"),
                     summary: $("#view-summary"), analysis: $("#view-analysis"),
-                    reproduction: $("#view-reproduction") };
+                    reproduction: $("#view-reproduction"),
+                    scheme: $("#view-scheme"), settings: $("#view-settings") };
     Object.entries(views).forEach(([name, el]) => { if (el) el.hidden = name !== view; });
     $$(".viewtab").forEach((b) => {
       const active = b.dataset.view === view;
@@ -318,10 +319,18 @@
     document.body.classList.toggle("view-agreement", view === "agreement");
     document.body.classList.toggle("view-summary", view === "summary");
     document.body.classList.toggle("view-reproduction", view === "reproduction");
+    document.body.classList.toggle("view-scheme", view === "scheme");
+    document.body.classList.toggle("view-settings", view === "settings");
     document.dispatchEvent(new CustomEvent("cs:view", { detail: view }));
     if (view === "analysis" && !state.overview) refresh();
     if (view === "analysis") window.dispatchEvent(new Event("resize"));
+    // the tab in use keeps its label, so the strip has to be measured again
+    if (window.CS && typeof window.CS.fitTopbar === "function") window.CS.fitTopbar();
   }
+
+  // The scheme editor is a view of its own, and it needs to come back to
+  // whatever view the user came from.
+  window.CS.showView = showView;
 
   // ---------------------------------------------------------------- selects
   function fillSelect(el, values, current, labeler = (v) => v) {
@@ -494,7 +503,8 @@
             "Bayesian small-study asymmetry: posterior slope of the effect on its standard error."),
       ] : [kpi("Bayes bias", "–", "not assessed")];
       cards = [
-        kpi("Contrasts (k)", esc(bp.k), `${esc(bp.n_studies ?? "–")} studies`),
+        kpi("Contrasts (k)", esc(bp.k), `${esc(bp.n_studies ?? "–")} studies with ≥1 poolable contrast`,
+            "", "Pooled studies: sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies and of the coded papers."),
         kpi("Pooled effect (Bayes)", fmt(bp.est), `95% CrI [${fmt(bp.lo)}, ${fmt(bp.hi)}]`,
             "", "Posterior mean of the pooled effect (the intended headline)."),
         kpi("P(effect > 0)", fmt(bp.p_gt0, 3), "posterior", bp.p_gt0 >= 0.95 ? "" : "warn",
@@ -511,15 +521,21 @@
       ];
     } else if (state.model === "bayes") {
       cards = [
-        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies`),
+        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies with ≥1 poolable contrast`),
         kpi("Pooled effect (Bayes)", "–", "not estimated"),
         ...bias,
       ];
     } else {
       cards = [
-        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies`),
-        kpi("Pooled effect (multilevel)", esc(est !== null ? fmt(est) : "–"),
-          est !== null ? `95% CI [${fmt(lo)}, ${fmt(hi)}]` : "not estimated"),
+        kpi("Contrasts (k)", esc(k), `${esc(row.n_studies ?? "–")} studies with ≥1 poolable contrast`,
+            "", "Pooled studies: sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies and of the coded papers."),
+        kpi(state.layer === "sdt" ? "Pooled Δd′ (multilevel, probit units)"
+                                  : "Pooled effect (multilevel, Hedges g)",
+          esc(est !== null ? fmt(est) : "–"),
+          est !== null ? `95% CI [${fmt(lo)}, ${fmt(hi)}]` : "not estimated",
+          "", state.layer === "sdt"
+            ? "Treatment minus control discrimination d′ = z(hit rate) − z(false-alarm rate) on the 0–1 rescaled response. Not a standardised mean difference."
+            : "Standardised mean difference (Hedges g, SD units) of the coded intervention-vs-control contrasts."),
         kpi("Heterogeneity", i2 !== null ? `${fmt(i2, 0)}%` : "–",
           tau2 !== null ? `I² · τ² = ${fmt(tau2, 2)}` : "not estimated",
           i2 !== null && i2 >= 75 ? "warn" : ""),
@@ -527,6 +543,11 @@
       ];
     }
     $("#an-kpis").innerHTML = cards.join("") +
+      `<p class="an-note an-units">${state.layer === "sdt"
+        ? "Units: Δd′ in probit units, from discernment cells of studies with true and false stimuli. It is <b>not</b> comparable with the Meta layer’s Hedges g (SD units, all outcome types, more studies): on the same studies and cells, the SD-unit version of Δd′ lines up with g."
+        : "Units: Hedges g (SD units) over all eligible contrasts. The SDT layer reports Δd′ (probit units) on fewer studies, so the two headline numbers are not directly comparable."}` +
+        ` Compare the number of contrasts and studies (k) beside each, and the estimator (${state.model === "bayes" ? "Bayesian" : "multilevel; DL/RVE are in the tables"}).</p>` +
+      `<p class="an-note">“Studies” here = sources contributing at least one poolable eligible contrast under the current specification — a subset of the screening-included studies in the PRISMA flow (Export tab) and of the coded papers (studies excluded at full text are still coded).</p>` +
       (estimand ? `<p class="an-note an-estimand" title="${esc(estimand)}">` +
         `Estimand: ${esc(estimand)}</p>` : "");
   }
@@ -545,20 +566,33 @@
     return p;
   }
 
+  // The prior controls apply to every Bayesian pool on the page, not only to
+  // /bayes: without them /subgroup and /pooled silently used the default prior.
+  function priorParams(p) {
+    p.set("mu_sd", String(state.muSd));
+    p.set("tau_sd", String(state.tauSd));
+    p.set("tau_prior", state.tauPrior);
+    return p;
+  }
+
   async function fetchSubgroup(by, bayes = false) {
+    // scope: the subgroup rows must come from the same (restricted/unrestricted)
+    // row set as the pooled estimate shown beside them.
     const p = new URLSearchParams({ by, layer: state.layer, spec: state.spec,
-                                    exclusions: state.exclusions });
-    if (bayes) p.set("model", "bayes");
+                                    exclusions: state.exclusions,
+                                    scope: (state.cred ? "restricted" : "unrestricted") });
+    if (bayes) { p.set("model", "bayes"); priorParams(p); }
     filterParams(p);
-    try { return await api(`/api/analysis/subgroup?${p}`); } catch { return { rows: [] }; }
+    try { return await api(`api/analysis/subgroup?${p}`); } catch { return { rows: [] }; }
   }
 
   async function fetchPooled() {
     const p = new URLSearchParams({ layer: state.layer, spec: state.spec,
                                     exclusions: state.exclusions,
                                     scope: (state.cred ? "restricted" : "unrestricted") });
+    priorParams(p);
     filterParams(p);
-    try { return await api(`/api/analysis/pooled?${p}`); } catch { return null; }
+    try { return await api(`api/analysis/pooled?${p}`); } catch { return null; }
   }
 
   async function fetchBayes(sensitivity = false) {
@@ -570,7 +604,7 @@
                                     tau_prior: state.tauPrior });
     filterParams(p);
     if (sensitivity) p.set("sensitivity", "1");
-    try { return await api(`/api/analysis/bayes?${p}`); } catch { return null; }
+    try { return await api(`api/analysis/bayes?${p}`); } catch { return null; }
   }
 
   async function showSensitivity() {
@@ -710,7 +744,7 @@
     const sel = $("#an-filter");
     if (!sel) return;
     try {
-      const d = await api("/api/analysis/moderators");
+      const d = await api("api/analysis/moderators");
       let html = `<option value="">All studies</option>`;
       (d.featured || []).forEach((m) => {
         const levels = m.levels || [];
@@ -866,11 +900,11 @@
     // Do not pull the (large) image until the Figures tab is actually open.
     if ($("#an-panel-figures")?.hidden) return;
     const img = $("#an-fig-img");
-    img.src = `/api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
+    img.src = `api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
     img.hidden = false;
     $("#an-fig-cap").innerHTML = `${esc(figCaption(f))}<br><span class="an-figlinks">` +
-      `<a href="/api/analysis/figure/${encodeURIComponent(stem)}.png" target="_blank" rel="noopener">PNG</a>` +
-      (f.pdf ? ` · <a href="/api/analysis/figure/${encodeURIComponent(stem)}.pdf" target="_blank" rel="noopener">PDF</a>` : "") +
+      `<a href="api/analysis/figure/${encodeURIComponent(stem)}.png" target="_blank" rel="noopener">PNG</a>` +
+      (f.pdf ? ` · <a href="api/analysis/figure/${encodeURIComponent(stem)}.pdf" target="_blank" rel="noopener">PDF</a>` : "") +
       `</span>`;
   }
 
@@ -941,9 +975,9 @@
       return;
     }
     img.hidden = false;
-    img.src = `/api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
+    img.src = `api/analysis/figure/${encodeURIComponent(stem)}.png?t=${Date.now()}`;
     if (none) none.hidden = true;
-    const url = `/api/analysis/figure/${encodeURIComponent(stem)}`;
+    const url = `api/analysis/figure/${encodeURIComponent(stem)}`;
     if (png) { png.href = url + ".png"; png.hidden = false; }
     if (pdf) { pdf.href = url + ".pdf"; pdf.hidden = isMod; }
     if (fallbackNote) {
@@ -986,7 +1020,7 @@
     host.innerHTML = figs.map((f) => {
       const stem = String(f.file || "").replace(/\.png$/, "");
       if (!stem) return "";
-      const url = `/api/analysis/figure/${encodeURIComponent(stem)}`;
+      const url = `api/analysis/figure/${encodeURIComponent(stem)}`;
       const label = esc(f.label || f.name);
       return `<figure class="an-sidefig"><figcaption>${label}</figcaption>` +
         `<img src="${url}.png?t=${Date.now()}" alt="${label}">` +
@@ -1003,7 +1037,7 @@
     const groupsHost = $("#an-mod-groups");
     if (groupsHost) groupsHost.innerHTML = `<div class="an-empty">Loading moderators…</div>`;
     try {
-      const d = await api("/api/analysis/moderators");
+      const d = await api("api/analysis/moderators");
       state.mods = d.moderators || [];
       state.featured = d.featured || [];
       state.modGroups = d.groups || [];
@@ -1127,10 +1161,13 @@
         `<td class="num">${ci}</td><td${sig}>${esc(bfFmt(t.bf10))}</td>` +
         `<td class="num">${esc(fmt(t.prob_gt0, 3))}</td></tr>`;
     }
-    const sig = Number(t.p) < 0.05 ? ' class="num p-sig"' : ' class="num"';
+    // A non-estimable term carries p/z = null (the backend never sends NaN):
+    // Number(null) is 0, which would print "0.00" and mark the term significant.
+    const pn = num(t.p);
+    const sig = (pn !== null && pn < 0.05) ? ' class="num p-sig"' : ' class="num"';
     return `<tr><td>${esc(humanTerm(t.term))}</td><td class="num">${kk}</td>` +
       `<td class="num">${est}</td><td class="num">${se}</td>` +
-      `<td class="num">${ci}</td><td class="num">${esc(Number(t.z).toFixed(2))}</td>` +
+      `<td class="num">${ci}</td><td class="num">${esc(fmt(t.z, 2))}</td>` +
       `<td${sig}>${esc(fmtP(t.p))}</td></tr>`;
   }
 
@@ -1290,7 +1327,7 @@
     const out = {};
     for (const oc of ["true_score", "fake_score", "criterion"]) {
       try {
-        out[oc] = await api("/api/analysis/moderate", {
+        out[oc] = await api("api/analysis/moderate", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(Object.assign({}, base, { outcome: oc })),
         });
@@ -1310,7 +1347,7 @@
     state.modFitting = true;
     syncModWait();
     try {
-      const r = await api("/api/analysis/moderate", {
+      const r = await api("api/analysis/moderate", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ layer: state.layer, spec: state.spec, exclusions: state.exclusions,
                                scope: (state.cred ? "restricted" : "unrestricted"),
@@ -1350,7 +1387,7 @@
   async function loadMethods() {
     const host = $("#an-methods");
     try {
-      const n = await api("/api/analysis/note");
+      const n = await api("api/analysis/note");
       if (!n.available) {
         host.innerHTML = `<div class="an-empty">No methods note found (<code>Scripts/ANALYSIS_SUITE_NOTE.md</code>).</div>`;
         return;
@@ -1440,7 +1477,7 @@
 
   async function pollRun() {
     try {
-      const s = await api("/api/analysis/run/status");
+      const s = await api("api/analysis/run/status");
       $("#an-runlog-body").textContent = s.log || "(starting…)";
       $("#an-runlog-body").scrollTop = $("#an-runlog-body").scrollHeight;
       setProgress("Recomputing prerequisite tables and figures…", true);
@@ -1457,7 +1494,7 @@
 
   async function run(kind) {
     try {
-      const res = await api("/api/analysis/run", {
+      const res = await api("api/analysis/run", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, fully_within: state.fullyWithin }),
       });
@@ -1485,7 +1522,7 @@
   // ---------------------------------------------------------------- refresh
   async function refresh() {
     try {
-      state.overview = await api(`/api/analysis/overview?fully_within=${state.fullyWithin ? "1" : "0"}`);
+      state.overview = await api(`api/analysis/overview?fully_within=${state.fullyWithin ? "1" : "0"}`);
     } catch (e) {
       $("#an-summary").innerHTML = `<div class="an-empty">Could not load the analysis overview: ${esc(e.message)}</div>`;
       return;
@@ -1671,7 +1708,46 @@
     const img = $("#apa-prisma-img");
     if (!img) return;
     img.hidden = false;
-    img.src = `/api/analysis/prisma.png?t=${Date.now()}`;
+    img.src = `api/analysis/prisma.png?t=${Date.now()}`;
+    renderPrismaCounts();
+  }
+
+  // The labelled numbers behind the diagram, so the boxes can never be read
+  // as each other: records identified = master rows; studies included in
+  // review = screening verdict; coded but excluded at full text = the flow's
+  // excluded branch; papers coded = the larger coding corpus.
+  async function renderPrismaCounts() {
+    const host = $("#apa-prisma-counts");
+    if (!host) return;
+    try {
+      const c = await api("api/analysis/prisma/counts");
+      if (!c || !c.available) {
+        host.hidden = true;
+        return;
+      }
+      const src = Object.entries(c.other_sources || {})
+        .map(([k, v]) => `${esc(k)}: ${Number(v).toLocaleString()}`).join(" · ");
+      const exclCrit = Object.entries(c.coded_excluded_by_criterion || {})
+        .map(([k, v]) => `${esc(k)}: ${Number(v).toLocaleString()}`).join("; ");
+      const nExcl = Number(c.coded_excluded_at_fulltext || 0).toLocaleString();
+      host.hidden = false;
+      host.innerHTML =
+        `Records identified: <b>${Number(c.records_identified).toLocaleString()}</b> ` +
+        `(every master_dataset.xlsx row; database searches ${Number(c.database_records).toLocaleString()}` +
+        `${src ? ` + other sources ${Number(c.other_records).toLocaleString()} — ${src}` : ""}) · ` +
+        `duplicate records removed: <b>${Number(c.duplicates_removed).toLocaleString()}</b> · ` +
+        `reports screened: <b>${Number(c.reports).toLocaleString()}</b> · ` +
+        `studies included in review (screening verdict “Include”): <b>${Number(c.included_studies).toLocaleString()}</b> · ` +
+        `coded but excluded at full text: <b>${nExcl}</b>` +
+        `${exclCrit ? ` (${exclCrit}; a paper can fail several criteria)` : ""} · ` +
+        `papers coded: <b>${Number(c.coded_papers).toLocaleString()}</b> ` +
+        `(studies excluded at full text are still coded, so this is larger than the included set; ` +
+        `included records ${Number(c.included_records).toLocaleString()}, of which ` +
+        `${Number(c.duplicate_included_records).toLocaleString()} duplicate copies) · ` +
+        `pooled-analysis studies (with ≥1 poolable contrast): the “Contrasts (k)” card above.`;
+    } catch {
+      host.hidden = true;
+    }
   }
 
   async function downloadApa() {
@@ -1692,7 +1768,7 @@
     if (!body.analyses.length) { alert("Select at least one analysis."); return; }
     toast("Building the report…", "ok", "This can take a few seconds.");
     try {
-      const r = await fetch("/api/analysis/apa", {
+      const r = await fetch("api/analysis/apa", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -1725,7 +1801,7 @@
                                     exclusions: state.exclusions,
                                     scope: (state.cred ? "restricted" : "unrestricted") });
     p.set("fully_within", state.fullyWithin ? "1" : "0");
-    const url = `/api/analysis/export?${p}`;
+    const url = `api/analysis/export?${p}`;
     const a = document.createElement("a");
     a.href = url;
     a.download = "";

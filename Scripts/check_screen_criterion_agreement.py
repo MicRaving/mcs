@@ -15,6 +15,7 @@ Products
 ``Results/screen_criterion_agreement.csv``   the disagreements
 """
 import csv
+import json
 import os
 import re
 import sys

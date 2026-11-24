@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=CodingStudio
+GenericName=Coding and meta-analysis studio
+Comment=Screen, code and pool the studies of a meta-analysis
+Exec=codingstudio
+Icon=org.codingstudio.CodingStudio
+Terminal=false
+Categories=Science;Education;Office;
+Keywords=meta-analysis;coding;systematic review;research;
+StartupNotify=true
+StartupWMClass=CodingStudio

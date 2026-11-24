@@ -41,6 +41,7 @@ import pandas as pd
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MASTER = os.path.join(ROOT, "master_dataset.xlsx")
 EXTRACTION = os.path.join(ROOT, "Extraction")
+AGREED_FULLTEXT = os.path.join(ROOT, "Screening", "fulltext_agreed.json")
 SHEET = "Search"
 
 
@@ -218,7 +219,15 @@ def report_stages(df: pd.DataFrame, roots=None) -> dict:
 # extraction reconciliation
 # --------------------------------------------------------------------------- #
 def coded_papers() -> dict:
-    """One record per coded paper in Extraction/ (collapsing Exp suffixes)."""
+    """One record per coded paper in Extraction/ (collapsing Exp suffixes).
+
+    Each entry carries the paper's title/DOI (for master matching) and
+    ``criteria``: the set of non-empty ``Fulltext_Exclusion_Criterion`` values
+    across the paper's records - the canonical coding's own full-text
+    exclusion marker (C1 no intervention / C2 no control / C3 not English /
+    C4 not primary-experimental; a blank field means the paper met every
+    inclusion criterion, or the route recorded none).
+    """
     papers = {}
     for path in sorted(glob.glob(os.path.join(EXTRACTION, "*.json"))):
         key = os.path.splitext(os.path.basename(path))[0]
@@ -237,8 +246,132 @@ def coded_papers() -> dict:
         doi = next((str(o.get("DOI") or "").strip() for o in objs
                     if str(o.get("DOI") or "").strip()), "")
         paper_key = re.sub(r"\s+Exp\d+$", "", key)
-        papers.setdefault(paper_key, {"title": title, "doi": doi})
+        entry = papers.setdefault(paper_key, {"title": title, "doi": doi,
+                                              "criteria": set()})
+        for o in objs:
+            value = o.get("Fulltext_Exclusion_Criterion")
+            values = value if isinstance(value, list) else (
+                [value] if value not in (None, "") else [])
+            for v in values:
+                v = str(v).strip()
+                if v:
+                    entry["criteria"].add(v)
+        if not entry["title"] and title:
+            entry["title"] = title
+        if not entry["doi"] and doi:
+            entry["doi"] = doi
     return papers
+
+
+#: The PRISMA box's short criterion labels (the diagram's breakdown line).
+#: The eight full-text exclusion criteria (owner decision 2026-11-19), in
+#: canonical order; a paper that fails several counts under each.
+CODED_EXCLUSION_SHORT = {
+    "C1": "C1 no intervention",
+    "C2": "C2 no control",
+    "C3": "C3 not English",
+    "C4": "C4 not experimental",
+    "irretrievable": "irretrievable",
+    "no_contrast": "no eligible contrast",
+    "duplicate": "duplicate report",
+    "domain_mismatch": "outside scope",
+}
+
+
+def agreed_fulltext_exclusions() -> dict:
+    """{study_key: criterion} from ``Screening/fulltext_agreed.json``.
+
+    That file is the screening layer's canonical record of the full-text
+    exclusions the coders agreed on (the same file
+    ``Scripts/study_exclusions.py::fulltext_excluded_keys`` reads); it is
+    written by the coding app's full-text tab, so it is absent in a checkout
+    where no agreement pass has run - an absent file is an empty dict, never
+    an error.  The criterion is the entry's majority criterion code (C1..C4,
+    or one of the screening tab's own codes such as ``duplicate``).
+    """
+    if not os.path.isfile(AGREED_FULLTEXT):
+        return {}
+    try:
+        with open(AGREED_FULLTEXT, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out = {}
+    for key, info in data.items():
+        crit = ""
+        if isinstance(info, dict):
+            crit = str(info.get("criterion") or "").strip()
+        out[str(key)] = crit
+    return out
+
+
+def coded_fulltext_excluded(papers: dict | None = None) -> dict:
+    """Coded papers carrying a full-text exclusion - ONE helper for the box.
+
+    The figure behind the PRISMA box "Coded but excluded at full text" is the
+    UNION, over coded papers, of the two sources that record a full-text
+    exclusion:
+
+      * the canonical coding's own ``Fulltext_Exclusion_Criterion`` field
+        (``Extraction/<Key>.json`` - a paper counts when any of its records
+        carries a non-empty criterion), and
+      * the agreed screening file ``Screening/fulltext_agreed.json`` (the
+        screening layer's canonical record; see
+        :func:`agreed_fulltext_exclusions`), when it is present.
+
+    The master workbook's own full-text verdicts are NOT a source for this
+    box - ``prisma_flow`` counts them separately (``fulltext_excluded`` and
+    ``coded_papers_in_excluded_reports``) so the report can reconcile the two.
+
+    Returns a dict with the box count, the key set (``keys``), the
+    per-criterion breakdown (a paper that fails several criteria counts
+    under each of them, so the breakdown can exceed the count) and the
+    per-source counts for the reconciliation note.
+    """
+    papers = coded_papers() if papers is None else papers
+    agreed = agreed_fulltext_exclusions()
+    by_key: dict[str, set] = {}
+    from_field = set()
+    from_agreed = set()
+    for key, meta in papers.items():
+        crits = {c for c in (meta.get("criteria") or ()) if str(c).strip()}
+        if crits:
+            from_field.add(key)
+        if key in agreed:
+            from_agreed.add(key)
+            # the agreed file's majority criterion (compute_agreed defaults
+            # it to "other", so a blank is rare - still counts the paper)
+            crits.add(agreed[key] or "(unspecified)")
+        if crits:
+            by_key[key] = crits
+
+    breakdown: dict[str, int] = {}
+    multi = 0
+    for crits in by_key.values():
+        if len(crits) > 1:
+            multi += 1
+        for c in crits:
+            breakdown[c] = breakdown.get(c, 0) + 1
+    # canonical order first (the eight criteria), then anything the sources
+    # additionally carry (an unusual coding value, the agreed file's own codes)
+    ordered = {}
+    for code in CODED_EXCLUSION_SHORT:
+        if code in breakdown:
+            ordered[CODED_EXCLUSION_SHORT[code]] = breakdown.pop(code)
+    for code in sorted(breakdown):
+        ordered[code] = breakdown[code]
+    return {
+        "count": len(by_key),
+        "keys": set(by_key),
+        "by_criterion": ordered,
+        "papers_with_several_criteria": multi,
+        "from_extraction_field": len(from_field),
+        "from_agreed_file": len(from_agreed),
+        "agreed_file_present": os.path.isfile(AGREED_FULLTEXT),
+        "agreed_keys_uncoded": len(set(agreed) - set(papers)),
+    }
 
 
 def _build_match_index(df: pd.DataFrame) -> dict:
@@ -334,9 +467,14 @@ def prisma_flow(df: pd.DataFrame | None = None) -> dict:
     papers = coded_papers()
     match_idx = _build_match_index(df)
     coded_reached_roots = set()
-    for meta in papers.values():
+    paper_roots: dict = {}
+    for pkey, meta in papers.items():
+        proots = set()
         for i in _match_master(df, match_idx, meta["doi"], meta["title"]):
-            coded_reached_roots.add(roots[i])
+            proots.add(roots[i])
+        if proots:
+            coded_reached_roots |= proots
+            paper_roots[pkey] = proots
     coded_in_include = {r for r in coded_reached_roots
                         if stages.get(r) == "Include"}
     included_uncoded = sorted(
@@ -347,6 +485,19 @@ def prisma_flow(df: pd.DataFrame | None = None) -> dict:
             if str(df.at[i, "Effective_Verdict"]).strip() == "Include":
                 uncoded_titles.append(str(df.at[i, "title"]))
                 break
+
+    # coded papers carrying a full-text exclusion (ONE helper - the PRISMA
+    # box "Coded but excluded at full text"; the union of the coding's own
+    # criterion field and the agreed screening file when present).  The
+    # master workbook's excluded reports are counted above and are kept here
+    # only as the reconciliation figures.
+    coded_ft = coded_fulltext_excluded(papers)
+    ft_keys = coded_ft["keys"]
+    coded_ft_in_excluded_reports = sum(
+        1 for k in ft_keys
+        if any(stages.get(r) == "Exclude" for r in paper_roots.get(k, ())))
+    coded_ft_without_master_row = sum(1 for k in ft_keys
+                                      if not paper_roots.get(k))
 
     flow = {
         "identified_records": n_rows,
@@ -376,6 +527,21 @@ def prisma_flow(df: pd.DataFrame | None = None) -> dict:
             "coded_papers_in_included_reports": len(coded_in_include),
             "included_reports_without_a_coding": len(included_uncoded),
             "included_reports_without_a_coding_titles": uncoded_titles,
+        },
+        # the PRISMA box "Coded but excluded at full text": coded papers
+        # carrying a full-text exclusion (union of the coding's own
+        # criterion field and the agreed screening file when present), with
+        # the per-source counts and the master-verdict reconciliation.
+        "coded_fulltext_excluded": coded_ft["count"],
+        "coded_fulltext_excluded_by_criterion": coded_ft["by_criterion"],
+        "coded_fulltext_excluded_detail": {
+            "from_extraction_field": coded_ft["from_extraction_field"],
+            "from_agreed_file": coded_ft["from_agreed_file"],
+            "agreed_file_present": coded_ft["agreed_file_present"],
+            "agreed_keys_uncoded": coded_ft["agreed_keys_uncoded"],
+            "papers_with_several_criteria": coded_ft["papers_with_several_criteria"],
+            "in_master_excluded_reports": coded_ft_in_excluded_reports,
+            "without_a_master_row": coded_ft_without_master_row,
         },
     }
     return flow

@@ -110,6 +110,7 @@ import reanalysis as RA  # noqa: E402  (reuse dl_random / exclusions / meta side
 import domain_restriction as DR  # noqa: E402
 import study_exclusions as SE  # noqa: E402
 import suite_common as SC  # noqa: E402  (explicit per-study condition mappings)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 try:  # console-safe output for study names with non-cp1252 characters
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -288,7 +289,7 @@ def build_study(folder, exclusions_on, with_components=False):
     """
     key = os.path.basename(folder)
     skips = []
-    wide = pd.read_csv(os.path.join(folder, key + " - harmonized.csv"),
+    wide = pd.read_csv(CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv")),
                        encoding="utf-8-sig", low_memory=False)
     meta = RA.meta_for(folder)
     rules = RA.load_exclusions(folder)
@@ -1194,7 +1195,7 @@ def main():
         if not SC.include_fully_within() and SC.study_fully_within(key):
             fw_skipped.append(key)
             continue
-        hpath = os.path.join(folder, key + " - harmonized.csv")
+        hpath = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(hpath):
             continue
         if recently_modified(hpath):
@@ -1223,7 +1224,7 @@ def main():
         key = os.path.basename(folder)
         if not SC.include_fully_within() and SC.study_fully_within(key):
             continue
-        hpath = os.path.join(folder, key + " - harmonized.csv")
+        hpath = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
         if not os.path.isfile(hpath) or recently_modified(hpath):
             continue
         try:

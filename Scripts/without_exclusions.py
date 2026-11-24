@@ -42,6 +42,8 @@ ROOT = os.path.dirname(_HERE)
 TEMP = os.path.join(ROOT, "temp", "ws_c")
 os.makedirs(TEMP, exist_ok=True)
 DATASETS = os.path.join(ROOT, "Datasets")
+sys.path.insert(0, _HERE)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 OUT_CSV = os.path.join(TEMP, "without_exclusions.csv")
 OUT_JSON = os.path.join(TEMP, "without_exclusions.json")
@@ -93,7 +95,7 @@ def _has_dataset(key):
 
 
 def _has_harmonized(key):
-    return os.path.isfile(os.path.join(DATASETS, key, key + " - harmonized.csv"))
+    return CSVIO.exists(os.path.join(DATASETS, key, key + " - harmonized.csv"))
 
 
 def _exclusion_rules(key):
@@ -266,7 +268,7 @@ def _prep_long(rea, SC, DR, SE, folder, key):
     computed on the same long frame (same DV filter, polarity orientation and
     arm roles) as the ON/OFF engine.
     """
-    f = os.path.join(folder, key + " - harmonized.csv")
+    f = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
     if not os.path.isfile(f):
         return None
     try:
@@ -1040,7 +1042,7 @@ def add_missing_d(dry_run=False):
         avail = _avail_text(exps)
         raw = _raw_files(key)
         raw_txt = ", ".join(f"`{r}`" for r in raw[:8]) if raw else "none recorded"
-        harm = os.path.isfile(os.path.join(DATASETS, key, key + " - harmonized.csv"))
+        harm = CSVIO.exists(os.path.join(DATASETS, key, key + " - harmonized.csv"))
         if harm:
             body = (f"Raw source file(s): {raw_txt}. Derived to `{key} - prepared.csv` and "
                     f"`{key} - harmonized.csv` by `Datasets/{key}/harmonizer.py` "
@@ -1105,13 +1107,13 @@ def apply_reports(dry_run=False):
         path = os.path.join(REPRO, fn)
         text = _read(path)
         orig = text
-        has_data = os.path.isfile(os.path.join(DATASETS, key, key + " - harmonized.csv"))
+        has_data = CSVIO.exists(os.path.join(DATASETS, key, key + " - harmonized.csv"))
         harmonized = has_data
         if not has_data:
             # case/unicode-insensitive fallback to a dataset folder
             for d in os.listdir(DATASETS):
                 if _canon_key(d) == _canon_key(key):
-                    harmonized = os.path.isfile(os.path.join(DATASETS, d, d + " - harmonized.csv"))
+                    harmonized = CSVIO.exists(os.path.join(DATASETS, d, d + " - harmonized.csv"))
                     has_data = bool(_raw_files(d)) or harmonized
                     break
         exps = _extraction_experiments(key)

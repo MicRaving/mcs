@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>overflow audit</title>
+  <style>
+    body { margin: 0; font: 12px ui-monospace, Consolas, monospace; background: #111; color: #eee; }
+    #stage { position: absolute; inset: 0 380px 0 0; overflow: hidden; }
+    iframe { border: 0; background: #000; display: block; }
+    #out { position: absolute; right: 0; top: 0; width: 380px; height: 100%; overflow: auto; margin: 0;
+           padding: 8px; white-space: pre-wrap; background: #000; border-left: 1px solid #333; }
+    .bad { color: #ff8f8f; }
+    .ok { color: #7ee2b8; }
+    .head { color: #8aa4ff; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div id="stage"><iframe id="f" src="/"></iframe></div>
+<pre id="out">booting…</pre>
+<script>
+const VIEWS = ["home", "summary", "screening", "coding", "agreement",
+               "coverage", "reproduction", "analysis", "scheme"];
+const SIZES = [[1440, 900], [1280, 800], [1024, 768], [900, 700]];
+const out = document.getElementById("out");
+const f = document.getElementById("f");
+const log = (html) => { out.innerHTML += "\n" + html; out.scrollTop = out.scrollHeight; };
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function auditDoc(doc, win) {
+  const problems = [];
+  const de = doc.documentElement;
+  if (de.scrollWidth > win.innerWidth + 1) {
+    problems.push(`page overflows horizontally: scrollWidth ${de.scrollWidth} > ${win.innerWidth}`);
+  }
+  const visible = (el) => {
+    const cs = win.getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const path = (el) => {
+    const bits = [];
+    let n = el;
+    for (let i = 0; i < 4 && n && n.nodeType === 1; i += 1) {
+      bits.unshift(n.id ? `#${n.id}` : (n.className && typeof n.className === "string"
+        ? "." + n.className.trim().split(/\s+/).slice(0, 2).join(".")
+        : n.tagName.toLowerCase()));
+      n = n.parentElement;
+    }
+    return bits.join(" > ");
+  };
+  // elements that clip their own content horizontally
+  const TEXT_FIELDS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+  for (const el of doc.querySelectorAll("body *")) {
+    if (!visible(el)) continue;
+    if (TEXT_FIELDS.has(el.tagName)) continue;          // a field scrolls its value by design
+    const cs = win.getComputedStyle(el);
+    const clips = cs.overflowX !== "visible";
+    if (!clips || el.clientWidth <= 0) continue;
+    if (el.scrollWidth <= el.clientWidth + 2) continue;
+    // a deliberate scroller (a table wrapper, a code block) is fine
+    if (cs.overflowX === "auto" || cs.overflowX === "scroll") continue;
+    // an ellipsis is a decision, not an overflow
+    if (cs.textOverflow === "ellipsis") continue;
+    const kids = [...el.children].map((kid) => {
+      const cs2 = win.getComputedStyle(kid);
+      const r2 = kid.getBoundingClientRect();
+      return `${path(kid)} [w ${Math.round(r2.width)} sw ${kid.scrollWidth} ox ${cs2.overflowX}]`;
+    });
+    problems.push(`clipped: ${path(el)} (${el.scrollWidth} > ${el.clientWidth})\n    ` +
+                  (kids.join("\n    ") || "(no element children)"));
+  }
+  // elements whose right edge leaves the viewport, unless something above them
+  // clips or scrolls (a table wrapper, an ellipsis line) - that is by design
+  const clippedAbove = (el) => {
+    let n = el.parentElement;
+    while (n && n !== doc.body) {
+      const cs = win.getComputedStyle(n);
+      if (cs.overflowX !== "visible") return true;
+      n = n.parentElement;
+    }
+    return false;
+  };
+  for (const el of doc.querySelectorAll("main.workspace:not([hidden]) *")) {
+    if (!visible(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.right <= win.innerWidth + 1 || r.width <= 2) continue;
+    if (clippedAbove(el)) continue;
+    problems.push(`past the right edge: ${path(el)} (right ${Math.round(r.right)})`);
+  }
+  return [...new Set(problems)];
+}
+
+async function run() {
+  out.textContent = "";
+  await sleep(1500);
+  const doc = f.contentDocument;
+  for (const [w, h] of SIZES) {
+    f.style.width = w + "px";
+    f.style.height = h + "px";
+    await sleep(250);
+    log(`<span class="head">=== ${w} x ${h} (inner ${f.contentWindow.innerWidth}) ===</span>`);
+    for (const view of VIEWS) {
+      const tab = doc.querySelector(`.viewtab[data-view="${view}"]`);
+      if (!tab) { log(`${view}: no tab`); continue; }
+      tab.click();
+      await sleep(320);
+      const problems = auditDoc(doc, f.contentWindow);
+      if (!problems.length) log(`<span class="ok">${view}: clean</span>`);
+      else log(`<span class="bad">${view}: ${problems.length}</span>\n  ` + problems.slice(0, 12).join("\n  "));
+    }
+  }
+  log("\ndone");
+}
+f.addEventListener("load", () => run().catch((e) => log("audit failed: " + e)));
+</script>
+</body>
+</html>

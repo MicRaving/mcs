@@ -84,6 +84,7 @@ import domain_restriction as DR  # noqa: E402
 import study_exclusions as SE  # noqa: E402
 import suite_common as SC  # noqa: E402  (dependence-aware pooling: 3-level + RVE)
 import analysis_log as AL  # noqa: E402  (durable drop log, Results/analysis_log.jsonl)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 try:  # console-safe output for study names with non-cp1252 characters
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -109,6 +110,16 @@ def _probit(p, n=None):
     return float(SC._probit(p, n=n))
 
 
+def _map_unique(s, fn):
+    """``s.map(fn)`` with ``fn`` evaluated once per distinct value.
+
+    The result goes through the same ``Series.map(callable)`` path (a dict
+    lookup as the callable), so dtype inference is identical to ``s.map(fn)``.
+    """
+    table = {v: fn(v) for v in pd.unique(s)}
+    return s.map(table.__getitem__)
+
+
 def dprime(hr, cr, n=None, n_fa=None):
     """SDT discrimination ``d' = z(HR) - z(FAR)`` from a hit rate and a
     correct-rejection (true-negative) rate, where ``FAR = 1 - cr``.
@@ -122,13 +133,18 @@ def dprime(hr, cr, n=None, n_fa=None):
 
 
 def run_harmonizers():
+    """Run every stale per-study harmonizer.py (cwd = the study folder)."""
     ran = failed = 0
     failed_keys = []
     for d in sorted(glob.glob(os.path.join(DS, "*"))):
         h = os.path.join(d, "harmonizer.py")
         if os.path.isfile(h):
+            # cwd = the study folder: a harmonizer that writes its products
+            # with a relative name (some do) must never land them in the
+            # project root (the four "Pimentel (2025) - *.csv" strays were
+            # exactly that).
             proc = subprocess.run([sys.executable, "-X", "utf8", h],
-                                  capture_output=True, check=False)
+                                  capture_output=True, check=False, cwd=d)
             ran += 1
             if proc.returncode != 0:
                 # A crashed harmonizer would otherwise leave a stale CSV that the
@@ -471,8 +487,9 @@ def _component_stats(tv, fv):
         out["fake_var"] = float(fv.var(ddof=1) / len(fv)) if len(fv) > 1 else np.nan
     n = min(len(tv), len(fv))
     if n:
-        cs = np.array([-0.5 * (_probit(float(tv[i])) + _probit(1.0 - float(fv[i])))
-                       for i in range(n)], float)
+        # element-wise over the paired units (same clip + ndtri per element as
+        # the former per-unit scalar loop, so bit-identical)
+        cs = np.asarray(-0.5 * (SC._probit(tv[:n]) + SC._probit(1.0 - fv[:n])), float)
         cs = cs[np.isfinite(cs)]
         if len(cs):
             out["criterion_score"] = float(cs.mean())
@@ -510,8 +527,12 @@ def _cell_dprime(g):
             nf = fv.groupby("pid").size()
             common = tm.index.intersection(fm.index)
             if len(common) >= 2:
-                dps = np.array([dprime(tm[p], fm[p], n=int(nt.get(p, 1)),
-                                       n_fa=int(nf.get(p, 1))) for p in common], float)
+                # vectorised over participants (element-wise identical to the
+                # former per-pid loop; nt/nf come from the same frames as tm/fm)
+                dps = np.asarray(dprime(tm.loc[common].to_numpy(float),
+                                        fm.loc[common].to_numpy(float),
+                                        n=nt.loc[common].to_numpy(float),
+                                        n_fa=nf.loc[common].to_numpy(float)), float)
                 dps = dps[np.isfinite(dps)]
                 if len(dps) >= 2:
                     dd = float(np.mean(dps))
@@ -519,9 +540,8 @@ def _cell_dprime(g):
                     n_pid = len(dps)
                 # Paired participant-level components (more precise than the
                 # aggregate when participants are identified).
-                comp = _component_stats(
-                    np.array([tm[p] for p in common], float),
-                    np.array([fm[p] for p in common], float))
+                comp = _component_stats(tm.loc[common].to_numpy(float),
+                                        fm.loc[common].to_numpy(float))
     if dd is None:
         hr, cr = float(t.mean()), float(fa.mean())
         dd = dprime(hr, cr, n=len(t), n_fa=len(fa))
@@ -553,6 +573,7 @@ def collect_datasets(no_excl, write_catalog=True):
     for folder in sorted(glob.glob(os.path.join(DS, "*"))):
         f = os.path.join(folder, os.path.basename(folder) + " - harmonized.csv")
         side = os.path.join(folder, os.path.basename(folder) + " - harmonized_variables.csv")
+        f = CSVIO.resolve(f)          # the product may be stored gzip-compressed
         if not os.path.isfile(f):
             continue
         # Whole-study full-text exclusion agreed by coders in Coding Studio.
@@ -582,6 +603,20 @@ def collect_datasets(no_excl, write_catalog=True):
         # analysis suite already reads both names (`condition`/`condition_raw`).
         if "condition" not in d.columns and "condition_raw" in d.columns:
             d = d.rename(columns={"condition_raw": "condition"})
+        # A harmonizer that omitted the `study_key` column (or left cells blank)
+        # crashed the per-cell groupby below (KeyError: 'study_key') or the final
+        # sorted() of study keys (float NaN vs str) -- both hit by the
+        # fully-within opt-in build in validate_fully_within.  The key IS the
+        # folder name, so only the missing cells are filled.
+        if "study_key" not in d.columns:
+            d["study_key"] = os.path.basename(folder)
+        else:
+            _sk_blank = d["study_key"].isna() | (d["study_key"].astype(str).str.strip() == "")
+            if _sk_blank.any():
+                # whole-column assignment: an all-blank column is float64 and
+                # pandas >= 3 refuses a str written into it through .loc
+                d["study_key"] = d["study_key"].astype(object).where(
+                    ~_sk_blank, os.path.basename(folder))
         dvcols = [c for c in d.columns if str(c).startswith("dv_") and str(c).endswith("_01")]
         # Confidence/certainty DVs are NOT outcomes (separate metacognition strand); drop them
         # from the catalogue and from the melt so they can never be pooled, not even as `other`.
@@ -606,16 +641,19 @@ def collect_datasets(no_excl, write_catalog=True):
         if "artifact" not in long.columns:
             long["artifact"] = ""          # the groupby below always needs the key
         long["dv"] = long["dv_01"].str[:-3]
-        long["dv_domain"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[0])
-        long["veracity"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[1])
-        long["timepoint"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[2])
-        long["polarity"] = long["dv"].map(lambda v: meta.get(v, ("", "", "", ""))[3])
+        # Per-DV attributes depend only on the DV name (a few hundred distinct
+        # values over ~10^6 melted rows): evaluate once per name, then map.
+        long["dv_domain"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[0])
+        long["veracity"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[1])
+        long["timepoint"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[2])
+        long["polarity"] = _map_unique(long["dv"], lambda v: meta.get(v, ("", "", "", ""))[3])
         # Difference/change-score DVs must not carry a veracity (contract.dv_veracity);
         # if a sidecar tags one anyway, drop it so it is never pair-split as a hit /
         # false-alarm component and pooled as an outcome (see _DROP_MISLABELED_DIFF).
         if _DROP_MISLABELED_DIFF:
             _ver_tf = long["veracity"].astype(str).str.strip().str.lower().isin(["true", "false"])
-            _diff = long["dv"].astype(str).map(lambda v: bool(_DIFF_SCORE_RE.search(v)))
+            _diff = _map_unique(long["dv"].astype(str),
+                                lambda v: bool(_DIFF_SCORE_RE.search(v)))
             if (_ver_tf & _diff).any():
                 long = long[~(_ver_tf & _diff)]
                 if not len(long):
@@ -643,7 +681,7 @@ def collect_datasets(no_excl, write_catalog=True):
             # treat them as the rule intends (false endorsement -> higher_is_worse).
             try:
                 import dv_polarity as _dvp
-                _is_comp = long["dv"].astype(str).map(_dvp.is_composite)
+                _is_comp = _map_unique(long["dv"].astype(str), _dvp.is_composite)
             except Exception:
                 _is_comp = pd.Series(False, index=long.index)
             _blank_pol = long["polarity"].astype(str).str.strip().str.lower().isin(
@@ -985,13 +1023,17 @@ def main():
         {"item": "freshness_guard_forced", "value": bool(force)},
         {"item": "freshness_window_seconds", "value": _fresh_window()},
     ])
-    with pd.ExcelWriter(OUT, engine="openpyxl") as xl:
+    # Atomic write (temp/ then move): an open-in-Excel reanalysis.xlsx or a crash
+    # mid-write must not leave a truncated product (suite_common.publish_output).
+    _partial = SC.partial_output_path(OUT)
+    with pd.ExcelWriter(_partial, engine="openpyxl") as xl:
         disc.to_excel(xl, sheet_name="Discrimination", index=False)
         level.to_excel(xl, sheet_name="Discrimination_level", index=False)
         res.to_excel(xl, sheet_name="MetaResults", index=False)
         res_restricted.to_excel(xl, sheet_name="MetaResults_restricted", index=False)
         domain_counts.to_excel(xl, sheet_name="Domain_Counts", index=False)
         audit.to_excel(xl, sheet_name="RunAudit", index=False)
+    SC.publish_output(_partial, OUT)
     print(f"wide datasets catalogued: {len(cat)} | intervention contrasts: {len(disc)} | "
           f"auxiliary level contrasts: {len(level)}")
     print(f"completeness: analysed {n_analysed}/{n_total} eligible dataset(s); "

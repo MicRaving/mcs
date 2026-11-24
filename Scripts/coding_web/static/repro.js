@@ -7,32 +7,15 @@
 
    Endpoints: /api/repro/overview,
               /api/repro/study/<key>/dossier,
-              /api/repro/dossier/files/<key>[?live=1],
+              /api/repro/dossier/files/<key>,
               /api/repro/dossier/log/<key>,
               /api/repro/dossier/edit,
-              /api/repro/run, /api/repro/run/cancel, /api/repro/run/status.
+              /api/repro/run, /api/repro/run/status.
    ============================================================ */
 (() => {
   "use strict";
 
-  const { $, $$, esc, toast, safeGet } = window.CS;
-
-  /* CS.api throws "HTTP 409" and drops the server's {error} message; keep it */
-  async function api(path, opts) {
-    const r = await fetch(path, opts);
-    let body = null;
-    try { body = await r.json(); } catch { body = null; }
-    if (!r.ok) {
-      const err = new Error((body && body.error) || `${path} → HTTP ${r.status}`);
-      err.status = r.status;
-      throw err;
-    }
-    return body;
-  }
-  const postJSON = (path, data) => api(path, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data || {}),
-  });
+  const { $, $$, esc, api, toast } = window.CS;
 
   const S = {
     started: false,
@@ -45,19 +28,17 @@
     dossier: null,
     files: [],
     filesKey: "",
-    filesSource: "",
-    filesLive: false,
     log: null,
     dtab: "results",
     polling: null,
-    pollFails: 0,
     runActive: false,
     varq: "",
     fileq: "",
     expanded: {},
-    drafts: {},
     reportOpen: false,
-    openToken: 0,
+    /* online edit lock of the open study (its reproduction files are shared) */
+    lockKey: "",
+    locked: null,
   };
 
   const STATUS = {
@@ -73,9 +54,7 @@
   const FILTERS = ["all", "reproduced", "partial", "not_reproduced",
                    "reported_only", "not_reproducible", "crashed", "not_run"];
   const KIND_LABEL = { generate: "Generating scripts…", harmonizers: "Running harmonizers…",
-                       reproducers: "Running reproducers…", dossier: "Rebuilding dossier…",
-                       study: "Re-running study…" };
-  const RUN_BTN_IDS = ["rp-gen", "rp-harm", "rp-repro", "rp-dossier"];
+                       reproducers: "Running reproducers…" };
   const DTABS = [
     ["results", "Results"],
     ["files", "File inventory"],
@@ -153,10 +132,7 @@
       pill.className = "pill " + (on ? "accent" : "");
       pill.textContent = on ? (title || "Running…") : "Idle";
     }
-    RUN_BTN_IDS.forEach((id) => { const b = $("#" + id); if (b) b.disabled = on || b.dataset.unavailable === "1"; });
-    $$("[data-rerun]").forEach((b) => { b.disabled = on; });
-    const cancel = $("#rp-cancel");
-    if (cancel) { cancel.hidden = !on; cancel.disabled = false; }
+    $$("#rp-runbar .btn").forEach((b) => { b.disabled = on; });
     if (on) {
       const log = $("#rp-runlog");
       if (log) log.hidden = false;
@@ -165,95 +141,53 @@
     }
   }
 
-  function startPolling() {
-    if (S.polling) clearInterval(S.polling);
-    S.pollFails = 0;
-    S.polling = setInterval(pollRun, 1500);
-    pollRun();
-  }
-
-  function stopPolling() {
-    if (S.polling) { clearInterval(S.polling); S.polling = null; }
-  }
-
   async function pollRun() {
     let s;
-    try {
-      s = await api("/api/repro/run/status");
-      S.pollFails = 0;
-    } catch (e) {
-      // the server went away (app closed / re-rooted): stop instead of polling forever
-      S.pollFails += 1;
-      if (S.pollFails >= 20) {
-        stopPolling();
-        setRunning(false);
-        toast("Lost contact with the run", "err", String(e.message || e));
-      }
-      return;
-    }
-    if (!S.polling) return;  // a late response after the run already finished
+    try { s = await api("api/repro/run/status"); } catch { return; }
     const body = $("#rp-runlog-body");
     if (body) {
-      const atEnd = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
       body.textContent = s.log || "(starting…)";
-      if (atEnd) body.scrollTop = body.scrollHeight;
+      body.scrollTop = body.scrollHeight;
     }
-    const t = $("#rp-runlog-title");
-    if (s.running) {
-      if (t && s.steps && s.steps.length > 1 && s.step)
-        t.textContent = `${KIND_LABEL[s.kind] || "Run"} — step ${(s.step_index || 0) + 1}/${s.steps.length}: ${s.step}`;
+    if (s.finished || !s.running) {
+      if (S.polling) { clearInterval(S.polling); S.polling = null; }
+      setRunning(false);
+      const t = $("#rp-runlog-title");
+      if (t) t.textContent = s.ok === false ? "Run failed" : "Run complete";
+      const pill = $("#rp-status-pill");
+      if (pill) {
+        pill.className = "pill " + (s.ok === false ? "danger" : "ok");
+        pill.textContent = s.ok === false ? "Run failed" : "Run complete";
+      }
+      toast(s.ok === false ? "Run failed" : "Run complete",
+            s.ok === false ? "err" : "ok",
+            s.error || (s.kind ? String(s.kind) : ""));
+      try { await loadOverview(); } catch { /* keep the last view */ }
+      if (S.study) openStudy(S.study, true);
       return;
     }
-    stopPolling();
-    setRunning(false);
-    const failed = s.ok === false;
-    const label = s.cancelled ? "Run cancelled" : (failed ? "Run failed"
-      : ((s.warnings || []).length ? "Run complete (with warnings)" : "Run complete"));
-    if (t) t.textContent = label + (s.log_file ? ` — full log: ${s.log_file}` : "");
-    const pill = $("#rp-status-pill");
-    if (pill) {
-      pill.className = "pill " + (failed ? (s.cancelled ? "warn" : "danger")
-        : ((s.warnings || []).length ? "warn" : "ok"));
-      pill.textContent = label;
-    }
-    const sub = [s.error, ...(s.warnings || []), ...(s.notes || [])].filter(Boolean).join(" · ");
-    toast(label, failed && !s.cancelled ? "err" : "ok", sub || (s.kind ? String(s.kind) : ""));
-    try { await loadOverview(); } catch { /* keep the last view */ }
-    if (S.study) openStudy(S.study, true);
   }
 
-  async function startRun(kind, onlyOverride) {
+  async function startRun(kind) {
+    if (lockedNow()) return;
     const onlyEl = $("#rp-only");
-    const only = onlyOverride !== undefined ? onlyOverride : (onlyEl ? onlyEl.value.trim() : "");
-    if (!only && kind !== "generate" && kind !== "study") {
-      const what = { harmonizers: "every harmonizer and rewrite harmonization_mapping.xlsx",
-                     reproducers: "every reproducer (can take hours) and rewrite reproduction_summary.xlsx",
-                     dossier: "the reproduction dossier for every study" }[kind];
-      if (what && !window.confirm(`Run ${what}?`)) return;
-    }
+    const only = onlyEl ? onlyEl.value.trim() : "";
+    let res;
     try {
-      await postJSON("/api/repro/run", { kind, only });
+      res = await api("api/repro/run", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, only }),
+      });
     } catch (e) {
       toast("Could not start the run", "err", String(e.message || e));
-      if (e.status === 409) { setRunning(true, "Running…"); startPolling(); }
       return;
     }
+    if (res && res.ok === false) { toast("Could not start the run", "err", res.error || ""); return; }
     setRunning(true, KIND_LABEL[kind] || "Running…");
     const body = $("#rp-runlog-body");
     if (body) body.textContent = "starting…";
-    startPolling();
-  }
-
-  async function cancelRun() {
-    const b = $("#rp-cancel");
-    if (b) b.disabled = true;
-    try {
-      await postJSON("/api/repro/run/cancel", {});
-      toast("Cancelling the run…", "ok", "the running step and its child processes are killed");
-    } catch (e) {
-      if (b) b.disabled = false;
-      toast("Could not cancel", "err", String(e.message || e));
-    }
+    S.polling = setInterval(pollRun, 1500);
+    pollRun();
   }
 
   // ---------------------------------------------------------------- overview
@@ -269,10 +203,7 @@
       ["Not reproduced", c.not_reproduced, "data present, checks failed"],
       ["Not reproducible", c.not_reproducible, "no participant data"],
       ["Durable logs", c.logs, "Results/repro_logs/"],
-      ["Stale dossiers", c.stale_dossiers, "dataset changed after the dossier build"],
-      ["Validator", v.present === false ? null : v.n_problems,
-       v.present === false ? "validation CSV not written yet"
-         : (v.n_error || 0) + " error · " + (v.n_warning || 0) + " warning"],
+      ["Validator", v.n_problems, (v.n_error || 0) + " error · " + (v.n_warning || 0) + " warning"],
     ];
     const host = $("#rp-kpis");
     if (!host) return;
@@ -283,17 +214,12 @@
 
   function renderFilters() {
     const c = (S.overview && S.overview.counts) || {};
-    const by = (S.overview && S.overview.by_status) || {};
-    const n = (f) => f === "all" ? (c.studies || 0)
-      : (f === "stale" ? (c.stale_dossiers || 0) : (by[f] || 0));
-    const extra = Object.keys(by).filter((k) => FILTERS.indexOf(k) < 0).sort();
-    const list = FILTERS.slice().concat(extra, (c.stale_dossiers ? ["stale"] : []));
-    if (list.indexOf(S.filter) < 0) S.filter = "all";
+    const n = (f) => f === "all" ? (c.studies || 0) : (c[f] || 0);
     const host = $("#rp-filters");
     if (!host) return;
-    host.innerHTML = list.map((f) =>
-      `<button class="chip${S.filter === f ? " active" : ""}" data-rfilter="${esc(f)}">` +
-      `${esc(f === "all" ? "All" : (f === "stale" ? "Stale dossier" : statusMeta(f).label))} <span class="cnt">${n(f)}</span></button>`).join("");
+    host.innerHTML = FILTERS.map((f) =>
+      `<button class="chip${S.filter === f ? " active" : ""}" data-rfilter="${f}">` +
+      `${esc(f === "all" ? "All" : statusMeta(f).label)} <span class="cnt">${n(f)}</span></button>`).join("");
     $$("#rp-filters .chip").forEach((b) => b.addEventListener("click", () => {
       S.filter = b.dataset.rfilter;
       renderFilters();
@@ -305,8 +231,7 @@
     const rows = (S.overview && S.overview.studies) || [];
     const q = S.q.toLowerCase();
     return rows.filter((r) => {
-      if (S.filter === "stale") { if (!r.dossier_stale) return false; }
-      else if (S.filter !== "all" && r.status !== S.filter) return false;
+      if (S.filter !== "all" && r.status !== S.filter) return false;
       if (q && !String(r.study_key).toLowerCase().includes(q)) return false;
       return true;
     });
@@ -405,8 +330,6 @@
       `<span class="pill" title="machine status from the reproducer">machine: ${esc(d.machine_status || "–")}</span>` +
       `<span class="pill" title="documented status parsed from the report">documented: ${esc(d.documented_status || "–")}</span>` +
       (d.synthesized ? `<span class="pill warn" title="${esc(d.note || "")}">synthesized v0</span>` : "") +
-       (d.workbook_disagrees ? `<span class="pill warn" title="workbook vs dossier mismatch">workbook differs</span>` : "") +
-       (d.n_coder_edits ? `<span class="pill" title="coder edits replayed">${esc(d.n_coder_edits)} coder edit${d.n_coder_edits > 1 ? "s" : ""}</span>` : "") +
       (val.n_problems ? `<span class="pill danger" title="validate_repro_dossier rows for this study">validation: ${val.n_problems}</span>`
                       : `<span class="pill ok" title="validate_repro_dossier has no problems">validation ✓</span>`) +
       `<span class="pill">generated ${esc(fmtStamp(d.generated_at))}</span>` +
@@ -421,8 +344,7 @@
         (t === "files" ? ` <span class="cnt">${(S.files || d.file_inventory || []).length}</span>` : "") +
         `</button>`).join("") +
       `</div><span class="grow"></span>` +
-      `<button class="btn ghost" id="rp-rerun-btn" title="Re-run this study and rebuild its dossier">Re-run study</button>` +
-       `<button class="btn ghost" id="rp-report-btn"${d.report_available ? "" : " disabled"}>` +
+      `<button class="btn ghost" id="rp-report-btn"${d.report_available ? "" : " disabled"}>` +
       `Report${d.report_available ? " ▸" : " — none"}</button>` +
       `</div>`;
 
@@ -455,6 +377,7 @@
       S.reportOpen = false; renderDetail();
     }));
     wireDetail();
+    paintLock();
   }
 
   function rowMeta(r) {
@@ -638,7 +561,7 @@
       `<div class="rp-expand-col rp-edit">` +
       `<h4>Coder edits <span class="rp-coder-note">(written to the per-study results CSV, audited)</span></h4>` +
       `<label class="rp-fld"><span>Source location</span>` +
-      `<input class="input" data-ef="source_location" value="${esc((S.drafts[cid] && S.drafts[cid].source_location) || r.source_location || "")}" placeholder="e.g. Table 2, p. 7"></label>` +
+      `<input class="input" data-ef="source_location" value="${locVal}" placeholder="e.g. Table 2, p. 7"></label>` +
       `<label class="rp-fld"><span>Source quote</span>` +
       `<textarea class="input" data-ef="source_quote" rows="2" placeholder="verbatim statistic from the paper">${quoteVal}</textarea></label>` +
       `<label class="rp-fld"><span>Verdict override</span>` +
@@ -666,13 +589,11 @@
       `<td class="mono">${esc(f.provenance || "")}</td>` +
       `<td class="mono rp-readby">${esc(f.read_by || "")}</td>` +
       `</tr>`).join("");
-    const src = S.filesSource || (S.filesLive ? "live scan" : "dossier snapshot");
+    const src = (S.files && S.files.length) ? "live file scan" : "dossier snapshot";
     return `<div class="an-panel rp-stack">` +
       `<div class="rp-mini-kpis">` +
       `<span class="pill">${esc(fmtInt(rows.length))} files</span>` +
       `<span class="pill">${esc(src)}</span>` +
-      `<button class="btn ghost" id="rp-rescan" title="Rescan the folder now">Rescan</button>` +
-      `<button class="btn ghost" id="rp-rescan" title="Rescan the folder now">Rescan</button>` +
       `<input class="input rp-varsearch" id="rp-fileq" placeholder="Filter files…" value="${esc(S.fileq)}">` +
       `</div>` +
       `<div class="an-tablewrap rp-fileswrap"><table class="an-table"><thead><tr>` +
@@ -758,9 +679,6 @@
       kv("participants", run.n_rows === null || run.n_rows === undefined ? "" : String(run.n_rows)) +
       kv("status", run.status) +
       kv("log path", run.log_path) +
-      (d.run_commands ? `<h3 class="rp-h">Re-run commands</h3>` +
-        `<div class="rp-mini-kpis"><code class="rp-code" style="word-break:break-all">${esc(d.run_commands.study)}</code></div>` +
-        `<div class="rp-mini-kpis"><code class="rp-code" style="word-break:break-all">${esc(d.run_commands.dossier)}</code></div>` : "") +
       `<div class="rp-logwrap">${logBlock}</div>` +
       `</div>`;
   }
@@ -810,10 +728,7 @@
       .replace(/__([^_]+)__/g, "<strong>$1</strong>")
       .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
       .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, t, u) => {
-      const safe = /^(https?:|mailto:|\/|#)/i.test(u) ? u : "#";
-      return `<a href="${esc(safe)}" target="_blank" rel="noopener noreferrer">${t}</a>`;
-    });
+      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   }
 
   function renderMarkdown(src) {
@@ -875,24 +790,6 @@
 
   // ---------------------------------------------------------------- wiring
   function wireDetail() {
-    $$("#rp-detail-body [data-ef]").forEach((el) => {
-      el.addEventListener("input", () => {
-        const host = el.closest("tr.rp-exp");
-        const row = host && host.previousElementSibling;
-        const cid = row ? row.dataset.cid : "";
-        if (!cid) return;
-        S.drafts[cid] = S.drafts[cid] || {};
-        S.drafts[cid][el.dataset.ef] = el.value;
-      });
-    });
-    const rs = $("#rp-rescan");
-    if (rs) rs.addEventListener("click", () => reloadFiles(true));
-    const rr = $("#rp-rerun-btn");
-    if (rr) rr.addEventListener("click", () => {
-      if (!S.study) return;
-      if (!window.confirm(`Re-run ${S.study} and rebuild its dossier?`)) return;
-      startRun("study", S.study);
-    });
     const vs = $("#rp-varsearch");
     if (vs) {
       vs.addEventListener("input", () => {
@@ -951,10 +848,11 @@
   async function saveEdits(cid, btn) {
     const payload = editPayload(cid);
     if (!payload) return;
+    if (lockedNow()) return;
     btn.disabled = true;
     let res;
     try {
-      res = await api("/api/repro/dossier/edit", {
+      res = await api("api/repro/dossier/edit", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
@@ -965,7 +863,6 @@
     }
     btn.disabled = false;
     if (res && res.ok === false) { toast("Could not save the edit", "err", res.error || ""); return; }
-    if (S.drafts[cid]) delete S.drafts[cid];
     const msg = $$("#rp-detail-body [data-savemsg]").find((el) => el.dataset.savemsg === cid);
     if (msg) msg.textContent = "saved " + (res.changed || 0) + " field(s)";
     toast("Saved coder edits", "ok", (res.changed || 0) + " field(s) written to the results CSV");
@@ -986,7 +883,7 @@
     const wrap = document.querySelector(".rp-logwrap");
     if (wrap) wrap.innerHTML = `<span class="rp-muted">loading log…</span>`;
     try {
-      S.log = await api("/api/repro/dossier/log/" + encodeURIComponent(S.study));
+      S.log = await api("api/repro/dossier/log/" + encodeURIComponent(S.study));
     } catch (e) {
       if (wrap) wrap.innerHTML = `<span class="rp-muted">could not load the log: ${esc(String(e.message || e))}</span>`;
       return;
@@ -994,59 +891,94 @@
     renderDetail();
   }
 
+  // ------------------------------------------------------ online edit lock
+  /* The dossier writes the study's Results/repro_dossier rows and the run writes
+     Datasets/<Key>/ through the reproducer, so an online project holds the
+     study's edit lock while its panel is open.  Local projects: inert. */
+  const LOCK_OFF = "#rp-gen, #rp-harm, #rp-repro";
+  const lockHost = () => $("#rp-detail-body");
+
+  function paintLock() {
+    const C = window.CSOnline;
+    const host = lockHost();
+    if (!host) return;
+    if (!C || !C.active() || !S.locked) {
+      if (C) C.locks.clearNotice(host, LOCK_OFF);
+      return;
+    }
+    C.locks.notice(host, S.study || "", S.locked.holder || {}, LOCK_OFF);
+  }
+
+  async function holdStudyLock(key) {
+    const C = window.CSOnline;
+    if (!C || !C.active() || !key) { S.lockKey = ""; S.locked = null; return; }
+    if (S.lockKey === key) return;
+    if (S.lockKey) C.locks.end(S.lockKey, {});
+    S.lockKey = key;
+    const r = await C.locks.begin(key, { task: "reproduce", host: lockHost(), disable: LOCK_OFF });
+    S.locked = r.ok ? null : r;
+    paintLock();
+  }
+
+  function releaseStudyLock() {
+    const C = window.CSOnline;
+    if (C && S.lockKey) C.locks.end(S.lockKey, { host: lockHost(), disable: LOCK_OFF });
+    S.lockKey = "";
+    S.locked = null;
+  }
+
+  function lockedNow() {
+    if (!S.locked) return false;
+    toast("This study is locked", "err",
+      `Locked by ${S.locked.who || "another coder"} — running or editing is disabled until the lock is released.`);
+    return true;
+  }
+
   async function openStudy(key, quiet) {
-    const token = ++S.openToken;
     S.study = key;
     S.dtab = "results";
     S.varq = "";
     S.fileq = "";
     S.expanded = {};
-    S.drafts = {};
     S.log = null;
     S.reportOpen = false;
     const empty = $("#rp-detail-empty");
     if (empty) empty.textContent = `Loading ${key}…`;
-    let dossier;
+    let dossier, files;
     try {
-      dossier = await api("/api/repro/study/" + encodeURIComponent(key) + "/dossier");
+      [dossier, files] = await Promise.all([
+        api("api/repro/study/" + encodeURIComponent(key) + "/dossier"),
+        api("api/repro/dossier/files/" + encodeURIComponent(key)).catch(() => null),
+      ]);
     } catch (e) {
-      if (token !== S.openToken) return;
       if (empty) empty.textContent = `Could not load ${key}: ${String(e.message || e)}`;
       S.dossier = null;
       return;
     }
-    if (token !== S.openToken) return;
     S.dossier = dossier;
-    S.files = dossier.file_inventory || [];
+    S.files = (files && files.files) || dossier.file_inventory || [];
     S.filesKey = key;
-    S.filesSource = "dossier snapshot";
-    S.filesLive = false;
     renderDetail();
+    holdStudyLock(key);
     if (!quiet) {
       const el = $("#rp-detail");
       if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
 
-  async function reloadFiles(live) {
-    if (!S.study) return;
-    try {
-      const files = await api("/api/repro/dossier/files/" + encodeURIComponent(S.study) +
-        (live ? "?live=1" : ""));
-      if (files) {
-        S.files = files.files || [];
-        S.filesSource = files.source || "";
-        S.filesLive = !!files.live;
-        renderDetail();
-      }
-    } catch (e) {
-      toast("Could not load the file inventory", "err", String(e.message || e));
-    }
-  }
-
   async function loadOverview() {
-    const d = await api("/api/repro/overview");
+    const d = await api("api/repro/overview");
     S.overview = d;
+    // Say where the verdicts come from.  The workbook is the campaign's own
+    // summary; without it the tab reads each study's repro_facts.json, and a
+    // reader should not have to guess that from the numbers.
+    const sub = $("#rp-sub");
+    if (sub) {
+      if (!sub.dataset.base) sub.dataset.base = sub.innerHTML;
+      sub.innerHTML = sub.dataset.base + (d.reproduction_available ? "" :
+        " <b>reproduction_summary.xlsx</b> is not in this project, so the verdicts " +
+        "are read from each study's <code>repro_facts.json</code> and its report.");
+    }
     renderKpis();
     renderFilters();
     renderTable();
@@ -1056,15 +988,22 @@
     if (gb) {
       gb.disabled = !d.generator_available;
       gb.title = d.generator_available
-        ? "Generate the thin per-study reproduction wrappers (idempotent)"
-        : "Generator not available — expected temp/generate_repro_wrappers.py";
+        ? "Generate the missing per-study reproduction wrappers (never overwrites an existing script; honours the filter)"
+        : "Generator not available — Scripts/generate_repro_wrappers.py is missing";
     }
-    const hb = $("#rp-harm");
-    if (hb) hb.disabled = !sa.harmonizers;
-    const rb = $("#rp-repro");
-    if (rb) rb.disabled = !sa.reproducers;
-    const db = $("#rp-dossier");
-    if (db) { db.disabled = !sa.dossier; db.dataset.unavailable = sa.dossier ? "" : "1"; }
+    // The runners need a Python with pandas; a packaged app has none of its own
+    // and says so here instead of failing after the click.
+    const pyOk = d.python_available !== false;
+    const pyWhy = pyOk ? "" : (d.python_note || "no Python with pandas found");
+    const runBtn = (el, present, missing) => {
+      if (!el) return;
+      if (el.dataset.baseTitle === undefined) el.dataset.baseTitle = el.title || "";
+      el.disabled = !present || !pyOk;
+      el.title = !present ? missing : (pyWhy || el.dataset.baseTitle);
+    };
+    runBtn($("#rp-harm"), sa.harmonizers, "Scripts/analysis/run_harmonizers.py is missing");
+    runBtn($("#rp-repro"), sa.reproducers, "Scripts/analysis/run_reproducers.py is missing");
+    if (!pyOk && !S.pyWarned) { S.pyWarned = true; toast("Harmonizers/reproducers cannot run", "err", pyWhy); }
     if (runbar) runbar.title = `dossier index: ${(d.dossier || {}).index_present ? "yes" : "no"} · mapping: ${d.mapping_xlsx ? "yes" : "no"} · summary: ${d.reproduction_xlsx ? "yes" : "no"}`;
     if (d.run && d.run.running && !S.polling) {
       setRunning(true, KIND_LABEL[d.run.kind] || "Running…");
@@ -1073,8 +1012,6 @@
   }
 
   function wire() {
-    const cancel = $("#rp-cancel");
-    if (cancel) cancel.addEventListener("click", cancelRun);
     const search = $("#rp-search");
     if (search) {
       let t = null;
@@ -1094,7 +1031,6 @@
     const g = $("#rp-gen"); if (g) g.onclick = () => startRun("generate");
     const h = $("#rp-harm"); if (h) h.onclick = () => startRun("harmonizers");
     const r = $("#rp-repro"); if (r) r.onclick = () => startRun("reproducers");
-    const d = $("#rp-dossier"); if (d) d.onclick = () => startRun("dossier");
   }
 
   async function ensureStarted() {
@@ -1109,7 +1045,10 @@
 
   function boot() {
     wire();
-    document.addEventListener("cs:view", (e) => { if (e.detail === "reproduction") ensureStarted(); });
+    document.addEventListener("cs:view", (e) => {
+      if (e.detail === "reproduction") ensureStarted();
+      else if (S.lockKey) releaseStudyLock();     // leaving the study's edit session
+    });
     let saved = "coding";
     try { saved = localStorage.getItem("cs.view") || "coding"; } catch { /* ignore */ }
     if (saved === "reproduction") ensureStarted();

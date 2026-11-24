@@ -1,6 +1,6 @@
 # AGENTS.md — Misinformation-intervention meta-analysis
 
-Workspace root: `C:\Users\marvi\Nextcloud\Studium\Studies\Inoculation_Meta\meta`
+Workspace root: the project folder that holds this file (the checkout of this repository, with the research data beside it)
 
 ## What this project is
 A meta-analysis and re-analysis of experiments that test **misinformation interventions**
@@ -25,11 +25,26 @@ Supplements/              supplementary material, one canonical home per study:
 Reproduction/<Study Key>.md   reproduction report (exclusions, discrepancies, results)
 Extraction/<Study Key>.json   schema-v3 coding of the paper (one object per experiment)
 Extraction/<Study Key>.md     coding decisions / notes
+Project/                  the project's own manifest (which scheme it uses):
+                          project.json
+Scripts/coding_web/Schemes/   the SCHEMES, next to the CodingStudio app itself:
+                          Schemes/<id>/{manifest.json, scheme.json,
+                          criteria.json, bundles/, history/}
+                          (the app carries its vocabulary; a project carries
+                          the data)
 Scripts/                  essential Python used by the campaign
 Scripts/analysis/         the analysis pipeline (metaanalysis.py, reanalysis.py, state.py,
                           run_harmonizers.py, run_reproducers.py)
 run_analysis.py           one entry point that runs the analysis pipeline (see below)
-master_dataset.xlsx       the master screening dataset (abstract + full-text verdicts)
+master_dataset.xlsx       the master screening dataset (abstract + full-text verdicts) -
+                          DERIVED since 2026-11-24: built by `Scripts/compile_master.py`
+                          from Project/master_base.xlsx + Screening/<Tag>.json +
+                          Fulltext/<Tag>.json; never edit it by hand
+Fulltext/<Tag>.json       per-coder full-text decisions (owned by the tag)
+Project/master_base.xlsx  the workbook with decision columns blanked (keeps the
+                          curated Effective_Verdict stage); hidden while blinded
+Project/master_records.csv.gz  decision-free record list (an, title, abstract,
+                          authors, year, doi, source); screening falls back to it
 Results/                  EVERY analysis product (metaanalysis.xlsx, reanalysis.xlsx,
                           reanalysis_all.csv, state.json, harmonization_mapping.xlsx,
                           reproduction_summary.xlsx, combined_harmonized.csv.gz,
@@ -53,6 +68,45 @@ archive/                  everything not part of the current contract, for revie
 Nothing is written to the project root except `master_dataset.xlsx`, `MR_Preregistration.*`,
 `CodingStudio.exe` / `CodingStudio/` (the built desktop app; onedir by default — keep `_internal/`
 beside the exe), `run_analysis.py` and `AGENTS.md`; every analysis product lands in `Results/`.
+The one exception is the `Project/` folder, which holds the project's own configuration
+(the scheme, the criteria, the manifest) and is meant to be versioned with the code.
+
+## The coding scheme (project = folder, one scheme per project)
+
+A **project** is a folder with the layout above plus a `Project/` folder, which
+holds the project's **manifest** — and the manifest *names* the scheme the
+project uses.  A second corpus is a second folder that the app can open
+(`POST /api/root`, the "project folder" button).
+
+The **schemes live next to the CodingStudio app**, in `<app dir>/Schemes/<id>/`
+(the app carries its vocabulary; a project carries the data).  A scheme folder
+holds `manifest.json`, `scheme.json`, `criteria.json`, `bundles/` and `history/`.
+The scheme is read through `Scripts/project_context.py`, which is the single
+place that answers "which project is active?" and "which scheme does it use?" -
+the desktop app, the analysis pipeline and the agent tooling all go through it,
+so they can never disagree.
+
+* `Scripts/scheme_lib.py` — the scheme library: what a scheme *is* (blocks, fields, roles,
+  conditions, kinds, rules), the normaliser, the block derivation, the condition evaluator
+  and the scheme validator.
+* `Scripts/scheme_legacy.py` — the converter from the legacy misinformation schema (v3.1,
+  `Scripts/coding_web/schema.json`) into a scheme.  The conversion is **name-preserving**:
+  every field keeps its v3.1 name, so the 792 `Extraction/<Key>.json` and the 3 148
+  `Codings/<Key> - <Coder>.json` stay valid.
+* `Scripts/project_context.py` — the active project, its scheme, its criteria, and the
+  role lookups (`value_by_role`).
+
+The **role** is the load-bearing idea: the pipeline asks "what is the value of the
+`eligible_primary` field?" and never asks "what is the value of `eligible_primary`?".
+Field names are user data; roles (`scheme_lib.ALL_ROLES`) are the contract.  The legacy
+alias table `scheme_lib.LEGACY_ROLE_ALIASES` is one-to-one by construction — the scheme
+validator fails the build when a name would claim two roles.
+
+Regenerate the project's scheme from the legacy schema with
+`python Scripts/convert_legacy_schema.py` (it refuses to overwrite without `--force`);
+`python Scripts/convert_legacy_schema.py --check` proves the conversion is lossless.
+`Scripts/validate_scheme.py` is the gate: scheme structure, role integrity, corpus
+conformance and the legacy-fallback check.
 
 ## Naming convention (canonical)
 Every artifact is named by its **study key**: `Surname et al. (Year)` (3+ authors),
@@ -68,9 +122,14 @@ organisational authors are expected non-"canonical" matches).
    `python Scripts/build_coding_schema.py`) and every coding is checked with
    `python Scripts/B_validate.py --dir Extraction`.
    Every coding also sets the common field **`Fulltext_Exclusion_Criterion`**: leave it **empty**
-   when the study meets all inclusion criteria, otherwise list the unmet one(s) — **C1** no
-   misinformation intervention, **C2** no control/comparison group, **C3** not English, **C4** not a
-   primary experimental study.  A study that fails a criterion is **still fully coded, harmonized
+   when the study meets all inclusion criteria, otherwise list the unmet one(s) of the
+   eight full-text exclusion criteria (owner decision 2026-11-19): **C1** no
+   misinformation intervention, **C2** no control/comparison group, **C3** not English,
+   **C4** not a primary experimental study (an observational study is C4),
+   **irretrievable** no obtainable copy, **no_contrast** no eligible contrast reported,
+   **duplicate** non-independent report of an included study, **domain_mismatch**
+   outcome/intervention outside misinformation susceptibility.  A study that fails a
+   criterion is **still fully coded, harmonized
    and reproduced**; the field only keeps the screening layer / PRISMA flow consistent.
    - **Intervention-vs-control contrasts — encode in this preference order.** (a) the
      per-condition descriptives `n/M/SD` (preferred, always poolable); (b) the reported
@@ -166,7 +225,10 @@ organisational authors are expected non-"canonical" matches).
 9. **Harmonizer assignments** — coders label missing variables in
    `Datasets/<Key>/<Key> - variable_assignments.csv` (drafts in `Codings/`), applied by the runners'
    post-hook via `Scripts/variable_assignments.py`; `Scripts/audit_assignments.py` checks parity.
-   Coverage gaps are listed by `Scripts/harmonization_coverage.py` (11 essential slots).
+   Coverage gaps are listed by `Scripts/harmonization_coverage.py` (**ten** essential slots;
+   the S10 covariates slot was retired 2026-11-19, owner decision — the `Covariates` coding
+   field was coded in 0 of 1,272 records, so the slot was a permanent gap; existing `cov_*`
+   columns keep flowing through the harmonization layer untouched).
 
 ## Conventions
 - **Temporary files**: every script MUST write intermediates to `temp/` (root-level), never the
@@ -239,7 +301,7 @@ after new papers are screened into `Extraction/`: set that task's schedule back 
 Two invariants the MM route must hold, both checked by `mm_verify_all.py`:
 * no `Study_ID` is shared by two study keys (`Study_ID` is the IRR join key) — fix a collision
   with `python Scripts/mm_align_study_ids.py --apply`;
-* `Fulltext_Exclusion_Criterion` carries only `C1`–`C4` or nothing.
+* `Fulltext_Exclusion_Criterion` carries only the eight criteria (`C1`-`C4`, `irretrievable`, `no_contrast`, `duplicate`, `domain_mismatch`) or nothing.
 
 **Coder-agent rules that matter.**  An agent may delete **only** its own scratch folder
 `temp/mm/<Key>/`; the router's state lives in `temp/mm_route/` and must survive.  A coding
@@ -444,11 +506,16 @@ duplicate is often only *part* of a paper, so the scope is per experiment where 
 case: `Basol (2022)` drops `Basol2022_Exp3`/`Basol2022_Exp4` and keeps its other five
 experiments; `Jolley (2014)` drops `Jolley2014_Exp9` and keeps `Jolley2014_Exp10`.
 
-**The `Fulltext_Exclusion_Criterion` the pool never reads.**  The criterion is the screening
-layer and the pooled models select on `eligible_primary` without reading it, so an excluded
-experiment keeps contributing its effects unless the exclusion list says otherwise.  The
-comparison that finds them is made **per record**, not per study key, because the criterion
-is recorded per experiment - see `Scripts/check_excluded_but_pooled.py`.
+**The `Fulltext_Exclusion_Criterion` and the pool.**  Until 2026-11-19 the criterion was
+only the screening layer and the pooled models selected on `eligible_primary` without
+reading it, so an excluded experiment kept contributing its effects unless the exclusion
+list said otherwise (hence `CODING_EXCLUDED_STUDIES`, D3).  Since the owner decision of
+2026-11-19 `study_exclusions.fulltext_excluded_keys()` also drops **every study key** whose
+canonical coding records a criterion on any record (union with
+`Screening/fulltext_agreed.json`), in `metaanalysis.py` and the suite.  The per-record
+lists above still matter for experiment-level exclusions of studies that are otherwise
+included.  The comparison that finds excluded-but-pooled records is made **per record** -
+see `Scripts/check_excluded_but_pooled.py`.
 
 **A contested verdict is not a confirmed one.**  The duplicate verification ran in parallel
 and the verifiers sometimes disagreed (the Apuke family, `Scull et al. (2024)` vs
@@ -515,10 +582,13 @@ python Scripts/validate_extraction.py             # effect/timing/N gaps -> Resu
 python Scripts/validate_sanity.py                 # title/author + participant-N + garbled-text checks
 python Scripts/audit_harmonizers.py               # harmonizer contract audit (expect 266/266 per clause)
 python Scripts/audit_polarity.py                  # sidecar polarity audit (expect 0 mismatches)
-python Scripts/harmonization_coverage.py          # harmonization coverage matrix (11 essential slots)
+python Scripts/harmonization_coverage.py          # harmonization coverage matrix (ten essential slots; S10 covariates retired 2026-11-19)
 python Scripts/audit_assignments.py               # coder assignments parity (exit 1 on mismatch)
 python Scripts/validate_repro_dossier.py          # per-study reproduction dossier completeness
 python Scripts/parse_reproduction_reports.py      # 5 required report elements (expect 342/342)
+python Scripts/convert_legacy_schema.py --check    # the scheme conversion is lossless
+python Scripts/validate_scheme.py                  # scheme structure, roles, corpus conformance
+python Scripts/check_scheme_module.py              # the scheme library's own invariants
 ```
 
 Fully-within (single-arm, no-control) experiments are **excluded from every pooled

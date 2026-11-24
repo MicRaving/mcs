@@ -12,7 +12,7 @@
 (() => {
   "use strict";
 
-  const { $, $$, esc, api } = window.CS;
+  const { $, $$, esc, api, optionText } = window.CS;
   const icon = window.CS.svg;
 
   // read-only context shown next to the editable dimension
@@ -56,7 +56,7 @@
   function labelOf(dim, value) {
     const levels = state.levelCache[dim] || [];
     const lv = levels.find((l) => String(l.value) === String(value));
-    if (lv && lv.label) return lv.label;
+    if (lv && lv.label) return optionText(lv.value, lv.label);
     return value === "" ? "—" : value;
   }
 
@@ -102,7 +102,7 @@
   function levelChipHTML(l) {
     const active = state.selValue !== null && String(state.selValue) === String(l.value) ? " active" : "";
     const lab = l.value === "" ? `<span class="lv blank">(blank)</span>`
-      : `<span class="lv">${esc(l.label || l.value)}</span>`;
+      : `<span class="lv">${esc(optionText(l.value, l.label || l.value))}</span>`;
     return `<button class="sm-chip${active}" data-dim="${esc(state.selDim)}" data-value="${esc(l.value)}">` +
       `${lab} <b>${l.n_records}</b> <i>${l.n_studies} ${l.n_studies === 1 ? "study" : "studies"}</i></button>`;
   }
@@ -158,7 +158,7 @@
     if (state.levelCache[dim] !== undefined) return;
     if (!levelSelectable(dim)) { state.levelCache[dim] = []; return; }
     try {
-      const d = await api("/api/summary/levels?dim=" + encodeURIComponent(dim));
+      const d = await api("api/summary/levels?dim=" + encodeURIComponent(dim) + (state.coder ? "&coder=" + encodeURIComponent(state.coder) : ""));
       state.levelCache[dim] = d.levels || [];
       if (state.byName[dim] && d.n_levels != null) state.byName[dim].n_levels = d.n_levels;
     } catch { state.levelCache[dim] = []; }
@@ -193,12 +193,13 @@
   // ---------------------------------------------------------------- rows
   async function loadRows() {
     const p = new URLSearchParams({ limit: "3000" });
+    if (state.coder) p.set("coder", state.coder);
     if (state.selDim) { p.set("dim", state.selDim); if (state.selValue !== null) p.set("value", state.selValue); }
     if (state.search) p.set("q", state.search);
     const req = ++state.request;
     let d;
     try {
-      d = await api("/api/summary/variables?" + p.toString());
+      d = await api("api/summary/variables?" + p.toString());
     } catch (e) {
       $("#sm-table").innerHTML = `<div class="sm-empty">Could not load the list: ${esc(e.message)}</div>`;
       return;
@@ -231,9 +232,14 @@
   function rowId(row) {
     return String(row.experiment_id) + (state.kind === "dv" ? "#" + row.dv_index : "");
   }
-  const editVal = (study, id, field, base) => {
-    const st = state.edits[study] && state.edits[study][String(id)];
-    return st && field in st ? st[field] : (base || "");
+  // The pending edit of one row's field, else its coded value.  Edits are kept
+  // per experiment, and a DV edit sits under that experiment's ``__dvs`` (see
+  // setEdit) - looking a DV row up by its "exp#index" row id found nothing, so a
+  // re-rendered DV list showed the old value while the edit was still pending.
+  const editVal = (study, row, field, base) => {
+    const ex = state.edits[study] && state.edits[study][String(row.experiment_id)];
+    const st = state.kind === "dv" ? ex && ex.__dvs && ex.__dvs[row.dv_index] : ex;
+    return st && field in st ? st[field] : (base ?? "");
   };
   function setEdit(row, field, value) {
     const study = row.study_key, ex = String(row.experiment_id);
@@ -252,7 +258,7 @@
     const ctx = state.kind === "dv" ? CTX_DV : CTX_EXP;
     const editCol = !!state.selDim;
     const tooMany = editCol && !levelSelectable(state.selDim);
-    const head = `<div class="sm-row head"><div><span>${esc(study)}</span></div>` +
+    const head = `<div class="sm-row head"><div><span>${esc(study)}</span>${(rows[0] && rows[0].source === "mine") ? " <small class=\"sm-src\" title=\"Shown from your own coding file\">mine</small>" : ""}</div>` +
       (editCol ? `<div>${esc(state.byName[state.selDim]?.label || state.selDim)}</div>` : "") +
       ctx.map(([, lab]) => `<div>${esc(lab)}</div>`).join("") + `</div>`;
     const body = rows.map((row) => {
@@ -269,7 +275,7 @@
         editCell = `<div><span class="sm-val">${esc(joined === "" ? "—" : joined)}</span></div>`;
       } else if (tooMany) {
         // Free-text field: no level list, edit as plain text.
-        const cur = editVal(study, id, state.selDim, row[state.selDim]);
+        const cur = editVal(study, row, state.selDim, row[state.selDim]);
         const cv = cur === null || cur === undefined ? "" : String(cur);
         editCell = `<div><input class="input sm-edit${edited ? " overridden" : ""}" ` +
           `data-study="${esc(study)}" data-exp="${esc(String(row.experiment_id))}" ` +
@@ -277,7 +283,7 @@
           `value="${esc(cv)}" autocomplete="off" spellcheck="false"></div>`;
       } else if (editCol) {
         const opts = state.fieldOptions || [];
-        const cur = editVal(study, id, state.selDim, row[state.selDim]);
+        const cur = editVal(study, row, state.selDim, row[state.selDim]);
         const cv = cur === null || cur === undefined ? "" : String(cur);
         if (opts.length) {
           let list = opts.slice();
@@ -400,16 +406,37 @@
     const coder = (coderEl ? coderEl.value : state.coder || "").trim();
     if (!coder) { toast("Enter your coder name before saving", "err"); if (coderEl) coderEl.focus(); return; }
     state.coder = coder;
+    if (state.saving) return;
+    // Hand the pending edits to the request and start a fresh set: an edit
+    // made while the save is in flight belongs to the NEXT save (clearing the
+    // edits after the response dropped it silently).
+    const sent = state.edits;
+    state.edits = {};
+    state.saving = true;
     try {
-      const r = await api("/api/summary/save", {
+      const r = await api("api/summary/save", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ coder, edits: state.edits }),
+        body: JSON.stringify({ coder, edits: sent }),
       });
-      state.edits = {}; setDirty();
+      setDirty();
       await loadDimensions(); await loadRows();
       toast("Coding edits saved", "ok", `${r.studies} study file(s) · ${r.fields} field(s)`);
     } catch (e) {
+      // put the unsent edits back, under any made since (those are newer)
+      for (const [study, byExp] of Object.entries(sent)) {
+        const into = state.edits[study] = state.edits[study] || {};
+        for (const [ex, fields] of Object.entries(byExp)) {
+          const now = into[ex] || {};
+          const dvs = Object.assign({}, fields.__dvs || {});
+          for (const [i, f] of Object.entries(now.__dvs || {})) dvs[i] = Object.assign({}, dvs[i] || {}, f);
+          into[ex] = Object.assign({}, fields, now);
+          if (Object.keys(dvs).length) into[ex].__dvs = dvs;
+        }
+      }
+      setDirty();
       toast("Save failed", "err", String(e.message || e));
+    } finally {
+      state.saving = false;
     }
   }
 
@@ -429,7 +456,7 @@
   // ---------------------------------------------------------------- load
   async function loadDimensions() {
     try {
-      const d = await api("/api/summary/dimensions");
+      const d = await api("api/summary/dimensions" + (state.coder ? "?coder=" + encodeURIComponent(state.coder) : ""));
       state.dims = d.dimensions || [];
       state.groupOrder = d.group_order || [];
       state.byName = {};
@@ -461,6 +488,8 @@
     if (coder) {
       state.coder = coder.value || state.coder;
       coder.addEventListener("input", () => { state.coder = coder.value.trim(); });
+      // a different coder shows that coder's own codings: reload the rows
+      coder.addEventListener("change", () => { state.coder = coder.value.trim(); if (state.started) loadRows(); });
     }
     // The Summary reuses the app top bar: Save lives there.
     $("#save-btn")?.addEventListener("click", save);
@@ -482,6 +511,13 @@
       table.addEventListener("input", onEditInput);
     }
     document.addEventListener("cs:view", (e) => { if (e.detail === "summary") ensureStarted(); });
+    // Summary edits live only in this page until Save: closing the window
+    // dropped them without a word.
+    window.addEventListener("beforeunload", (e) => {
+      if (!isDirty()) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
     window.addEventListener("keydown", (e) => {
       const v = $("#view-summary");
       if (!v || v.hidden) return;

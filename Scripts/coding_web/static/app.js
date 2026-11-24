@@ -6,7 +6,7 @@
 (() => {
   "use strict";
 
-  const { $, $$, esc, api } = window.CS;
+  const { $, $$, esc, api, optionText } = window.CS;
   const icon = window.CS.svgEl;
 
   function el(tag, cls, text) {
@@ -69,6 +69,15 @@
     coderTarget: null,    // {kind:"dv",index} | {kind:"field",name} for source marking
     markWarnTimer: null,
     fulltext: { criteria: [], mine: null, agreed: null, agreeMin: 2 },
+    /* finished marks ("Finish paper"): done(key, stage="coding", tag=current
+       coder).  Read from /api/online/done, which answers for a local folder
+       project too (<root>/.studio/done.json); emptied when the route is absent. */
+    done: new Set(),
+    doneTag: "",
+    doneAt: 0,
+    assigned: new Set(),    // keys assigned to this coder for stage "coding"
+    assignedTag: "",
+    assignedAt: 0,
   };
 
   const FACET_DIMS = ["module", "type", "age", "setting", "design", "availability"];
@@ -86,6 +95,10 @@
   const SNAP = 150;
   const WIDE = 1341;
   const fieldIndex = new Map();
+  /* Names whose value OTHER fields' visibility depends on (their show_if):
+     committing one re-renders the form so a dependent field appears or
+     disappears immediately. */
+  const condTargets = new Set();
   // Per-DV effect fields filled automatically in coder mode, so a manual entry
   // is never overwritten and a later manual effect can clear the derived ones.
   const dvAutoFill = new Map();   // "recIdx:dvIdx" -> Set(fieldName)
@@ -407,11 +420,12 @@
   // intervention is selected (its type lives on the intervention, not overrides).
   function interventionTypeField(f) {
     const vocab = (f.vocab && f.vocab.length) ? f.vocab : interventionTypes();
+    const labels = (f.vocab_labels && typeof f.vocab_labels === "object") ? f.vocab_labels : {};
     return Object.assign({}, f, {
       editor: "select",
       type: "string",
       base_type: "string",
-      options: vocab.map((v) => ({ value: v, label: v })),
+      options: vocab.map((v) => ({ value: v, label: labels[v] || v })),
     });
   }
 
@@ -520,8 +534,11 @@
     const cur = inter.Intervention_Type || "";
     const vocab = interventionTypes();
     const opts = vocab.includes(cur) || !cur ? vocab : vocab.concat([cur]);
+    // the arm type shows its human label (the stored value stays the token)
+    const itField = fieldIndex.get("Intervention_Type") || {};
+    const itLabels = (itField.vocab_labels && typeof itField.vocab_labels === "object") ? itField.vocab_labels : {};
     if (!cur) typeSel.appendChild(new Option("— choose type —", ""));
-    opts.forEach((v) => typeSel.appendChild(new Option(v, v)));
+    opts.forEach((v) => typeSel.appendChild(new Option(itLabels[v] || v, v)));
     typeSel.value = cur;
     typeSel.title = "Intervention type";
     typeSel.addEventListener("change", () => {
@@ -624,7 +641,7 @@
     });
   }
 
-  async function loadSource(kind) {
+  async function loadSource(kind, seq) {
     const key = state.key;
     if (!key) return;
     if (kind === "blank") {
@@ -633,13 +650,17 @@
     }
     let records = null;
     if (kind === "original") {
-      const d = await api(`/api/extraction/${encodeURIComponent(key)}`);
+      const d = await api(`api/extraction/${encodeURIComponent(key)}`);
       records = d.records;
     } else if (kind.startsWith("coding:")) {
       const coder = kind.slice(7);
-      const d = await api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`);
+      const d = await api(`api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`);
       records = d.records;
     }
+    // A slower answer for a paper (or coder) the user has already left must
+    // not land in the working copy: it would show paper A's coding under paper
+    // B's key, and the next Save would write A's records into B's file.
+    if (state.key !== key || (seq !== undefined && seq !== state.loadSeq)) return;
     if (!records || !records.length) {
       state.records = [blankRecord(key, 1)];
       return;
@@ -653,13 +674,89 @@
     return (paper.codings || []).some((c) => c.coder.toLowerCase() === coder.toLowerCase());
   }
 
+  /* ------------------------------------------------- finished marks ("Finish") */
+  /* A paper is FINISHED when a done mark exists for (key, "coding", coder).
+     Saving only writes the coding file, so "saved" and "finished" are two
+     different things: the queue behind Finish — and, in an online project, the
+     assigned-first queue behind Next — advance over *unfinished* papers.
+     The route answers for local folder projects too (`.studio/done.json`). */
+  function finishedBy(p) {
+    return !!(p && state.done.has(p.key));
+  }
+
+  async function refreshDone({ force = false } = {}) {
+    const tag = (state.coder || "").trim();
+    if (!tag) { state.done = new Set(); state.doneTag = ""; state.doneAt = 0; return state.done; }
+    if (!force && state.doneTag === tag && state.doneAt && Date.now() - state.doneAt < 4000) return state.done;
+    try {
+      const r = await fetch(`api/online/done?stage=coding&tag=${encodeURIComponent(tag)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const rows = (d && Array.isArray(d.done)) ? d.done : [];
+      state.done = new Set(rows.filter((x) => x && x.key).map((x) => x.key));
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+    } catch {
+      // route absent (a project without the online layer): no marks, no noise
+      state.done = new Set();
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+    }
+    return state.done;
+  }
+
+  async function markDone(key) {
+    const tag = (state.coder || "").trim();
+    if (!key || !tag) return false;
+    try {
+      const r = await fetch("api/online/done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, stage: "coding", tag }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || (d && d.ok === false)) throw new Error((d && (d.error || d.message)) || `HTTP ${r.status}`);
+      state.done.add(key);
+      state.doneTag = tag;
+      state.doneAt = Date.now();
+      return true;
+    } catch (err) {
+      toast("Could not mark the paper finished", "err", String(err.message || err));
+      return false;
+    }
+  }
+
+  /* The coder's own assignment queue (GET /api/online/assignments?stage=coding);
+     a local project has none, so the fallback pool is the whole view. */
+  async function refreshAssigned({ force = false } = {}) {
+    const tag = (state.coder || "").trim();
+    if (!tag) { state.assigned = new Set(); state.assignedTag = ""; return state.assigned; }
+    if (!force && state.assignedTag === tag && state.assignedAt && Date.now() - state.assignedAt < 15000) return state.assigned;
+    try {
+      const r = await fetch("api/online/assignments?stage=coding");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      const rows = (d && Array.isArray(d.assignments)) ? d.assignments : [];
+      const mine = rows.filter((x) => x && x.key
+        && (!x.tag || String(x.tag).toLowerCase() === tag.toLowerCase()));
+      state.assigned = new Set(mine.map((x) => x.key));
+      state.assignedTag = tag;
+      state.assignedAt = Date.now();
+    } catch {
+      state.assigned = new Set();
+      state.assignedTag = tag;
+      state.assignedAt = Date.now();
+    }
+    return state.assigned;
+  }
+
   function facetValueLabel(dim, value) {
     if (dim === "module") return moduleLabel(value);
     const fname = FACET_FIELD[dim];
     if (fname) {
       const f = state.schema.common_fields.find((x) => x.name === fname);
       const opt = f && (f.options || []).find((o) => String(o.value) === String(value));
-      if (opt) return opt.label;
+      if (opt) return CS.optionText(opt.value, opt.label);
     }
     return String(value);
   }
@@ -804,12 +901,12 @@
       "Delete coding", true);
     if (!ok) return;
     try {
-      await api("/api/coding/delete", {
+      await api("api/coding/delete", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, coder }),
       });
       toast("Coding deleted", "ok", `${coder} · ${key}`);
-      const fresh = await api("/api/papers");
+      const fresh = await api("api/papers");
       state.papers = fresh.papers;
       state.byKey = {};
       state.papers.forEach((p) => { state.byKey[p.key] = p; });
@@ -845,7 +942,9 @@
       const btn = el("button", "paper-item screen-item" + (p.key === state.key ? " active" : "")
         + (p.fulltext_excluded ? " excluded" : ""));
       btn.type = "button";
-      const dot = el("span", "dot" + (codedBy(p, state.coder) ? " coded" : "") + (p.key === state.key && state.dirty ? " dirty" : ""));
+      const dot = el("span", "dot" + (codedBy(p, state.coder) ? " coded" : "")
+        + (finishedBy(p) ? " done" : "")
+        + (p.key === state.key && state.dirty ? " dirty" : ""));
       const meta = el("div", "meta");
       const krow = el("div", "k");
       krow.appendChild(el("span", null, p.name || p.key));
@@ -876,6 +975,28 @@
         badges.appendChild(el("span", "s-badge warn", p.fulltext_criterion));
       } else if (p.missing_metrics > 0) {
         badges.appendChild(el("span", "s-badge warn", `${p.missing_metrics} missing`));
+      }
+      if (finishedBy(p)) {
+        const fin = el("span", "s-badge done");
+        fin.title = `Finished by ${state.coder || "you"} — the Finish button marked this paper done`;
+        fin.appendChild(icon("i-check", 9));
+        fin.appendChild(el("span", null, "done"));
+        badges.appendChild(fin);
+      }
+      // In an online project another coder may hold the study's edit lock: show
+      // who, so nobody wonders why the shared editors are read-only.  The lock
+      // list marks our own locks (`mine`, computed by the server against the
+      // username), so a matching display name never hides a foreign lock.
+      const lockHolder = window.CSOnline && window.CSOnline.locks
+        ? window.CSOnline.locks.holderFor(p.key) : null;
+      if (lockHolder && lockHolder.mine !== true) {
+        const lk = el("span", "s-badge locked");
+        const who = lockHolder.display_name || lockHolder.user || "another coder";
+        const until = lockHolder.expires ? ` until ${String(lockHolder.expires).replace("T", " ").slice(0, 16)}` : "";
+        lk.title = `Locked by ${who}${until}`;
+        lk.appendChild(icon("i-lock", 9));
+        lk.appendChild(el("span", null, String(who).split(" ")[0]));
+        badges.appendChild(lk);
       }
       meta.appendChild(badges);
       btn.appendChild(dot);
@@ -977,7 +1098,111 @@
   /* ================================================================ field controls */
   const emptyAsNull = (def) => (def.type || "").includes("|null") && def.base_type === "string";
 
+  /* ------------------------------------------------- scheme visibility rules */
+  /* The scheme's own mechanisms (Scripts/scheme_lib.py + the converted scheme):
+     a field carries ``show_if`` ("show only if a previous answer says so")
+     and may carry ``coder.form === "hide"`` (another writer owns it - the
+     pipeline, the mark-source button or the correspondence-author harvest -
+     so the form never offers it for hand coding).  Both are evaluated here,
+     and both fail OPEN: a malformed or unanswered condition shows the field,
+     and a conditioned field that already carries a value stays visible so a
+     condition can never hide data. */
+
+  function condValueText(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    return String(v).trim();
+  }
+
+  function condAsList(v) { return Array.isArray(v) ? v : [v]; }
+
+  function condAsNumber(v) {
+    if (typeof v === "number") return v;
+    const n = Number(condValueText(v));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /* Mirrors scheme_lib.eval_condition (same ops, same fail-open rules). */
+  function condHolds(cond, obj) {
+    if (!cond || typeof cond !== "object") return true;
+    const field = String(cond.field || "").trim();
+    const op = String(cond.op || "").toLowerCase();
+    if (!field || !op) return true;
+    const raw = obj ? obj[field] : undefined;
+    const txt = (x) => condValueText(x).toLowerCase();
+    if (op === "not_empty") {
+      if (raw === null || raw === undefined) return false;
+      if (Array.isArray(raw)) return raw.length > 0;
+      return condValueText(raw) !== "";
+    }
+    if (op === "empty") {
+      if (raw === null || raw === undefined) return true;
+      if (Array.isArray(raw)) return raw.length === 0;
+      return condValueText(raw) === "";
+    }
+    if (raw === null || raw === undefined) return true;   // cannot decide -> show
+    if (op === "gt" || op === "gte" || op === "lt" || op === "lte") {
+      const left = condAsNumber(raw), right = condAsNumber(cond.value);
+      if (left === null || right === null) return true;
+      if (op === "gt") return left > right;
+      if (op === "gte") return left >= right;
+      if (op === "lt") return left < right;
+      return left <= right;
+    }
+    const texts = condAsList(raw).map(txt).filter((t) => t !== "");
+    if (op === "in") {
+      const wanted = new Set(condAsList(cond.value).map((x) => txt(x)));
+      return texts.some((t) => wanted.has(t));
+    }
+    if (op === "not_in") {
+      const wanted = new Set(condAsList(cond.value).map((x) => txt(x)));
+      return !texts.some((t) => wanted.has(t));
+    }
+    if (op === "equals") {
+      const w = txt(cond.value);
+      return texts.some((t) => t === w);
+    }
+    if (op === "not_equals") {
+      const w = txt(cond.value);
+      return !texts.some((t) => t === w);
+    }
+    if (op === "contains") {
+      const needle = txt(cond.value);
+      if (!needle) return true;
+      return texts.some((t) => t.includes(needle));
+    }
+    return true;
+  }
+
+  function isEmptyVal(v) {
+    if (v === null || v === undefined) return true;
+    if (typeof v === "string") return v.trim() === "";
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object") return Object.keys(v).length === 0;
+    return false;
+  }
+
+  /* Whether the coding form shows a field's control. */
+  function fieldHiddenFor(def, obj) {
+    if (!def) return false;
+    const coder = def.coder && typeof def.coder === "object" ? def.coder : {};
+    if (coder.form === "hide") return true;      // machine-owned: never hand-coded
+    if (def.show_if && !condHolds(def.show_if, obj)) {
+      // a value that is already there stays visible for review
+      return isEmptyVal(obj ? obj[def.name] : null);
+    }
+    return false;
+  }
+
+  /* appendChild, but tolerant of a hidden field (fieldRow returns null). */
+  function appendFieldRow(host, def, obj, opts) {
+    const row = fieldRow(def, obj, opts);
+    if (row) host.appendChild(row);
+    return row;
+  }
+
   function fieldRow(def, obj, opts = {}) {
+    if (fieldHiddenFor(def, obj)) return null;
     const row = el("div", "field");
     row.dataset.field = def.name;
     row.dataset.editor = def.editor || "";
@@ -1041,6 +1266,12 @@
       touch();
       if (opts.onChange) opts.onChange(v);
       if (opts.onCommit) opts.onCommit(v);
+      // A value other fields' visibility depends on: re-evaluate the form on
+      // the next frame (never synchronously - the control being edited is
+      // still closing its popup).
+      if (condTargets.has(def.name)) {
+        requestAnimationFrame(() => renderForm());
+      }
     };
     switch (def.editor) {
       case "module-select": {
@@ -1116,7 +1347,8 @@
     cb.type = "checkbox";
     cb.checked = !blank && String(value) === String(on.value);
     cb.indeterminate = blank;
-    cb.title = `${on.label} (checked) / ${off.label} (unchecked)`;
+    cb.title = `${CS.optionText(on.value, on.label)} (checked) / `
+      + `${CS.optionText(off.value, off.label)} (unchecked)`;
     cb.addEventListener("change", () => {
       cb.indeterminate = false;
       const v = cb.checked ? on.value : off.value;
@@ -1136,7 +1368,9 @@
     sel.appendChild(new Option("— not set —", "__none__"));
     let matched = false;
     options.forEach((o) => {
-      const text = String(o.value) === String(o.label) ? o.label : `${o.value} — ${o.label}`;
+      /* a level shows its number and its name ("1 - Lab") - the same rule
+         the scheme editor uses, so the two can never disagree */
+      const text = optionText(o.value, o.label);
       const opt = new Option(text, String(o.value));
       if (value !== null && value !== undefined && String(value) === String(o.value)) {
         opt.selected = true;
@@ -1176,12 +1410,17 @@
     const input = el("input");
     input.type = "text";
     input.placeholder = "type and press Enter…";
+    /* the scheme's human display labels for the tokens (vocab_labels); the
+       stored value is what commits, the label is what the coder sees */
+    const labels = (def.vocab_labels && typeof def.vocab_labels === "object") ? def.vocab_labels : {};
+    const labelFor = (v) => labels[String(v)] || String(v);
 
     const paint = () => {
       $$(".chip-token", box).forEach((n) => n.remove());
       arr.forEach((v, i) => {
         const t = el("span", "chip-token");
-        t.appendChild(el("span", null, String(v)));
+        t.title = String(v);
+        t.appendChild(el("span", null, labelFor(v)));
         const b = el("button");
         b.type = "button";
         b.tabIndex = -1;
@@ -1221,14 +1460,16 @@
     wrap.appendChild(box);
     paint();
 
-    const sugg = (def.vocab || []).filter((v) => !arr.includes(v));
+    const sugg = ((def.vocab && def.vocab.length) ? def.vocab : Object.keys(labels))
+      .filter((v) => !arr.includes(v));
     if (sugg.length) {
       const s = el("div", "chip-suggest");
       sugg.slice(0, 24).forEach((v) => {
         const b = el("button", "s");
         b.type = "button";
         b.tabIndex = -1;
-        b.textContent = v;
+        b.title = String(v);
+        b.textContent = labelFor(v);
         b.addEventListener("click", () => addValue(v));
         s.appendChild(b);
       });
@@ -1239,11 +1480,14 @@
 
   function objectListControl(def, value, commit) {
     const arr = Array.isArray(value) ? value : [];
+    // a field with the objectlist editor but no columns yet (the scheme
+    // editor can leave it empty) must not throw
+    const columns = Array.isArray(def.columns) ? def.columns : [];
     const wrap = el("div", "objlist");
     const table = el("table");
     const thead = el("thead");
     const hr = el("tr");
-    def.columns.forEach((c) => hr.appendChild(el("th", null, c.name)));
+    columns.forEach((c) => hr.appendChild(el("th", null, c.name)));
     hr.appendChild(el("th"));
     thead.appendChild(hr);
     table.appendChild(thead);
@@ -1254,7 +1498,7 @@
       arr.forEach((rowObj, i) => {
         const tr = el("tr");
         if (!rowObj) arr[i] = rowObj = {};
-        def.columns.forEach((c) => {
+        columns.forEach((c) => {
           const td = el("td");
           const cur = rowObj[c.name];
           if (c.type === "list") {
@@ -1302,7 +1546,7 @@
     add.appendChild(el("span", null, "Add row"));
     add.addEventListener("click", () => {
       const rowObj = {};
-      def.columns.forEach((c) => { rowObj[c.name] = c.type === "list" ? [] : null; });
+      columns.forEach((c) => { rowObj[c.name] = c.type === "list" ? [] : null; });
       arr.push(rowObj);
       commit(arr.slice());
       paint();
@@ -1510,6 +1754,7 @@
     groups.forEach((g) => {
       let fields = state.schema.common_fields.filter((f) => f.group === g);
       if (q) fields = fields.filter((f) => fieldMatches(f, q));
+      fields = fields.filter((f) => !fieldHiddenFor(f, view.obj));
       if (!fields.length) return;
       const subtitle = q
         ? `${fields.length} match${fields.length === 1 ? "" : "es"}`
@@ -1519,7 +1764,7 @@
       if (q) sec.open = true;
       fields.forEach((f) => {
         const def = view.inter && f.name === "Intervention_Type" ? interventionTypeField(f) : f;
-        body.appendChild(fieldRow(def, view.obj, fieldOpts(f)));
+        appendFieldRow(body, def, view.obj, fieldOpts(f));
       });
       form.appendChild(sec);
     });
@@ -1536,13 +1781,14 @@
     const otherModule = Object.keys(view.obj).filter(
       (k) => k !== "DV_Metrics" && k !== "Interventions" && !commonNames.has(k) && !modNames.has(k) && fieldIndex.has(k)
         && fieldMatches(fieldIndex.get(k), q)
+        && !fieldHiddenFor(fieldIndex.get(k), view.obj)
     );
     if (otherModule.length) {
       const { sec, body } = makeSection("Fields from other modules", `${otherModule.length} kept`);
       if (state.missingsOnly && !q) sec.open = false;
       if (q) sec.open = true;
-      otherModule.forEach((k) => body.appendChild(fieldRow(fieldIndex.get(k), view.obj,
-        Object.assign({ showName: true }, fieldOpts(fieldIndex.get(k))))));
+      otherModule.forEach((k) => appendFieldRow(body, fieldIndex.get(k), view.obj,
+        Object.assign({ showName: true }, fieldOpts(fieldIndex.get(k)))));
       form.appendChild(sec);
     }
 
@@ -1587,6 +1833,7 @@
       if (!seen.has(f.name)) { seen.add(f.name); fields.push(f); }
     }));
     if (q) fields = fields.filter((f) => fieldMatches(f, q));
+    fields = fields.filter((f) => !fieldHiddenFor(f, obj));
     if (q && !fields.length) return null;
     const title = mods.length
       ? `Intervention module — ${mods.map((m) => m.label || "").filter(Boolean).join(" + ")}`
@@ -1612,7 +1859,7 @@
         body.appendChild(d);
       }
     });
-    fields.forEach((f) => body.appendChild(fieldRow(f, obj, fieldOpts ? fieldOpts(f) : {})));
+    fields.forEach((f) => appendFieldRow(body, f, obj, fieldOpts ? fieldOpts(f) : {}));
     return sec;
   }
 
@@ -1989,21 +2236,22 @@
     };
 
     if (q && !dvNameMatch) {
-      const fields = allDvFields().filter((f) => fieldMatches(f, q));
+      const fields = allDvFields().filter((f) => fieldMatches(f, q) && !fieldHiddenFor(f, dv));
       if (fields.length) {
         const sub = el("div", "dv-sub");
         sub.appendChild(el("h4", null, "Matching fields"));
-        fields.forEach((f) => sub.appendChild(fieldRow(f, dv, { onChange: fieldOnChange(f) })));
+        fields.forEach((f) => appendFieldRow(sub, f, dv, { onChange: fieldOnChange(f) }));
         body.appendChild(sub);
       }
     } else {
       const fam = statChoice(dv, i);
       const renderGroups = (groups) => groups.forEach((grp) => {
-        const fields = grp.names.map((n) => state.schema.dv_fields.find((f) => f.name === n)).filter(Boolean);
+        const fields = grp.names.map((n) => state.schema.dv_fields.find((f) => f.name === n))
+          .filter(Boolean).filter((f) => !fieldHiddenFor(f, dv));
         if (!fields.length) return;
         const sub = el("div", "dv-sub");
         sub.appendChild(el("h4", null, grp.title));
-        fields.forEach((f) => sub.appendChild(fieldRow(f, dv, { onChange: fieldOnChange(f) })));
+        fields.forEach((f) => appendFieldRow(sub, f, dv, { onChange: fieldOnChange(f) }));
         body.appendChild(sub);
       });
       if (state.coderMode) {
@@ -2040,82 +2288,9 @@
   }
 
   /* ================================================================ markdown */
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
-
-  function inlineMd(s) {
-    return s
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/__([^_]+)__/g, "<strong>$1</strong>")
-      .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-      .replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>")
-      .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  }
-
-  function renderMarkdown(src) {
-    const lines = escapeHtml(String(src).replace(/\r\n?/g, "\n")).split("\n");
-    const out = [];
-    let i = 0;
-    const isSep = (t) => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(t) && t.includes("-");
-    const cells = (t) => t.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
-    const isList = (t) => /^\s*([-*+]|\d+\.)\s+/.test(t);
-    const isSpecial = (t) => /^(#{1,6})\s+/.test(t) || isList(t) || t.trimStart().startsWith(">") || t.trimStart().startsWith("|");
-
-    while (i < lines.length) {
-      const line = lines[i];
-      if (!line.trim()) { i += 1; continue; }
-      let m;
-      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-        const n = m[1].length;
-        out.push(`<h${n}>${inlineMd(m[2])}</h${n}>`);
-        i += 1;
-        continue;
-      }
-      if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { out.push("<hr>"); i += 1; continue; }
-      if (line.trimStart().startsWith(">")) {
-        const buf = [];
-        while (i < lines.length && lines[i].trimStart().startsWith(">")) {
-          buf.push(lines[i].replace(/^\s*>\s?/, ""));
-          i += 1;
-        }
-        out.push(`<blockquote>${inlineMd(buf.join(" "))}</blockquote>`);
-        continue;
-      }
-      if (line.trimStart().startsWith("|")) {
-        const tbl = [];
-        while (i < lines.length && lines[i].trimStart().startsWith("|")) { tbl.push(lines[i]); i += 1; }
-        if (tbl.length > 1 && isSep(tbl[1])) {
-          const head = cells(tbl[0]);
-          const rows = tbl.slice(2).map(cells).filter((r) => r.some((c) => c !== ""));
-          out.push(
-            "<table><thead><tr>" + head.map((h) => `<th>${inlineMd(h)}</th>`).join("") + "</tr></thead><tbody>" +
-            rows.map((r) => "<tr>" + r.map((c) => `<td>${inlineMd(c)}</td>`).join("") + "</tr>").join("") +
-            "</tbody></table>"
-          );
-        } else {
-          out.push(`<p>${inlineMd(tbl.join(" "))}</p>`);
-        }
-        continue;
-      }
-      if (isList(line)) {
-        const ordered = /^\s*\d+\./.test(line);
-        const items = [];
-        while (i < lines.length && isList(lines[i])) {
-          items.push(lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, ""));
-          i += 1;
-        }
-        out.push(`<${ordered ? "ol" : "ul"}>` + items.map((t) => `<li>${inlineMd(t)}</li>`).join("") + `</${ordered ? "ol" : "ul"}>`);
-        continue;
-      }
-      const buf = [];
-      while (i < lines.length && lines[i].trim() && !isSpecial(lines[i])) { buf.push(lines[i]); i += 1; }
-      out.push(`<p>${inlineMd(buf.join(" "))}</p>`);
-    }
-    return out.join("\n");
-  }
-
+  /* The renderer lives in core.js, so the Home instructions and the paper's
+     coder notes are rendered by the same code. */
+  const renderMarkdown = window.CS.markdown;
   /* ================================================================ rationale */
   function syncRationale() {
     const rec = state.records[state.current];
@@ -2140,7 +2315,7 @@
     }
     det.hidden = true;
     try {
-      const d = await api(`/api/notes/${encodeURIComponent(state.key)}`);
+      const d = await api(`api/notes/${encodeURIComponent(state.key)}`);
       state.notesCache[state.key] = d.notes;
       paint(d.notes);
     } catch {
@@ -2175,19 +2350,19 @@
 
   function pdfFileUrl() {
     const key = state.key;
-    let url = `/paper/${encodeURIComponent(key)}`;
+    let url = `paper/${encodeURIComponent(key)}`;
     if (state.supp) url += `?supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
 
   function pageImageUrl(n) {
-    let url = `/pageimg/${encodeURIComponent(state.key)}/${n}.png?scale=${PDF_RENDER_SCALE}`;
+    let url = `pageimg/${encodeURIComponent(state.key)}/${n}.png?scale=${PDF_RENDER_SCALE}`;
     if (state.supp) url += `&supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
 
   function pageTextUrl(n) {
-    let url = `/api/pdftext/${encodeURIComponent(state.key)}/${n}.json`;
+    let url = `api/pdftext/${encodeURIComponent(state.key)}/${n}.json`;
     if (state.supp) url += `?supp=${encodeURIComponent(state.supp)}`;
     return url;
   }
@@ -2467,10 +2642,10 @@
     const p = state.byKey[key] || {};
     const wanted = (p.codings || []).map((c) => c && c.coder).filter(Boolean);
     const jobs = wanted.map((coder) =>
-      api(`/api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`)
+      api(`api/coding/${encodeURIComponent(key)}/${encodeURIComponent(coder)}`)
         .then((d) => ({ coder, records: d && d.records })).catch(() => null));
     if (p.has_extraction) {
-      jobs.push(api(`/api/extraction/${encodeURIComponent(key)}`)
+      jobs.push(api(`api/extraction/${encodeURIComponent(key)}`)
         .then((d) => ({ coder: "OG", records: d && d.records })).catch(() => null));
     }
     const got = (await Promise.all(jobs)).filter((e) => e && e.records && e.records.length);
@@ -2791,15 +2966,18 @@
     if (state.view === "pdf") renderViewer();
     try {
       const q = state.supp ? `?supp=${encodeURIComponent(state.supp)}` : "";
-      const d = await api(`/api/pdfinfo/${encodeURIComponent(state.key)}${q}`);
+      const d = await api(`api/pdfinfo/${encodeURIComponent(state.key)}${q}`);
       state.pages = d.pages;
       state.pageSize = d.size || null;
       /* no page count (e.g. Lite build without PyMuPDF) -> embedded viewer */
       state.pdfFailed = !state.pages;
-    } catch {
+    } catch (err) {
       state.pages = null;
       state.pageSize = null;
       state.pdfFailed = true;
+      // An online project answers 503 for a PDF the cache does not hold yet:
+      // say that instead of leaving a broken viewer.
+      if (window.CSOnline && window.CSOnline.offlineNotice) window.CSOnline.offlineNotice(err);
     }
     renderControls();
     if (state.view === "pdf") renderViewer();
@@ -2829,10 +3007,13 @@
       wrap.appendChild(pre);
       v.appendChild(wrap);
       if (cached == null) {
-        api(`/api/text/${encodeURIComponent(key)}`).then((d) => {
+        api(`api/text/${encodeURIComponent(key)}`).then((d) => {
           state.textCache[key] = d.text || "(no extracted text)";
           pre.textContent = state.textCache[key];
           if (state.coderMode) coderRelocateSoon(60);
+        }).catch((err) => {
+          pre.textContent = "(the text could not be loaded)";
+          if (window.CSOnline && window.CSOnline.offlineNotice) window.CSOnline.offlineNotice(err);
         });
       }
       renderControls();
@@ -2859,7 +3040,7 @@
       fetch: (q) => {
         const p = new URLSearchParams({ q });
         if (state.supp) p.set("supp", state.supp);
-        return api(`/api/pdfsearch/${encodeURIComponent(state.key)}?${p.toString()}`);
+        return api(`api/pdfsearch/${encodeURIComponent(state.key)}?${p.toString()}`);
       },
     });
   }
@@ -2895,17 +3076,22 @@
     // renamed coder (e.g. ten Minimax-XX files unified to "MM") stops appearing
     // in the dropdown after a reload.
     const storedArr = Array.isArray(stored) ? stored : [];
-    const fresh = storedArr.filter((c) => c && present.has(String(c).toLowerCase()));
+    // Before the papers are loaded nothing is "present", so pruning then would
+    // wipe every remembered coder: keep them all until the list is there.
+    const fresh = state.papersLoaded
+      ? storedArr.filter((c) => c && present.has(String(c).toLowerCase()))
+      : storedArr.filter(Boolean);
     fresh.forEach((c) => set.add(c));
-    if (fresh.length !== storedArr.length) {
+    if (state.papersLoaded && fresh.length !== storedArr.length) {
       try { safeStore("cs.coders", JSON.stringify(fresh)); } catch { /* ignore */ }
     }
-    if (state.coder && !isOriginalSource()) set.add(state.coder);
     // A coder ADDED in the picker has no coding file yet, so the prune above
-    // would drop them on reload. Added names live in their own key and are never pruned.
+    // would drop them the moment the page reloads - the drop of a name that
+    // was just typed.  Added names live in their own key and are never pruned.
     let added = [];
     try { added = JSON.parse(readStore("cs.coders.added", "[]")); } catch { added = []; }
     (Array.isArray(added) ? added : []).forEach((c) => { if (c) set.add(String(c)); });
+    if (state.coder && !isOriginalSource()) set.add(state.coder);
     return [...set].sort((a, b) => String(a).localeCompare(String(b)));
   }
 
@@ -2930,6 +3116,7 @@
     }
     if (coderMenuOpen()) renderCoderMenu();
   }
+
   /* ---------------------------------------------------------- coder picker */
   /* The coder field is an in-app dropdown, not a <datalist>: the browser draws
      a datalist itself, so it cannot follow the theme, cannot mark who is
@@ -3072,7 +3259,7 @@
     renderCoderOptions();
     window.dispatchEvent(new CustomEvent("cs:coder", { detail: name }));
     if (!state.key || window.CS.currentView() !== "coding") { renderCompareSelect(); return; }
-    await loadWorkingCopyForCoder();
+    if (!(await loadWorkingCopyForCoder())) return;   // superseded by a newer load
     state.records.forEach(ensureModuleFields);
     state.current = 0;
     state.selIntervention = -1;
@@ -3096,30 +3283,37 @@
   /* Working copy for the selected coder: their saved coding, else the canonical
      extraction, else blank.  "Original (OG)" always shows the extraction.  In
      blind mode the structure is seeded but every value stays hidden. */
+  /* Returns true while this load is still the latest one: a caller that awaited
+     it must not render (or reset the dirty flag) when a newer paper / coder
+     selection superseded it in the meantime. */
   async function loadWorkingCopyForCoder() {
+    const seq = (state.loadSeq = (state.loadSeq || 0) + 1);
     state.coderLoaded = state.coder;
-    const p = state.byKey[state.key] || {};
+    const key = state.key;
+    const p = state.byKey[key] || {};
     if (state.blind) {
       state.source = "blind";
       let records = null;
       if (p.has_extraction) {
-        try { const d = await api(`/api/extraction/${encodeURIComponent(state.key)}`); records = d.records; }
+        try { const d = await api(`api/extraction/${encodeURIComponent(key)}`); records = d.records; }
         catch { records = null; }
       }
-      state.records = (records && records.length) ? blindSeedRecords(records) : [blankRecord(state.key, 1)];
-      return;
+      if (seq !== state.loadSeq || state.key !== key) return false;
+      state.records = (records && records.length) ? blindSeedRecords(records) : [blankRecord(key, 1)];
+      return true;
     }
+    let kind = "blank";
     if (isOriginalSource()) {
-      if (p.has_extraction) { state.source = "original"; return loadSource("original"); }
-      state.source = "blank";
-      return loadSource("blank");
+      if (p.has_extraction) kind = "original";
+    } else {
+      const mine = (p.codings || []).find(
+        (c) => c && c.coder && c.coder.toLowerCase() === state.coder.toLowerCase());
+      if (mine) kind = "coding:" + mine.coder;
+      else if (p.has_extraction) kind = "original";
     }
-    const mine = (p.codings || []).find(
-      (c) => c && c.coder && c.coder.toLowerCase() === state.coder.toLowerCase());
-    if (mine) { state.source = "coding:" + mine.coder; return loadSource(state.source); }
-    if (p.has_extraction) { state.source = "original"; return loadSource("original"); }
-    state.source = "blank";
-    return loadSource("blank");
+    state.source = kind;
+    await loadSource(kind, seq);
+    return seq === state.loadSeq && state.key === key;
   }
 
   /* Compare dropdown: another coder's coding, shown in a read-only side column. */
@@ -3154,12 +3348,19 @@
     if (kind === "original") state.compareCoder = "OG";
     else if (kind && kind.startsWith("coding:")) state.compareCoder = kind.slice(7);
     if (state.compareCoder && state.key) {
+      const key = state.key;
+      const who = state.compareCoder;
       try {
-        const d = state.compareCoder === "OG"
-          ? await api(`/api/extraction/${encodeURIComponent(state.key)}`)
-          : await api(`/api/coding/${encodeURIComponent(state.key)}/${encodeURIComponent(state.compareCoder)}`);
+        const d = who === "OG"
+          ? await api(`api/extraction/${encodeURIComponent(key)}`)
+          : await api(`api/coding/${encodeURIComponent(key)}/${encodeURIComponent(who)}`);
+        // a comparison for a paper / coder the user already left is dropped
+        if (state.key !== key || state.compareCoder !== who) return;
         state.compare = (d && d.records && d.records.length) ? d.records : null;
-      } catch { state.compare = null; }
+      } catch {
+        if (state.key !== key || state.compareCoder !== who) return;
+        state.compare = null;
+      }
     }
     renderCompareGutter();
   }
@@ -3370,7 +3571,7 @@
     if (!key) return;
     try {
       const q = state.coder ? `?coder=${encodeURIComponent(state.coder)}` : "";
-      const d = await api(`/api/fulltext/${encodeURIComponent(key)}${q}`);
+      const d = await api(`api/fulltext/${encodeURIComponent(key)}${q}`);
       state.fulltext.criteria = d.criteria || state.fulltext.criteria;
       state.fulltext.mine = d.mine || null;
       state.fulltext.agreed = d.agreed || null;
@@ -3392,7 +3593,7 @@
     const note = $("#ft-note") ? $("#ft-note").value : "";
     if (exclude && !crit) { toast("Pick an exclusion reason", "err"); $("#ft-criterion").focus(); return; }
     try {
-      const d = await api(`/api/fulltext/${encodeURIComponent(key)}`, {
+      const d = await api(`api/fulltext/${encodeURIComponent(key)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ coder, exclude, criterion: crit || "other", note }),
       });
@@ -3409,7 +3610,7 @@
 
   async function refreshExcluded() {
     try {
-      const a = await api("/api/fulltext/excluded");
+      const a = await api("api/fulltext/excluded");
       const agreed = a.agreed || {};
       state.papers.forEach((p) => {
         const ex = agreed[p.key];
@@ -4156,7 +4357,7 @@
       const b = el("button", "num-opt");
       b.type = "button";
       b.appendChild(el("span", "k", String(i + 1)));
-      b.appendChild(el("span", null, o.label));
+      b.appendChild(el("span", null, CS.optionText(o.value, o.label)));
       const cur = sel ? String(sel.value) : (cb ? (cb.checked ? String(o.value) : "") : "");
       if (cur === String(o.value)) b.classList.add("active");
       b.addEventListener("click", (e) => {
@@ -4303,7 +4504,20 @@
     state.pages = null;
     state.pageSize = null;
     state.pdfFailed = false;
-    await loadWorkingCopyForCoder();
+    // Until the new working copy is in, state.records still holds the previous
+    // paper's coding under the new key: Save refuses while this is set.
+    state.loadingKey = key;
+    let current;
+    try {
+      current = await loadWorkingCopyForCoder();
+    } catch (err) {
+      // loadingKey stays set: the form still shows the previous paper, so a
+      // Save must keep refusing until a paper loads properly
+      toast("Could not load this paper", "err", String(err.message || err));
+      return;
+    }
+    if (!current) return;           // a newer selection took over
+    state.loadingKey = null;
     state.records.forEach(ensureModuleFields);
     syncMissingOpen();
     renderPaperList();
@@ -4312,6 +4526,7 @@
     syncRationale();
     renderCompareSelect();
     await reloadCompare();
+    if (state.key !== key) return;  // left while the comparison loaded
     await maybeSeedFromCompare();
     renderViewer();
     loadNotes();
@@ -4320,6 +4535,8 @@
     loadSpanPool();
     coderRelocateSoon(500);
     updateDirty();
+    // presence (online.js) follows the paper that is open
+    window.dispatchEvent(new CustomEvent("cs:paper", { detail: key }));
   }
 
   /* Start the working copy from the compared coder's coding.
@@ -4358,6 +4575,7 @@
   /* ================================================================ dirty */
   function touch() {
     state.dirty = true;
+    state.editSeq = (state.editSeq || 0) + 1;
     updateDirty();
     const item = document.querySelector(".paper-item.active .dot");
     if (item) item.classList.add("dirty");
@@ -4396,6 +4614,10 @@
       toast("Select a paper first", "err");
       return false;
     }
+    if (state.loadingKey) {
+      toast("The paper is still loading", "err", "Save again once its coding is shown.");
+      return false;
+    }
     if (state.blind && !payloadHasContent()) {
       if (!quiet) toast("Nothing entered yet", "ok", "Blind coding is only saved once you enter variables.");
       return true;
@@ -4413,18 +4635,24 @@
     if (missing.length && !quiet) toast("Saving with required fields still empty", "err", missing.slice(0, 4).join(", "));
 
     state.busy = true;
+    // The paper and the edit count this save covers: the user may type on, or
+    // even open another paper, while the request is in flight.
+    const savedKey = state.key;
+    const savedEdit = state.editSeq || 0;
     try {
       const recordsOut = state.blind ? stripEmptyForBlind(state.records) : state.records;
-      const res = await fetch("/api/save", {
+      const res = await fetch("api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: state.key, coder, records: recordsOut, blind: state.blind }),
+        body: JSON.stringify({ key: savedKey, coder, records: recordsOut, blind: state.blind }),
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "save failed");
-      state.dirty = false;
+      // only what was sent is saved: an edit made during the request keeps the
+      // working copy dirty, and another paper's flag is not this save's to clear
+      if (state.key === savedKey && (state.editSeq || 0) === savedEdit) state.dirty = false;
       updateDirty();
-      const meta = state.byKey[state.key];
+      const meta = state.byKey[savedKey];
       if (meta && !meta.codings.some((c) => c.coder.toLowerCase() === coder.toLowerCase())) {
         meta.codings.push({ coder, file: "", modified: new Date().toISOString() });
         meta.n_coders = meta.codings.length;
@@ -4442,34 +4670,105 @@
     }
   }
 
+  /* ---------------------------------------------------------- advance (Next / Finish) */
+  /* One advance rule behind Next and Finish: with shuffle on, a recency-aware
+     random pick among the pool's unfinished papers (pickUncoded / shuffleRecent);
+     with shuffle off, the next paper in list order that is not finished yet.
+     `isDone` says what "unfinished" means — a saved coding file for Next, a
+     finished (done) mark for Finish. */
+  async function advanceNext({ pool, isDone, empty, quiet = false }) {
+    const list = pool || [];
+    if (!list.length) {
+      if (!quiet) toast("No papers in the current view", "err", "Clear the search.");
+      return false;
+    }
+    const here = state.key;
+    if (state.shuffleOn) {
+      const cand = list.filter((p) => p.key !== here && !isDone(p));
+      if (cand.length) {
+        const pick = pickUncoded(cand);
+        await selectPaper(pick.key, { force: true });
+        toast("Random uncoded study", "ok", coderCountSub(pick));
+        return true;
+      }
+      if (!quiet) toast(empty.title, "ok", empty.sub);
+      return false;
+    }
+    const at = list.findIndex((p) => p.key === here);
+    const idx = at < 0 ? 0 : at;
+    for (let step = 1; step <= list.length; step += 1) {
+      const cand = list[(idx + step) % list.length];
+      if (cand.key === here) continue;
+      if (!isDone(cand)) {
+        await selectPaper(cand.key, { force: true });
+        return true;
+      }
+    }
+    if (!quiet) toast(empty.title, "ok", empty.sub);
+    return false;
+  }
+
+  function onlineActive() {
+    return !!(window.CSOnline && window.CSOnline.active && window.CSOnline.active());
+  }
+
   async function goNext() {
     if (state.dirty && !isOriginalSource()) {
       const ok = await save({ quiet: true });
       if (!ok) return;
     }
-    const list = visiblePapers();
-    if (!list.length) { toast("No papers in the current view", "err", "Clear the search."); return; }
-    if (state.shuffleOn) {
-      const pool = list.filter((p) => p.key !== state.key && !codedBy(p, state.coder));
-      if (pool.length) {
-        const pick = pickUncoded(pool);
-        await selectPaper(pick.key, { force: true });
-        toast("Random uncoded study", "ok", coderCountSub(pick));
-        return;
-      }
-      toast("Nothing left to code", "ok", `Every paper is coded by ${state.coder || "you"}.`);
+    await refreshDone();
+    /* In an online project the queue is the coder's own assignment first, and a
+       paper counts as done when it carries a finished mark — a saved coding file
+       alone no longer takes it out of the queue.  A local project has no
+       assignments and keeps the coded-file rule. */
+    const online = onlineActive();
+    const isDone = online
+      ? (p) => finishedBy(p) || codedBy(p, state.coder)
+      : (p) => codedBy(p, state.coder);
+    const empty = { title: `Every paper is coded by ${state.coder || "you"}`, sub: "Nice work." };
+    if (online) {
+      const assigned = await refreshAssigned();
+      const pool = state.papers.filter((p) => assigned.has(p.key));
+      if (pool.length && await advanceNext({ pool, isDone, empty, quiet: true })) return;
+    }
+    await advanceNext({ pool: visiblePapers(), isDone, empty });
+  }
+
+  /* Finish paper: save → mark done(key, "coding", coder) → move on exactly like
+     Next (shuffle rule included), from the coder's assigned papers first.  It
+     works in a local folder project too: the done mark is recorded in the
+     project's `.studio/done.json` by the same route. */
+  async function finishPaper() {
+    if (state.busy) return;
+    const coder = (state.coder || "").trim();
+    if (!coder) { toast("Enter your coder name before finishing", "err"); $("#coder-input").focus(); return; }
+    if (isOriginalSource()) {
+      toast("Original is read-only", "err",
+        "Pick your own coder initials to finish a paper — the original extraction is never overwritten.");
+      $("#coder-input").focus();
       return;
     }
-    const idx = list.findIndex((p) => p.key === state.key);
-    for (let step = 1; step <= list.length; step += 1) {
-      const cand = list[(idx + step) % list.length];
-      if (cand.key === state.key) continue;
-      if (!codedBy(cand, state.coder)) {
-        await selectPaper(cand.key, { force: true });
-        return;
-      }
+    if (!state.key) { toast("Select a paper first", "err"); return; }
+    const key = state.key;
+    if (!(await save({ quiet: true }))) return;
+    if (!(await markDone(key))) return;
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+    toast("Paper finished", "ok", `${coder} · ${key}`);
+    const online = onlineActive();
+    const isDone = (p) => finishedBy(p) || (online && codedBy(p, state.coder));
+    const empty = {
+      title: "Nothing left to finish",
+      sub: online ? "Your assigned papers are all finished." : "Every paper is finished for you.",
+    };
+    if (online) {
+      const assigned = await refreshAssigned();
+      const pool = state.papers.filter((p) => assigned.has(p.key) && p.key !== key);
+      if (pool.length && await advanceNext({ pool, isDone, empty, quiet: true })) return;
     }
-    toast("Every paper is coded by " + (state.coder || "you"), "ok", "Nice work.");
+    await advanceNext({ pool: visiblePapers(), isDone, empty });
   }
 
   async function clearCoding() {
@@ -4481,7 +4780,7 @@
     if (!ok) return;
     if (state.blind) {
       // blind coding keeps the original's structure, so "clear" re-seeds it
-      await loadWorkingCopyForCoder();
+      if (!(await loadWorkingCopyForCoder())) return;
     } else {
       state.records = [blankRecord(state.key, 1)];
       state.source = "blank";
@@ -4508,7 +4807,7 @@
     // Blind coding hides every other coding, so the compare view is turned off.
     if (state.blind) { state.compare = null; state.compareCoder = ""; }
     if (state.key) {
-      await loadWorkingCopyForCoder();
+      if (!(await loadWorkingCopyForCoder())) return;   // superseded by a newer load
       state.records.forEach(ensureModuleFields);
       state.statChoice = {};
       state.selIntervention = -1;
@@ -4570,7 +4869,7 @@
   async function openProjectDialog() {
     let info = { root: "", can_pick: false };
     try {
-      info = await api("/api/root");
+      info = await api("api/root");
     } catch { /* ignore */ }
     $("#project-input").value = info.root || "";
     $("#project-status").textContent = info.papers != null ? `${info.papers} papers found` : "";
@@ -4599,7 +4898,7 @@
       status.textContent = "";
     }
     try {
-      const r = await fetch("/api/pick-root", { method: "POST" }).then((x) => x.json());
+      const r = await fetch("api/pick-root", { method: "POST" }).then((x) => x.json());
       if (r.ok && r.path) {
         $("#project-input").value = r.path;
         status.textContent = "Folder selected — press “Use this folder”.";
@@ -4613,12 +4912,61 @@
     }
   }
 
+  /* Re-point every root-dependent piece of the UI after the app's root changed
+     (/api/root, or an online project that was just opened).  The paper list,
+     working copy, caches and the scheme editor all belong to one project, so
+     they are reset here and nowhere else. */
+  async function applyRootSwitch(r) {
+    const fresh = await api("api/papers");
+    state.papers = fresh.papers;
+    state.byKey = {};
+    state.papers.forEach((p) => { state.byKey[p.key] = p; });
+    state.key = null;
+    state.records = [];
+    // a paper load still in flight belongs to the old project: drop it
+    state.loadSeq = (state.loadSeq || 0) + 1;
+    state.loadingKey = null;
+    state.compare = null;
+    state.compareCoder = "";
+    state.current = 0;
+    state.selIntervention = -1;
+    state.openDv = new Set();
+    state.textCache = {};
+    state.notesCache = {};
+    state.dirty = false;
+    // finished/assigned marks are per project and per coder
+    state.done = new Set(); state.doneTag = ""; state.doneAt = 0;
+    state.assigned = new Set(); state.assignedTag = ""; state.assignedAt = 0;
+    renderPaperList();
+    renderCoderOptions();
+    renderTabs();
+    $("#form").innerHTML = "";
+    const ivPanel = $("#interventions-panel");
+    if (ivPanel) ivPanel.innerHTML = "";
+    $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", `${state.papers.length} papers in ${r.root}`));
+    renderViewer();
+    updateDirty();
+    toast("Project folder set", "ok", `${state.papers.length} papers · ${r.root}`);
+    // the scheme editor (schema.js) reloads the new project's scheme
+    window.dispatchEvent(new CustomEvent("cs:root", { detail: r.root }));
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+  }
+
   async function saveProjectRoot() {
     const path = $("#project-input").value.trim();
     if (!path) return;
+    // Switching project drops the working copy: never silently.
+    if (state.dirty) {
+      const ok = await confirmDialog("Discard unsaved changes?",
+        `The working copy for ${state.key} has unsaved edits. Switch project anyway?`,
+        "Discard & switch", true);
+      if (!ok) return;
+    }
     $("#project-status").textContent = "Switching project…";
     try {
-      const r = await fetch("/api/root", {
+      const r = await fetch("api/root", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ root: path }),
@@ -4628,34 +4976,92 @@
         return;
       }
       $("#project-dialog").close();
-      const fresh = await api("/api/papers");
-      state.papers = fresh.papers;
-      state.byKey = {};
-      state.papers.forEach((p) => { state.byKey[p.key] = p; });
-      state.key = null;
-      state.records = [];
-      state.current = 0;
-      state.selIntervention = -1;
-      state.openDv = new Set();
-      state.textCache = {};
-      state.notesCache = {};
-      state.dirty = false;
-      renderPaperList();
-      renderCoderOptions();
-      renderTabs();
-      $("#form").innerHTML = "";
-      const ivPanel = $("#interventions-panel");
-      if (ivPanel) ivPanel.innerHTML = "";
-      $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", `${state.papers.length} papers in ${r.root}`));
-      renderViewer();
-      updateDirty();
-      toast("Project folder set", "ok", `${r.papers} papers · ${r.root}`);
+      await applyRootSwitch(r);
     } catch (err) {
       $("#project-status").textContent = String(err.message || err);
     }
   }
 
+  /* The app's confirm sheet is shared with the other views (the Settings page
+     asks before it replaces a file or restarts into a new version). */
+  window.CS.confirmDialog = confirmDialog;
+
+  /* The online layer (static/online.js) drives the header badge, the project
+     dialog entry, the locks and the sync panel.  It reads the coding app
+     through this small surface instead of reaching into the IIFE's state. */
+  window.CS.app = {
+    state: () => ({
+      key: state.key,
+      coder: state.coder,
+      papers: state.papers,
+      view: (window.CS.currentView ? window.CS.currentView() : "coding"),
+      done: state.done,
+      assigned: state.assigned,
+      dirty: state.dirty,
+    }),
+    setCoder: (name) => commitCoder(name),
+    selectPaper: (key, opts) => selectPaper(key, opts),
+    save: (opts) => save(opts),
+    finishPaper,
+    goNext,
+    applyRootSwitch,
+    renderPaperList,
+    refreshDone,
+    refreshAssigned,
+    markDone,
+  };
+
   /* ================================================================ boot */
+  /* The start-up screen of a big project: the papers index is built on the
+     first visit (tens of seconds for ~800 studies) and is cached afterwards.
+     While /api/papers runs, /api/papers/progress is polled and drawn as a bar
+     with a percentage.  Returns the function that removes it again.
+
+     Live-streaming the list as it is built was considered and rejected: the
+     list is ordered, filtered and counted over ALL studies, so partial rows
+     would reshuffle and mislead, and the cached path (every later start) is
+     instant anyway.  A percentage is honest and enough. */
+  function showLoadProgress() {
+    const form = $("#form");
+    const list = $("#paper-list");
+    if (!form) return () => {};
+    const box = el("div", "empty boot-progress");
+    box.setAttribute("role", "status");
+    const title = el("b", null, "Loading papers…");
+    const bar = el("div", "boot-bar");
+    const fill = el("div", "boot-bar-fill");
+    bar.appendChild(fill);
+    const note = el("p", null, "Starting…");
+    box.append(title, bar, note);
+    form.appendChild(box);
+    const mini = list ? el("div", "boot-mini", "Loading papers… 0 %") : null;
+    if (mini) list.prepend(mini);
+    const t0 = Date.now();
+    let stopped = false;
+    const words = { stamping: "Checking the project files", reading: "Reading the studies",
+                    saving: "Saving the index", done: "Finishing" };
+    const tick = async () => {
+      if (stopped) return;
+      try {
+        const p = await api("api/papers/progress");
+        const total = Number(p.total) || 0;
+        const done = Number(p.done) || 0;
+        // stamping has no count: show a thin indeterminate start instead of 0 %
+        const frac = p.phase === "done" ? 1 : (total && p.phase !== "stamping" ? Math.min(0.99, done / total) : 0);
+        const pct = Math.round(frac * 100);
+        fill.style.width = (p.phase === "stamping" || !total ? 4 : Math.max(4, pct)) + "%";
+        const secs = Math.round((Date.now() - t0) / 1000);
+        note.textContent = (words[p.phase] || "Starting") +
+          (total && p.phase === "reading" ? " · " + done + " of " + total + " (" + pct + " %)" : "") +
+          (secs >= 3 ? " · " + secs + " s" : "");
+        if (mini) mini.textContent = "Loading papers… " + (p.phase === "reading" ? pct + " %" : "");
+      } catch { /* the server is busy; try again */ }
+      if (!stopped) setTimeout(tick, 300);
+    };
+    tick();
+    return () => { stopped = true; box.remove(); if (mini) mini.remove(); };
+  }
+
   async function boot() {
     const savedTheme = localStorage.getItem("cs.theme") || "dark";
     document.documentElement.dataset.theme = savedTheme;
@@ -4675,30 +5081,56 @@
     $("#coder-mode").setAttribute("aria-pressed", state.coderMode ? "true" : "false");
     applyRationaleCollapsed(localStorage.getItem("cs.rationaleCollapsed") === "1");
 
-    const [schema, papers] = await Promise.all([api("/api/schema"), api("/api/papers")]);
+    // The controls are wired BEFORE the (possibly slow) papers request, so the
+    // coder picker, filters and the topbar work while the list is still loading.
+    // state.papers is [] until then, which every handler tolerates.
+    wireEvents();
+    const papersReq = api("api/papers");
+    const schema = await api("api/schema");
     state.schema = schema;
+    schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
+    Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
+    condTargets.clear();
+    [schema.common_fields, schema.dv_fields,
+     ...Object.values(schema.modules).map((m) => m.fields)].forEach((list) =>
+      (list || []).forEach((f) => {
+        if (f && f.show_if && f.show_if.field) condTargets.add(f.show_if.field);
+      }));
+    renderTabs();
+    $("#form").innerHTML = "";
+    const ivPanelBoot = $("#interventions-panel");
+    if (ivPanelBoot) ivPanelBoot.innerHTML = "";
+    const stopProgress = showLoadProgress();
+    let papers;
+    try { papers = await papersReq; } finally { stopProgress(); }
+    state.papersLoaded = true;
     state.papers = papers.papers;
     state.byKey = {};
     state.papers.forEach((p) => { state.byKey[p.key] = p; });
     renderCoderOptions();
     updateFtCount();
-    try { state.fulltext.criteria = (await api("/api/fulltext/criteria")).criteria || []; } catch { /* ignore */ }
-
-    schema.common_fields.forEach((f) => fieldIndex.set(f.name, f));
-    Object.values(schema.modules).forEach((m) => m.fields.forEach((f) => { if (!fieldIndex.has(f.name)) fieldIndex.set(f.name, f); }));
+    try { state.fulltext.criteria = (await api("api/fulltext/criteria")).criteria || []; } catch { /* ignore */ }
 
     renderPaperList();
-    renderTabs();
     $("#form").innerHTML = "";
-    const ivPanelBoot = $("#interventions-panel");
-    if (ivPanelBoot) ivPanelBoot.innerHTML = "";
     $("#form").appendChild(emptyState("i-search", "Choose a paper to begin", "Search or pick a study from the left. Existing codings load for correction; Blind mode hides them."));
 
-    wireEvents();
+    // finished marks + the coder's assignment queue: both routes answer for a
+    // local folder too (done marks), and are no-ops when absent
+    await refreshDone({ force: true });
+    await refreshAssigned({ force: true });
+    renderPaperList();
+
     applyBlind();
     updateFacetBadge();
     syncWideLayout();
     updateDirty();
+    // the top bar was first measured before the coder field, the saved coder
+    // name and the fonts were in place: measure it again now that they are
+    if (window.CS && typeof window.CS.fitTopbar === "function") {
+      window.CS.fitTopbar();
+      setTimeout(window.CS.fitTopbar, 300);
+    }
   }
 
   function wireEvents() {
@@ -4745,6 +5177,16 @@
     });
     $("#merge-btn")?.addEventListener("click", () => {
       if (screeningView()) window.dispatchEvent(new CustomEvent("cs:screening-merge"));
+    });
+    /* Finish = save + done mark + advance; see finishPaper(). */
+    $("#finish-btn")?.addEventListener("click", () => { finishPaper(); });
+    /* Done marks and assignments belong to the coder: refresh them when the
+       coder changes, and draw the list again so the "done" badges follow.
+       (app.js dispatches cs:coder on window, not on document.) */
+    window.addEventListener("cs:coder", async () => {
+      await refreshDone({ force: true });
+      await refreshAssigned({ force: true });
+      renderPaperList();
     });
     /* ---- the coder picker ---- */
     const coderInp = $("#coder-input");
@@ -4932,8 +5374,12 @@
       if (!state.coderMode || e.ctrlKey || e.metaKey || e.altKey) return;
       const view = document.querySelector(".viewtab.active");
       if (view && view.dataset.view !== "coding") return;
+      if (document.querySelector("dialog[open]")) return;   // Tab belongs to the dialog
       const tag = (e.target.tagName || "").toLowerCase();
       if (tag === "textarea") return;
+      // the paper search, coder name and field search sit outside the form:
+      // their arrows and Tab move the caret / focus, not the coding variable
+      if ((tag === "input" || tag === "select") && e.target.closest && !e.target.closest("#form")) return;
       // Tab / Shift+Tab step to the next / previous variable (like the paper screen);
       // number keys pick a level, arrows move, Shift+Tab goes back.
       if (e.key === "Tab") { e.preventDefault(); if (e.shiftKey) coderMove(-1); else coderAdvance(); return; }
@@ -5009,7 +5455,7 @@
       const p = state.byKey[state.key] || {};
       const sp = (p.supplements || []).find((s) => s.file === val);
       if (sp && sp.kind !== "pdf") {
-        window.open(`/supplement/${encodeURIComponent(state.key)}/` +
+        window.open(`supplement/${encodeURIComponent(state.key)}/` +
                     `${encodeURIComponent(sp.file)}`, "_blank");
         e.target.value = state.supp;
         return;
@@ -5139,6 +5585,11 @@
       // saving a coding file, Insert/Ctrl+Enter advancing the paper, Ctrl+B
       // toggling blind, Ctrl+K focusing a hidden search box).
       if (window.CS.currentView() !== "coding") return;
+      // a modal (confirm sheet, project folder, facets) owns the keyboard: a
+      // shortcut behind it would save or open the next paper unseen
+      if (document.querySelector("dialog[open]")) return;
+      // a held key repeats: one "next paper" per press, not one per repeat
+      if (e.repeat && (e.key === "Insert" || e.key === "Enter")) return;
       if (e.key === "Insert") {
         e.preventDefault();
         goNext();
@@ -5146,34 +5597,73 @@
       }
       const meta = e.ctrlKey || e.metaKey;
       if (!meta) return;
-      if (e.key === "s") { e.preventDefault(); save(); }
+      // autofill fires keydown events without a key
+      const k = String(e.key || "").toLowerCase();
+      if (k === "s") { e.preventDefault(); save(); }
       else if (e.key === "Enter") { e.preventDefault(); goNext(); }
-      else if (e.key.toLowerCase() === "b") { e.preventDefault(); toggleBlind(); }
-      else if (e.key.toLowerCase() === "k") { e.preventDefault(); $("#search-input").focus(); $("#search-input").select(); }
+      else if (k === "b") { e.preventDefault(); toggleBlind(); }
+      else if (k === "k") { e.preventDefault(); $("#search-input").focus(); $("#search-input").select(); }
     });
 
     window.addEventListener("resize", syncWideLayout);
 
-    window.addEventListener("beforeunload", () => {
+    window.addEventListener("beforeunload", (e) => {
       // Auto-save any open edits when the app is closed.
       if (!state.dirty) return;
       if (document.body.classList.contains("view-screening")) return;
       if (document.body.classList.contains("view-reproduction")) return;
       const coder = state.coder.trim();
       if (!coder || !state.key) return;
+      // the same refusals as Save: the Original is read-only, and while a
+      // paper loads the working copy is still the previous paper's
+      if (isOriginalSource() || state.loadingKey) return;
       if (state.blind && !payloadHasContent()) return;   // nothing entered in blind mode
+      let sent = false;
       try {
         const recordsOut = state.blind ? stripEmptyForBlind(state.records) : state.records;
         const blob = new Blob([JSON.stringify({ key: state.key, coder, records: recordsOut })],
                               { type: "application/json" });
-        navigator.sendBeacon("/api/save", blob);
-        state.dirty = false;
-      } catch { /* ignore */ }
+        // sendBeacon refuses bodies over its quota (~64 KB) and says so only
+        // through its return value; a large coding was silently lost here.
+        sent = navigator.sendBeacon("api/save", blob);
+      } catch { sent = false; }
+      if (sent) { state.dirty = false; return; }
+      // could not queue the save: ask before leaving rather than lose the edits
+      e.preventDefault();
+      e.returnValue = "";
     });
     // Open a paper from another tab (Summary/Coverage) in the coding view.
-    window.addEventListener("cs:open-paper", (e) => {
-      const k = e.detail && e.detail.key;
-      if (k) selectPaper(k);
+    // detail.pdf switches the viewer to the rendered PDF; detail.page (1-based,
+    // e.g. located through /api/pdfsearch by the Harmonization workspace)
+    // scrolls the viewer to that page once the pages have mounted.
+    window.addEventListener("cs:open-paper", async (e) => {
+      const d = (e && e.detail) || {};
+      const k = d.key;
+      if (!k) return;
+      await selectPaper(k);
+      if (d.pdf) {
+        const b = $('#viewer-seg button[data-view="pdf"]');
+        if (b) {
+          state.view = "pdf";
+          $$("#viewer-seg button").forEach((x) => x.classList.toggle("active", x === b));
+          renderViewer();
+        }
+        const want = parseInt(d.page, 10);
+        if (want >= 1) {
+          state.page = want;
+          const pi = $("#page-input");
+          if (pi) pi.value = want;
+          // the pages mount asynchronously (pdfinfo must land first); retry
+          // briefly until the wanted page exists, then scroll to it
+          let tries = 0;
+          const t = setInterval(() => {
+            const img = document.querySelector(`.pdf-page[data-page="${want}"]`);
+            tries += 1;
+            if (img) { scrollPdfToPage(want); clearInterval(t); }
+            else if (tries > 40) clearInterval(t);
+          }, 300);
+        }
+      }
     });
     // Keep the shared top-bar actions in sync with the active view.
     document.addEventListener("cs:view", (e) => {

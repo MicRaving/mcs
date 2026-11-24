@@ -1,9 +1,10 @@
 /* ============================================================
    Coding Studio — Agreement tab
    Gwet's AC1/AC2 across deterministic labels (<50 levels) and a
-   Master conflict resolver.  Raters = canonical Extraction
-   ("LLM/base") + every Codings/<Key> - <coder>.json; they need not
-   overlap.
+   Master conflict resolver.  Raters = every Codings/<Key> - <coder>.json;
+   the consensus Extraction/<Key>.json is what a settlement writes into and
+   is not a rater (unless the project has no second coder).  Raters need
+   not overlap.
 
    The resolver has a *fast mode* (like the coding tab's coder mode):
    the next conflict is selected automatically, the PDF follows the
@@ -12,7 +13,8 @@
    coder is wrong.
 
    Endpoints: /api/agreement/reliability, /api/agreement/conflicts,
-   /api/agreement/resolve (+ /abstract/* and /abstract/llm-excluded).
+   /api/agreement/resolve, /settle-bulk, /study-status, /masters, /settlements(.csv)
+   (+ /abstract/* and /abstract/llm-excluded).
    ============================================================ */
 (() => {
   "use strict";
@@ -25,7 +27,9 @@
               studies: [], study: "", viewer: "pdf",
               exclude: new Set(), fast: false, activeKey: null, viewerStudy: null,
               pages: null, pageSize: null, page: 1, fit: true, zoom: 1, spans: {},
-              showSettled: false };
+              showSettled: false,
+              /* online edit lock of the study under settlement (see holdStudyLock) */
+              lockKey: "", locked: null };
 
   const acClass = (v) => v === null || v === undefined ? "ac-na"
     : v >= 0.8 ? "ac-good" : v >= 0.6 ? "ac-mid" : "ac-low";
@@ -45,8 +49,8 @@
     if (ex) q.set("exclude", ex);
     let d;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/reliability"
-                                           : "/api/agreement/reliability";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/reliability"
+                                           : "api/agreement/reliability";
       d = await api(base + "?" + q.toString());
     } catch (e) {
       $("#ag-rel-table").innerHTML = `<div class="ag-empty">Could not compute agreement: ${esc(e.message)}</div>`;
@@ -101,7 +105,11 @@
       "dv_name similarity; unmatched rows are reported and excluded. A DV statistic is shown only with " +
       "≥5 matched pairs and ≥60% coverage. AC1 is nominal; AC2 uses linear weights and is shown only for " +
       "integer-ordered fields. Items = cases rated by at least two raters; raters may cover different items. " +
-      "Click a rater to include or exclude them from these coefficients.";
+      "Click a rater to include or exclude them from these coefficients. " +
+      (S.scope === "abstract" ? "" : d.extraction_role === "rater"
+        ? "The Extraction is scored as the rater LLM/base because the project has fewer than two coders; " +
+          "with two or more it becomes the consensus."
+        : "The consensus coding (Extraction/<Key>.json) is not a rater: it is reconciled from the raters, so scoring it would inflate the agreement.");
     $("#ag-hint").textContent = `${fields.length} fields · ${(d.raters || []).length} raters`;
     renderDvAlignment(d);
   }
@@ -155,6 +163,53 @@
   }
 
   // ---------------------------------------------------------------- conflicts
+  /* Settling writes the shared canonical Extraction/<Key>.json, so the study
+     under settlement is held with an online edit lock while its conflict panel
+     is open (INTERFACES §4, §7 of the plan).  A local folder project has no lock
+     layer: every call below returns at once and nothing is disabled. */
+  const LOCK_OFF = "#ag-bulk-majority, #ag-study-done";
+
+  function lockHost() {
+    const list = $("#ag-conflist");
+    return list ? list.parentElement : null;
+  }
+
+  async function holdStudyLock() {
+    const C = window.CSOnline;
+    const host = lockHost();
+    if (!C || !C.active()) {
+      if (C && host) C.locks.clearNotice(host, LOCK_OFF);
+      S.lockKey = "";
+      S.locked = null;
+      return;
+    }
+    if (S.lockKey && S.lockKey !== S.study) {
+      C.locks.end(S.lockKey, { host, disable: LOCK_OFF });
+      S.lockKey = "";
+      S.locked = null;
+    }
+    if (!S.study) return;
+    if (S.lockKey === S.study) return;          // already held (renew runs on a timer)
+    S.lockKey = S.study;
+    const r = await C.locks.begin(S.study, { task: "settle", host, disable: LOCK_OFF });
+    S.locked = r.ok ? null : r;
+  }
+
+  function releaseStudyLock() {
+    const C = window.CSOnline;
+    if (C && S.lockKey) C.locks.end(S.lockKey, { host: lockHost(), disable: LOCK_OFF });
+    S.lockKey = "";
+    S.locked = null;
+  }
+
+  /* True when somebody else holds the study: says so and refuses the write. */
+  function lockedNow() {
+    if (!S.locked) return false;
+    toast("This study is locked", "err",
+      `Locked by ${S.locked.who || "another coder"} — settling is disabled until the lock is released.`);
+    return true;
+  }
+
   async function loadConflicts({ append = false } = {}) {
     if (!append) S.shown = 0;
     const q = new URLSearchParams({ master: S.master, status: S.status,
@@ -163,8 +218,8 @@
     if (S.study) q.set("study", S.study);
     let d;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/conflicts"
-                                           : "/api/agreement/conflicts";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/conflicts"
+                                           : "api/agreement/conflicts";
       d = await api(base + "?" + q.toString());
     } catch (e) {
       if (!append) $("#ag-conflist").innerHTML = `<div class="ag-empty">Could not load conflicts: ${esc(e.message)}</div>`;
@@ -178,6 +233,7 @@
       S.study = S.studies.length ? S.studies[0].key : "";
       if (S.study) return loadConflicts();
     }
+    if (!append) await holdStudyLock();
     if (!append) { renderStudyList(); renderFieldList(d); syncConflictToolbar(d); }
     const html = conflictCardsHtml(d.rows || []);
     const host = $("#ag-conflist");
@@ -294,7 +350,7 @@
     host.innerHTML = `<div class="ag-llmexcl"><div class="ag-llmexcl-head">` +
       `<h3>LLM excluded · raters would include</h3></div><p class="an-note">Loading…</p></div>`;
     try {
-      renderLlmExcluded(await api("/api/agreement/abstract/llm-excluded"));
+      renderLlmExcluded(await api("api/agreement/abstract/llm-excluded"));
     } catch (e) {
       host.innerHTML = `<div class="ag-empty">Could not load LLM/rater disagreements: ${esc(e.message)}</div>`;
     }
@@ -589,7 +645,7 @@
     if (link) {
       const ok = S.scope === "fulltext" && !!S.study;
       link.hidden = !ok;
-      if (ok) link.href = `/paper/${encodeURIComponent(S.study)}`;
+      if (ok) link.href = `paper/${encodeURIComponent(S.study)}`;
     }
     const findWrap = $("#ag-find-wrap");
     if (findWrap) findWrap.hidden = !(S.scope === "fulltext" && S.viewer === "pdf" && !!S.study);
@@ -626,7 +682,7 @@
       getCount: () => $("#ag-find-count"),
       getPrev: () => $("#ag-find-prev"),
       getNext: () => $("#ag-find-next"),
-      fetch: (q) => api(`/api/pdfsearch/${encodeURIComponent(S.study)}?q=${encodeURIComponent(q)}`),
+      fetch: (q) => api(`api/pdfsearch/${encodeURIComponent(S.study)}?q=${encodeURIComponent(q)}`),
       ensurePage: (p) => agEnsurePage(p),
     });
   }
@@ -696,7 +752,7 @@
   function agEnsureSpans(n) {
     if (S.spans[n]) return;
     S.spans[n] = "loading";
-    api(`/api/pdftext/${encodeURIComponent(S.study)}/${n}.json`)
+    api(`api/pdftext/${encodeURIComponent(S.study)}/${n}.json`)
       .then((d) => { S.spans[n] = (d && d.spans) || []; agAddTextLayer(n); })
       .catch(() => { S.spans[n] = []; });
   }
@@ -788,7 +844,7 @@
       const img = document.createElement("img");
       img.className = "pdf-page";
       img.dataset.page = String(n);
-      img.dataset.src = `/pageimg/${encodeURIComponent(S.study)}/${n}.png?scale=2`;
+      img.dataset.src = `pageimg/${encodeURIComponent(S.study)}/${n}.png?scale=2`;
       img.alt = `Page ${n}`;
       img.decoding = "async";
       if (s && s.w) img.style.aspectRatio = `${s.w} / ${s.h}`;
@@ -837,7 +893,7 @@
       host.classList.remove("pdf-mode");
       host.innerHTML = `<p class="side-hint" style="padding:16px">Loading abstract…</p>`;
       try {
-        const d = await api(`/api/screening/abstract/${encodeURIComponent(S.study)}`);
+        const d = await api(`api/screening/abstract/${encodeURIComponent(S.study)}`);
         const rec = d.record || {};
         host.innerHTML = `<article class="ag-abs">` +
           `<h2 class="ag-abs-title">${esc(rec.title || "(no title)")}</h2>` +
@@ -852,7 +908,7 @@
       host.classList.add("pdf-mode");
       host.innerHTML = `<p class="side-hint" style="padding:16px">Loading PDF…</p>`;
       try {
-        const info = await api(`/api/pdfinfo/${encodeURIComponent(S.study)}`);
+        const info = await api(`api/pdfinfo/${encodeURIComponent(S.study)}`);
         S.pages = info.pages || 0;
         S.pageSize = info.size || null;
         if (!S.pages) {
@@ -872,7 +928,7 @@
     host.classList.remove("pdf-mode");
     host.innerHTML = `<p class="side-hint" style="padding:16px">Loading text…</p>`;
     try {
-      const d = await api(`/api/text/${encodeURIComponent(S.study)}`);
+      const d = await api(`api/text/${encodeURIComponent(S.study)}`);
       host.innerHTML = d.text
         ? `<pre class="text ag-text">${esc(d.text)}</pre>`
         : `<div class="ag-empty">No extracted text for this study.</div>`;
@@ -883,13 +939,14 @@
 
   async function resolveCard(card, value) {
     if (S.busy) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
     const prevIdx = Math.max(0, agCards().indexOf(card));
     S.busy = true;
     try {
-      const base = S.scope === "abstract" ? "/api/agreement/abstract/resolve"
-                                           : "/api/agreement/resolve";
+      const base = S.scope === "abstract" ? "api/agreement/abstract/resolve"
+                                           : "api/agreement/resolve";
       const res = await api(base, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -919,11 +976,12 @@
 
   async function settleBulk(mode) {
     if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     if (!master) { toast("Enter the Master name first", "err"); $("#ag-master").focus(); return; }
     S.busy = true;
     try {
-      const res = await api("/api/agreement/settle-bulk", {
+      const res = await api("api/agreement/settle-bulk", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ master, key: S.study, mode: "majority", field: S.field || "" }),
       });
@@ -939,12 +997,13 @@
 
   async function toggleStudyComplete() {
     if (S.busy || S.scope !== "fulltext" || !S.study) return;
+    if (lockedNow()) return;
     const master = (S.master || "Master").trim();
     const btn = $("#ag-study-done");
     const status = (btn && btn.dataset.complete === "1") ? "open" : "complete";
     S.busy = true;
     try {
-      await api("/api/agreement/study-status", {
+      await api("api/agreement/study-status", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ master, key: S.study, status, scope: S.scope }),
       });
@@ -996,7 +1055,7 @@
       // Auto-detect a master name from existing resolution files so settled
       // conflicts show up without the user having to type the name exactly.
       try {
-        const avail = await api("/api/agreement/masters");
+        const avail = await api("api/agreement/masters");
         const list = Array.isArray(avail) ? avail : (avail && Array.isArray(avail.masters) ? avail.masters : []);
         if (list.length) {
           S.master = list.includes("Master") ? "Master" : list[0];
@@ -1125,7 +1184,10 @@
     }
   }
 
-  document.addEventListener("cs:view", (e) => { if (e.detail === "agreement") ensureStarted(); });
+  document.addEventListener("cs:view", (e) => {
+    if (e.detail === "agreement") ensureStarted();
+    else if (S.lockKey) releaseStudyLock();      // leaving the study's edit session
+  });
   function boot2() {
     let saved = "coding";
     try { saved = localStorage.getItem("cs.view") || "coding"; } catch { /* ignore */ }

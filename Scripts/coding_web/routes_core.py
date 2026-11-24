@@ -5,8 +5,8 @@ import json
 import os
 import re
 from datetime import datetime
-from studio_lib import APP_VERSION, PAGE_SCALE, _MISSING, _PAGE_NUM, _pdf_text, atomic_replace, invalidate_dir, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records, write_json_atomic
-from studio_state import FROZEN, S, SCHEMA, STATIC, config_path, configure, has_data, log, refresh_keys, save_config
+from studio_lib import APP_VERSION, PAGE_SCALE, _MISSING, _PAGE_NUM, _pdf_text, atomic_replace, invalidate_dir, legacy_schema_document, load_extraction, pdf_page_size, pdf_page_spans, pdf_pages, render_page, safe_token, search_pdf, summarise, supplements, validate_records, write_json_atomic
+from studio_state import FROZEN, S, STATIC, config_path, configure, has_data, log, paper_keys, refresh_keys, save_config
 
 bp = Blueprint("core", __name__)
 
@@ -58,13 +58,16 @@ def api_set_root():
     configure(path)
     save_config({"root": S.ROOT})
     refresh_keys()
-    # Caches of modules that do not register a re-root hook themselves.
-    for mod, fn in (("agreement_lib", "_invalidate_agreement"),
-                    ("analysis_lib", "_invalidate_analysis_caches")):
-        try:
-            getattr(__import__(mod), fn)()
-        except Exception as exc:  # noqa: BLE001
-            log(f"re-root: {mod}.{fn} failed: {exc!r}")
+    # The time-based caches of the corpus-wide views are not keyed by project:
+    # without this the summary and agreement tabs answered from the previous
+    # project for up to 20 s (and the response cache then kept that answer).
+    try:
+        from studio_lib import _CODING_INDEX
+        _CODING_INDEX["data"] = None
+        from agreement_lib import _invalidate_agreement
+        _invalidate_agreement()
+    except Exception:  # noqa: BLE001 - a re-root must never fail over a cache
+        pass
     log(f"root changed -> {S.ROOT} ({len(S.KEYS)} papers)")
     return jsonify({"ok": True, "root": S.ROOT, "papers": len(S.KEYS),
                     "has_papers": os.path.isdir(S.PAPERS)})
@@ -114,22 +117,44 @@ _SCHEMA_RESP = {"mtime": None, "body": None}
 
 @bp.get("/api/schema")
 def api_schema():
-    mtime = os.path.getmtime(SCHEMA)
-    if _SCHEMA_RESP["mtime"] != mtime:
-        with open(SCHEMA, encoding="utf-8") as fh:
-            _SCHEMA_RESP.update(body=json.dumps(json.load(fh), ensure_ascii=False), mtime=mtime)
-    return Response(_SCHEMA_RESP["body"], mimetype="application/json")
+    """The coding schema in the legacy v3.1 shape (deprecated).
+
+    The scheme itself is served by ``/api/scheme`` (the ``scheme`` blueprint);
+    this route stays because the agent routes and the manuscript report still
+    read the v3.1 shape.  A project that carries its own scheme is rendered
+    back into that shape, so the response shape never changes.
+    """
+    doc = legacy_schema_document()
+    resp = jsonify(doc)
+    resp.headers["Deprecation"] = "true"
+    resp.headers["X-Schema-Deprecated"] = (
+        "use /api/scheme for the coding scheme; /api/schema renders it in the "
+        "legacy v3.1 shape")
+    return resp
+
+@bp.get("/api/papers/progress")
+def api_papers_progress():
+    """Progress of the (first, uncached) papers index build, polled by the
+    start-up screen while /api/papers is still running."""
+    from studio_cache import papers_progress
+    return jsonify(papers_progress())
+
 
 @bp.get("/api/papers")
 def api_papers():
     from fulltext_lib import load_agreed
+    from studio_cache import papers_index
+    # In an online project a paper can enter the manifest mid-session (a sync
+    # tick, a done mark that reveals another coder's file): the key list is
+    # refreshed here so /api/papers and the routes that check S.KEYS agree.
+    if S.online:
+        refresh_keys()
     agreed = load_agreed()
+    # The summaries are cached against the files: a study is re-read only when
+    # one of its own files changed (on disk or in the app).
     papers = []
-    # Re-read the paper list so a paper added since start-up is both listed and
-    # accepted by the key guards (they check S.KEYS).
-    refresh_keys()
-    for k in sorted(S.KEYS, key=lambda s: (s.lower(), s)):
-        s = summarise(k)
+    for s in papers_index(paper_keys(), summarise):
+        k = s["key"]
         ex = agreed.get(k)
         s["fulltext_excluded"] = bool(ex)
         s["fulltext_criterion"] = (ex or {}).get("criterion_label") or ""
@@ -155,7 +180,10 @@ def api_extraction(key):
 def api_coding(key, coder):
     if key not in S.KEYS:
         abort(404)
-    path = _coding_path(key, coder)
+    path = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    # an on-demand AI route coding is fetched here (one explicit request for one
+    # study, not a whole-corpus loop); a human coder's file is already local
+    path = S.ensure_local(path)
     if not os.path.exists(path):
         abort(404)
     mtime = _mtime_token(path)
@@ -327,7 +355,7 @@ def api_text(key):
         text = extract_pdf_text(pdf)
         if text:
             return jsonify({"key": key, "text": text, "source": "pdf"})
-    path = os.path.join(S.TEXT, key + ".txt")
+    path = S.ensure_local(os.path.join(S.TEXT, key + ".txt"))
     if os.path.exists(path):
         with open(path, encoding="utf-8", errors="replace") as fh:
             return jsonify({"key": key, "text": clean_text(fh.read()), "source": "txt"})
@@ -355,6 +383,9 @@ def resolve_pdf(key, supp=None):
                 return _supp_path(sp)
         return None
     path = os.path.join(S.PAPERS, key + ".pdf")
+    # An online project holds Papers/ in the cache tier: fetch the PDF the
+    # moment a route needs it (audit §2, R9-R14; R6).
+    path = S.ensure_local(path)
     return path if os.path.exists(path) else None
 
 @bp.get("/supplement/<path:key>/<path:name>")
@@ -364,7 +395,7 @@ def supplement_file(key, name):
         abort(404)
     for sp in supplements(key):
         if sp["file"] == name:
-            path = _supp_path(sp)
+            path = S.ensure_local(_supp_path(sp))
             if os.path.exists(path):
                 is_pdf = sp.get("kind") == "pdf"
                 return send_file(path,
@@ -473,6 +504,19 @@ def api_save():
         return jsonify({"ok": False, "error": "unknown paper key"}), 400
     if not coder or not str(coder).strip():
         return jsonify({"ok": False, "error": "coder name is required"}), 400
+    # The original (reference) coding is Extraction/<Key>.json and is read-only
+    # from the app; a coder file named after it would shadow it in every
+    # comparison, so the reserved names are refused here and not only in the UI.
+    if str(coder).strip().lower() in ("og", "original (og)", "original"):
+        return jsonify({"ok": False, "error": "the original coding is read-only; "
+                        "save under your own coder name"}), 400
+    # "Consensus" is the settlement route's name for Extraction/<Key>.json and a
+    # leading underscore / "harmonizer" marks store and override files: none of
+    # them may become a coder, or the agreement tab would score it as a rater.
+    _c = str(coder).strip().lower()
+    if _c == "consensus" or _c.startswith("_") or _c.startswith("harmonizer"):
+        return jsonify({"ok": False, "error": "this coder name is reserved; "
+                        "save under your own coder name"}), 400
     if not isinstance(records, list) or not records:
         return jsonify({"ok": False, "error": "no coding records to save"}), 400
 
@@ -557,6 +601,7 @@ def api_coding_delete():
     if not coder:
         return jsonify({"ok": False, "error": "coder name is required"}), 400
     target = os.path.join(S.CODINGS, f"{key} - {safe_token(coder)}.json")
+    target = S.ensure_local(target)      # an on-demand AI route coding is fetched first
     if not os.path.exists(target):
         return jsonify({"ok": False, "error": "no coding of this study by that coder"}), 404
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

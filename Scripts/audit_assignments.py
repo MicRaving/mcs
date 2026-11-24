@@ -34,6 +34,8 @@ ROOT = os.path.dirname(HERE)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
+
 try:
     import contract as _contract
     HAS_CONTRACT = True
@@ -98,11 +100,11 @@ def _norm_code(x):
 
 
 def _wide_cols(path):
+    path = CSVIO.resolve(path)       # the product may be stored gzip-compressed
     if not os.path.isfile(path):
         return []
     try:
-        with open(path, encoding="utf-8-sig", newline="") as fh:
-            return [str(c).strip().lstrip("\ufeff") for c in next(csv.reader(fh))]
+        return CSVIO.read_header(path, encoding="utf-8-sig")
     except (OSError, StopIteration):
         return []
 
@@ -130,7 +132,7 @@ def _observed_conditions(wide_path, cols):
 def audit_study(key, folder):
     rows = []
     side_path = os.path.join(folder, f"{key} - harmonized_variables.csv")
-    wide_path = os.path.join(folder, f"{key} - harmonized.csv")
+    wide_path = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     side = _read(side_path) if os.path.isfile(side_path) else pd.DataFrame()
     wide_cols = _wide_cols(wide_path)
     a = _va.load(key, folder) if _va is not None else pd.DataFrame()

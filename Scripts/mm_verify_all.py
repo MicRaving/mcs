@@ -91,7 +91,11 @@ def main():
             if crit in (None, "", [], ()):
                 continue
             for c in (crit if isinstance(crit, list) else [crit]):
-                if str(c) not in ("C1", "C2", "C3", "C4"):
+                # the eight full-text exclusion criteria (owner decision
+                # 2026-11-19); C1-C4 plus irretrievable / no_contrast /
+                # duplicate / domain_mismatch
+                if str(c) not in ("C1", "C2", "C3", "C4", "irretrievable",
+                                  "no_contrast", "duplicate", "domain_mismatch"):
                     rows[-1]["bad_exclusion"] = str(c)
 
     collisions = {sid: sorted(ks) for sid, ks in sid_owners.items() if len(ks) > 1}

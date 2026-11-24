@@ -63,6 +63,7 @@ sys.path.insert(0, os.path.join(ROOT, "Scripts"))
 import domain_restriction as DR  # noqa: E402
 import study_exclusions as SE  # noqa: E402
 import suite_common as SC  # noqa: E402  (dependence-aware pooling: 3-level + RVE)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 try:  # console-safe output for study names with non-cp1252 characters
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -416,7 +417,7 @@ def harm_offsets_study(key, grp, spec, r_default=0.5):
     h = harm(key)
     if not h.ok:
         return {}
-    f = os.path.join(h.folder, key + " - harmonized.csv")
+    f = CSVIO.resolve(os.path.join(h.folder, key + " - harmonized.csv"))
     if fresh(f):
         return {}                      # concurrent harmonizer writing this dataset
     try:
@@ -701,7 +702,7 @@ class Harm:
         self.side = []
         self.rules = []
         self.armcache = {}
-        f = os.path.join(self.folder, key + " - harmonized.csv")
+        f = CSVIO.resolve(os.path.join(self.folder, key + " - harmonized.csv"))
         side = os.path.join(self.folder, key + " - harmonized_variables.csv")
         if not (os.path.isfile(f) and os.path.isfile(side)):
             return
@@ -749,7 +750,7 @@ _HAS_DATA = {}
 
 def study_has_data(key):
     if key not in _HAS_DATA:
-        _HAS_DATA[key] = os.path.isfile(os.path.join(DATASETS, key, key + " - harmonized.csv"))
+        _HAS_DATA[key] = CSVIO.exists(os.path.join(DATASETS, key, key + " - harmonized.csv"))
     return _HAS_DATA[key]
 
 

@@ -19,6 +19,7 @@ while still surfacing every deliberate divergence.
 from __future__ import annotations
 import os
 import json
+import tempfile
 from datetime import datetime
 
 from studio_lib import safe_token

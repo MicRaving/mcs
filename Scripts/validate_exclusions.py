@@ -20,6 +20,9 @@ import pandas as pd
 
 ROOT = os.path.abspath(os.path.dirname(__file__))
 B = os.path.dirname(ROOT)
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 FAIL_TOK = re.compile(r"fail|trap|inattent|speeder|incomplete|drop|exclude|did not|not pass",
                       re.I)
 
@@ -44,7 +47,7 @@ def main(argv):
         key = os.path.basename(os.path.dirname(p))
         if " - SB" in key:
             continue
-        wide_p = os.path.join(os.path.dirname(p), f"{key} - harmonized.csv")
+        wide_p = CSVIO.resolve(os.path.join(os.path.dirname(p), f"{key} - harmonized.csv"))
         if not os.path.isfile(wide_p):
             continue
         try:

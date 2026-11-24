@@ -67,6 +67,7 @@ os.makedirs(RUN_DIR, exist_ok=True)
 tempfile.tempdir = TMP  # all intermediates stay under temp/
 
 sys.path.insert(0, SCRIPTS)  # for dv_polarity (mirrors reanalysis.py)
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
 try:  # console-safe output for study names with non-cp1252 characters
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -137,7 +138,7 @@ def run_harmonizer(folder):
     if not os.path.isfile(h):
         return False, None, "", ""
     proc = subprocess.run([sys.executable, "-X", "utf8", h],
-                          capture_output=True, check=False)
+                          capture_output=True, check=False, cwd=folder)
     return (proc.returncode == 0, proc.returncode,
             proc.stdout.decode("utf-8", "replace"),
             proc.stderr.decode("utf-8", "replace"))
@@ -163,34 +164,22 @@ def read_sidecar(folder, key):
 
 def read_wide_cols(path):
     """Header-only column read (nrows=0 keeps even 4.9M-row files cheap)."""
-    if not os.path.isfile(path):
+    if not CSVIO.exists(path):
         return None
     try:
-        hdr = pd.read_csv(path, nrows=0, encoding="utf-8-sig", low_memory=False)
-        return [str(c).strip().lstrip("\ufeff") for c in hdr.columns]
+        return CSVIO.read_header(path, encoding="utf-8-sig", low_memory=False)
     except Exception:  # noqa: BLE001  (best-effort read; caller tolerates None)
         return None
 
 
 def count_rows(path):
-    """Buffered newline count minus the header line.
+    """Buffered newline count minus the header line (gzip-aware).
 
     Assumes no embedded newlines in quoted fields (holds for the machine
     written wide tables); a trailing newline terminates the last record and is
     not an extra empty record.
     """
-    n = 0
-    tail = b""
-    with open(path, "rb") as fh:
-        while True:
-            chunk = fh.read(1 << 20)
-            if not chunk:
-                break
-            n += chunk.count(b"\n")
-            tail = chunk
-    if n == 0:
-        return 0
-    return n if tail[-1:] != b"\n" else n - 1
+    return CSVIO.count_rows(path)
 
 
 def load_variables_map(folder, key):
@@ -375,7 +364,7 @@ def main(argv=None):
                 ok = False  # sidecar-only folder: report read-only
 
         has_sidecar = os.path.isfile(sidecar_path)
-        has_wide = os.path.isfile(wide_path)
+        has_wide = CSVIO.exists(wide_path)
 
         if args.no_run or ok:
             status = "ok" if (has_sidecar or has_wide) else "no_output"

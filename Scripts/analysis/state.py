@@ -41,6 +41,7 @@ except Exception:  # pragma: no cover
     pass
 
 import prisma_report  # noqa: E402
+import csvio as CSVIO  # noqa: E402
 
 MASTER = os.path.join(B, "master_dataset.xlsx")
 
@@ -92,7 +93,8 @@ def main():
                for f in os.listdir(d)):
             ds_dirs.add(os.path.basename(d))
     harmonized = {os.path.basename(os.path.dirname(p))
-                  for p in glob.glob(os.path.join(B, "Datasets", "*", "* - harmonized.csv"))}
+                  for p in CSVIO.glob(os.path.join(B, "Datasets", "*",
+                                                   "* - harmonized.csv"))}
 
     flow = {}
     if os.path.exists(MASTER):

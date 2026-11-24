@@ -7,7 +7,7 @@ is what a settlement writes into; every decision is recorded in
 
 from flask import Blueprint, Response, jsonify, request
 
-from agreement_lib import (AGREEMENT_REFERENCE, CONSENSUS, NO_MAJORITY_FIELDS,
+from agreement_lib import (AGREEMENT_REFERENCE, CONSENSUS, no_majority_fields,
                            PSEUDO_DV_FIELDS, SETTLEMENTS_NAME,
                            _ABSTRACT_CATS, _KEY_CACHE, _abstract_agreement_index,
                            _abstract_case_maps, _agreement_index, abstract_fields,
@@ -52,14 +52,31 @@ def _store_or_error():
         return None, (jsonify({"ok": False, "error": str(exc)}), 500)
 
 
+def _fetch_note(data):
+    """What the on-demand coder-file prefetch did, and what stayed absent offline.
+
+    The AI route codings (``Codings/<Key> - SB|MM|DS.json``) are fetched on
+    demand, so a whole-corpus view has to say when a route is simply not
+    available offline: otherwise the tab would show agreement over the coders
+    that happen to be downloaded and look like a different result.
+    """
+    fetch = data.get("rater_fetch") or {}
+    return {"prefetch": fetch,
+            "not_available_offline": list(fetch.get("missing") or [])}
+
+
 @bp.get("/api/agreement/reliability")
 def api_agreement_reliability():
     exclude = {x.strip() for x in (request.args.get("exclude") or "").split(",") if x.strip()}
     data = _agreement_index()
     rows, overall, summary = reliability_rows(data, exclude)
-    return jsonify({"reference": None, "consensus": CONSENSUS, "exclude": sorted(exclude),
+    return jsonify({"reference": AGREEMENT_REFERENCE if data.get("ext_rater") else None,
+                    "consensus": CONSENSUS, "extraction_role": ("rater" if data.get("ext_rater")
+                                                                 else "consensus"),
+                    "anchor_rater": data.get("anchor"), "exclude": sorted(exclude),
                     "raters": data["rater_names"], "rater_summary": data["rater_summary"],
-                    "fields": rows, "overall": overall, "dv_alignment": summary})
+                    "fields": rows, "overall": overall, "dv_alignment": summary,
+                    **_fetch_note(data)})
 
 
 @bp.get("/api/agreement/masters")
@@ -151,7 +168,8 @@ def api_agreement_conflicts():
                     "study_status": study_state.get(study_filter) if study_filter else None,
                     "totals": totals,
                     "raters": data["rater_names"], "consensus": CONSENSUS,
-                    "store": SETTLEMENTS_NAME})
+                    "store": SETTLEMENTS_NAME,
+                    **_fetch_note(data)})
 
 
 def conflict_state(case, sidx):
@@ -244,6 +262,7 @@ def api_agreement_settle_bulk():
         return err
     sidx = SettlementIndex(store)
     decisions, skipped = [], 0
+    blocked = no_majority_fields()
     for c in _paper_conflicts(_agreement_index(), key):
         if (field and c["field"] != field):
             continue
@@ -252,7 +271,7 @@ def api_agreement_settle_bulk():
             if state == "rater_only":
                 skipped += 1
             continue
-        if mode == "majority" and c["field"] in NO_MAJORITY_FIELDS:
+        if mode == "majority" and c["field"] in blocked:
             skipped += 1
             continue
         value = c.get("majority") if mode == "majority" else c.get("consensus_value")

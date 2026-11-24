@@ -25,6 +25,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "Scripts"))
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 try:
     import contract as CT
 except Exception:
@@ -101,14 +102,18 @@ def main():
     hrows = []
 
     def shape(f):
+        f = CSVIO.resolve(f)          # the product may be stored gzip-compressed
         if not os.path.isfile(f):
             return (None, None, set())
         h = pd.read_csv(f, encoding="utf-8-sig", nrows=0)
         cols = list(h.columns)
+        if CSVIO.is_compressed(f):
+            return (CSVIO.count_rows(f), len(cols),
+                    {c for c in cols if c.startswith("dv_") and c.endswith("_01")})
         return (sum(1 for _ in open(f, encoding="utf-8-sig")) - 1, len(cols),
                 {c for c in cols if c.startswith("dv_") and c.endswith("_01")})
 
-    for p in glob.glob(os.path.join(ROOT, "Datasets", "*", "* - harmonized - SB.csv")):
+    for p in CSVIO.glob(os.path.join(ROOT, "Datasets", "*", "* - harmonized - SB.csv")):
         key = os.path.basename(os.path.dirname(p))
         can = os.path.join(ROOT, "Datasets", key, key + " - harmonized.csv")
         cr, cc, cdv = shape(can)

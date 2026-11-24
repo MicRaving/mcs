@@ -3,14 +3,21 @@
 from datetime import datetime
 from flask import Blueprint, abort, jsonify, request
 import csv
+import fnmatch
 import glob
 import json
 import os
 import re
+import sys
 import tempfile
 import threading
-from studio_lib import DOMAIN_VOCAB, atomic_replace, safe_token
+from studio_lib import atomic_replace, domain_vocab, safe_token
 from studio_state import S
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
 
 bp = Blueprint("harmonizer", __name__)
 
@@ -44,10 +51,43 @@ def valid_key(key):
         return False
     return not _BAD_KEY.search(key)
 
+
+def safe_study_key(key):
+    """True for a key that names one folder/file stem and nothing else.
+
+    Study keys come from URLs (``<path:key>`` also accepts "/") and request
+    bodies, and they are joined into ``Datasets/<Key>/`` and ``Codings/<Key> - ...``
+    paths that are then *written*.  ``..`` would make ``Datasets/..`` the project
+    root (``isdir`` is true, so the existence checks pass), so a key with a
+    separator or a ``..`` is refused before any join."""
+    if not isinstance(key, str):
+        return False
+    k = key.strip()
+    if not k or k != key or k in (".", ".."):
+        return False
+    if "/" in k or "\\" in k or ".." in k or "\x00" in k or os.path.isabs(k):
+        return False
+    return os.path.basename(k) == k
+
+
 def harmonized_paths(key):
     folder = os.path.join(S.DATASETS or "", key)
     return (os.path.join(folder, key + " - harmonized_variables.csv"),
-            os.path.join(folder, key + " - harmonized.csv"))
+            CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv")))
+
+def _dataset_paths(folder, pattern):
+    """Dataset file paths matching *pattern* (manifest-aware in an online project).
+
+    The CSV products of a dataset are on demand (INTERFACES 4), so globbing the
+    mirror would miss a study that is not downloaded: the manifest supplies the
+    names and the caller's ``S.ensure_local`` fetches the one it opens.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [os.path.join(folder, e["name"]) for e in S.listdir(rel)
+                    if not e.get("is_dir") and fnmatch.fnmatchcase(e["name"], pattern)]
+    return sorted(glob.glob(os.path.join(folder, pattern)))
 
 def harmonizer_bundle(name):
     base = _HARM_IDX.sub("", str(name))
@@ -120,6 +160,8 @@ _SIDECAR_CACHE = {}
 
 def load_harmonized_variables(key):
     vfile, wide = harmonized_paths(key)
+    vfile = S.ensure_local(vfile)
+    wide = S.ensure_local(wide)
     try:
         mt = os.path.getmtime(vfile)
     except OSError:
@@ -164,9 +206,9 @@ def load_harmonized_variables(key):
     return {"variables": [dict(r) for r in rows], "has_wide": os.path.isfile(wide)}
 
 def _harmonizer_known(key):
-    if not valid_key(key):
+    if not safe_study_key(key):
         return False
-    return key in S.KEYS or os.path.isfile(harmonized_paths(key)[0])
+    return key in S.KEYS or S.has_file(harmonized_paths(key)[0])
 
 def _harmonizer_context(key):
     """Study context for the harmonizer: the coded experiment metadata and its DV
@@ -281,6 +323,33 @@ def sidecar_files():
         _SIDECAR_LIST.update(root=ds, at=now, files=out)
     return list(out)
 
+def _sidecar_files():
+    """``[(key, abspath, local)]`` of every known ``- harmonized_variables.csv``.
+
+    In an online project the file list comes from the manifest (a study whose
+    dataset is not downloaded is still listed) while only the local copies are
+    readable; nothing here downloads a dataset, because this walk covers every
+    study in the project.
+    """
+    out = []
+    if S.online and S.store is not None:
+        for study in S.listdir("Datasets"):
+            if not study.get("is_dir"):
+                continue
+            key = study["name"]
+            name = key + " - harmonized_variables.csv"
+            for e in S.listdir("Datasets/" + key):
+                if not e.get("is_dir") and e["name"] == name:
+                    out.append((key, S.abspath(e["path"]), bool(e.get("local"))))
+                    break
+        return out
+    ds = S.DATASETS or ""
+    for f in (glob.glob(os.path.join(ds, "*", "* - harmonized_variables.csv"))
+              if os.path.isdir(ds) else []):
+        out.append((os.path.basename(os.path.dirname(f)), f, True))
+    return out
+
+
 def _harmonizer_missing_map():
     """{key: {"missing": n, "dv": n_dv, "dv_missing": n_dv_missing}}.
 
@@ -288,13 +357,21 @@ def _harmonizer_missing_map():
     for every variable, and ``dv_domain`` + ``dv_polarity`` for a DV.  Covariates
     and other roles legitimately omit the DV fields; veracity and timepoint are
     optional for a DV (see ``_HARM_REQUIRED_DV_FIELDS``)."""
-    listing = sidecar_files()
-    stamp = (S.DATASETS, tuple((k, mt) for k, _p, mt in listing))
+    files = _sidecar_files()
+    newest = 0.0
+    for _key, f, _local in files:
+        try:
+            newest = max(newest, os.path.getmtime(f))
+        except OSError:
+            pass
+    stamp = (S.DATASETS, newest, len(files))
     with _HARM_MISSING_LOCK:
         if _HARM_MISSING_CACHE["data"] is not None and _HARM_MISSING_CACHE["mtime"] == stamp:
             return _HARM_MISSING_CACHE["data"]
     out = {}
-    for key, f, _mt in listing:
+    for key, f, local in files:
+        if not local:
+            continue
         n_missing = n_dv = n_dv_missing = 0
         try:
             with open(f, encoding="utf-8-sig", newline="") as fh:
@@ -333,7 +410,7 @@ def api_harmonizer_index():
     except OSError:
         pass
     extra = []
-    for k, _p, _mt in sidecar_files():
+    for k, _path, _local in _sidecar_files():
         if k in S.KEYS:
             continue
         extra.append({"key": k, "n_dv": 0, "n_records": 0, "n_coders": 0,
@@ -347,7 +424,7 @@ _ROLE_OPTIONS = ["dv", "covariate", "flag", "metacog", "condition", "id", "other
 
 def _harmonizer_options():
     return {"role": _ROLE_OPTIONS + [""],
-            "dv_domain": list(DOMAIN_VOCAB) + [""],
+            "dv_domain": list(domain_vocab()) + [""],
             "veracity": ["true", "false", ""],
             "timepoint": ["pre", "post", "followup", ""],
             "dv_polarity": ["higher_is_better", "higher_is_worse", "ambiguous", ""]}
@@ -365,8 +442,9 @@ def field_error(field, value):
     v = "" if value is None else str(value).strip()
     if not v:
         return ""
-    if field == "dv_domain" and v not in DOMAIN_VOCAB:
-        return f"dv_domain {v!r} is not one of {', '.join(DOMAIN_VOCAB)}"
+    vocab = list(domain_vocab())
+    if field == "dv_domain" and v not in vocab:
+        return f"dv_domain {v!r} is not one of {', '.join(vocab)}"
     if field == "veracity" and v.lower() not in ("true", "false"):
         return f"veracity {v!r} must be true or false"
     if field == "timepoint" and not _TIMEPOINT_RE.match(v):
@@ -528,7 +606,9 @@ def _study_folder(key):
 
 
 def _known_study(key):
-    return valid_key(key) and os.path.isdir(_study_folder(key))
+    if not safe_study_key(key):
+        return False
+    return os.path.isdir(_study_folder(key))
 
 
 # ------------------------------------------------------------------ decode
@@ -607,7 +687,7 @@ def api_harmonizer_decode():
 # ------------------------------------------------------------------ rawvar
 def _header_of_csv(path):
     try:
-        with open(path, encoding="utf-8-sig", newline="") as fh:
+        with CSVIO.open_text(path, newline="") as fh:
             return [str(c).strip().lstrip("\ufeff") for c in next(csv.reader(fh))]
     except (OSError, StopIteration):
         return []
@@ -892,15 +972,15 @@ def _dataset_preview(key, folder, var, uniform, artifact):
     any prepared CSV, then the harmonized wide table, then the raw source.
     Returns ``None`` when nothing is readable — the UI degrades gracefully."""
     cands = []
-    csvs = sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv")))
+    csvs = _dataset_paths(folder, glob.escape(key) + " - prepared*.csv")
     if artifact:
         preferred = os.path.join(folder, f"{key} - prepared {artifact}.csv")
-        if os.path.isfile(preferred):
+        if os.path.isfile(S.ensure_local(preferred)):
             cands.append((preferred, "prepared"))
     for c in csvs:
         if all(c != p for p, _ in cands):
             cands.append((c, "prepared"))
-    harm = os.path.join(folder, f"{key} - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     if os.path.isfile(harm):
         cands.append((harm, "harmonized"))
     srcs = _rawvar_sources(folder, key)
@@ -911,6 +991,7 @@ def _dataset_preview(key, folder, var, uniform, artifact):
             if all(p != q for q, _ in cands):
                 cands.append((p, kind))
     for path, kind in cands:
+        path = S.ensure_local(path)
         low = path.lower()
         try:
             if low.endswith(".csv"):
@@ -930,11 +1011,14 @@ def _dataset_preview(key, folder, var, uniform, artifact):
 
 def _rawvar_sources(folder, key):
     out = {"csv": [], "sav": [], "dta": [], "rds": [], "xlsx": []}
-    for f in sorted(glob.glob(os.path.join(folder, "*"))):
-        base = os.path.basename(f)
+    if S.online and S.store is not None:
+        entries = [e for e in S.listdir(folder) if not e.get("is_dir")]
+    else:
+        entries = [{"name": os.path.basename(f)} for f in sorted(glob.glob(os.path.join(folder, "*")))
+                   if os.path.isfile(f)]
+    for e in entries:
+        base = e["name"]
         low = base.lower()
-        if not os.path.isfile(f):
-            continue
         if low.endswith(".csv"):
             out["csv"].append(base)
         elif low.endswith(".sav"):
@@ -957,6 +1041,7 @@ def _snippets(key, names):
     sources = [(os.path.join(S.TEXT, key + ".txt"), "paper text"),
                (os.path.join(S.EXTRACTION, key + ".md"), "coding notes")]
     for path, label in sources:
+        path = S.ensure_local(path)
         if not os.path.isfile(path):
             continue
         try:
@@ -998,6 +1083,7 @@ def api_rawvar(key):
 
     # variables.csv context (original_values / mapped_values / notes)
     var_path = os.path.join(folder, f"{key} - variables.csv")
+    var_path = S.ensure_local(var_path)
     if os.path.isfile(var_path):
         try:
             import pandas as pd
@@ -1037,7 +1123,7 @@ def api_rawvar(key):
     names = [n for n in (var, uniform) if n]
     series = None
     # 1) prepared CSVs (prefer the requested artifact)
-    csvs = sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv")))
+    csvs = _dataset_paths(folder, glob.escape(key) + " - prepared*.csv")
     ordered = []
     if artifact:
         for c in csvs:
@@ -1045,6 +1131,7 @@ def api_rawvar(key):
                 ordered.insert(0, c)
     ordered += [c for c in csvs if c not in ordered]
     for c in ordered:
+        c = S.ensure_local(c)
         for nm in names:
             try:
                 s, extra, _ = _series_from_csv(c, nm, want_pid=True)
@@ -1070,6 +1157,7 @@ def api_rawvar(key):
     if series is None:
         for c in (glob.glob(os.path.join(folder, "*.sav"))
                   + glob.glob(os.path.join(folder, "*.dta"))):
+            c = S.ensure_local(c)
             for nm in names:
                 try:
                     s, labels, vlabel, _meta = _series_from_spss(c, nm)
@@ -1094,6 +1182,7 @@ def api_rawvar(key):
         for c in (glob.glob(os.path.join(folder, "*.rds"))
                   + glob.glob(os.path.join(folder, "*.RData"))
                   + glob.glob(os.path.join(folder, "*.rdata"))):
+            c = S.ensure_local(c)
             for nm in names:
                 try:
                     s, _l, _v = _series_from_rds(c, nm)
@@ -1113,6 +1202,7 @@ def api_rawvar(key):
     if series is None:
         for c in (glob.glob(os.path.join(folder, "*.xlsx"))
                   + glob.glob(os.path.join(folder, "*.xls"))):
+            c = S.ensure_local(c)
             for nm in names:
                 try:
                     s, _l, sheet = _series_from_xlsx(c, nm)
@@ -1138,6 +1228,7 @@ def api_rawvar(key):
         if not out["value_labels"]:
             for c in (glob.glob(os.path.join(folder, "*.sav"))
                       + glob.glob(os.path.join(folder, "*.dta"))):
+                c = S.ensure_local(c)
                 labels, vlabel = _labels_from_spss(c, names)
                 if labels or vlabel:
                     out["value_labels"] = [{"value": str(k), "label": str(v)}
@@ -1161,10 +1252,9 @@ def api_rawvar(key):
 
     # codebook / paper snippets
     try:
-        out["codebook_files"] = [os.path.basename(f) for f in sorted(glob.glob(
-            os.path.join(folder, "*")))
-            if re.search(r"codebook|survey|questionnaire|instrument|readme",
-                         os.path.basename(f), re.I)]
+        out["codebook_files"] = [os.path.basename(f) for f in _dataset_paths(folder, "*")
+                                 if re.search(r"codebook|survey|questionnaire|instrument|readme",
+                                              os.path.basename(f), re.I)]
         out["snippets"] = _snippets(key, [var, out.get("uniform_variable", "")])
     except Exception as e:  # noqa: BLE001
         out["degraded"].append(f"snippets failed: {e!r}")

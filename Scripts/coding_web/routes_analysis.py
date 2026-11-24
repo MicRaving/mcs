@@ -1,7 +1,7 @@
 """Analysis routes: moderators, pooling, meta-regression, subgroup, export, tables and runs."""
 
 from datetime import datetime
-from flask import Blueprint, abort, jsonify, request, send_file
+from flask import Blueprint, abort, jsonify as _flask_jsonify, request, send_file
 import collections
 import glob
 import math
@@ -13,6 +13,47 @@ from studio_lib import _norm, _values
 from studio_state import FROZEN, S
 
 bp = Blueprint("analysis", __name__)
+
+
+def _json_safe(o):
+    """Recursively replace NaN/±inf with None and numpy scalars with Python ones.
+
+    Flask's JSON provider writes a non-finite float as the bare token ``NaN`` /
+    ``Infinity``, which is not JSON: the browser's ``r.json()`` then throws and
+    the whole panel fails to render.  The statistics legitimately produce NaN
+    (an empty pool, k = 1, a zero SE, R² with no variance), so every analysis
+    response goes through this.  numpy integers (``pool_dependence`` counts) are
+    not ``int`` subclasses and would make Flask raise a TypeError.
+    """
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    if isinstance(o, bool) or o is None or isinstance(o, str):
+        return o
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, int):
+        return o
+    # numpy scalars (np.float64 is a float subclass and handled above)
+    item = getattr(o, "item", None)
+    if callable(item):
+        try:
+            return _json_safe(item())
+        except (TypeError, ValueError):
+            return o
+    return o
+
+
+def jsonify(*args, **kwargs):
+    """``flask.jsonify`` with :func:`_json_safe` applied (never emits ``NaN``)."""
+    if args and kwargs:
+        raise TypeError("jsonify() takes either args or kwargs, not both")
+    if len(args) == 1:
+        return _flask_jsonify(_json_safe(args[0]))
+    if args:
+        return _flask_jsonify(_json_safe(list(args)))
+    return _flask_jsonify(_json_safe(kwargs))
 
 
 @bp.get("/api/analysis/moderators")
@@ -218,9 +259,16 @@ def api_analysis_moderate():
         return True
 
     kept = [r for r in data if valid(r)]
-    if ycol != "effect":
-        kept = [r for r in kept if isinstance(r.get(ycol), float)
-                and isinstance(r.get(vcol), float) and r[vcol] > 0]
+    # Only finite effects with a positive variance can be weighted: a zero/NaN
+    # variance would raise ZeroDivisionError in the 1/v weights (participant
+    # and derived rows do not pass through the spec selector's finiteness filter).
+    def _usable(r):
+        try:
+            yv, vv = float(r.get(ycol)), float(r.get(vcol))
+        except (TypeError, ValueError):
+            return False
+        return math.isfinite(yv) and math.isfinite(vv) and vv > 0
+    kept = [r for r in kept if _usable(r)]
     dropped = len(data) - len(kept)
     # Per-moderator pictures are independent of the meta-regression fit, so they
     # are produced (and returned) even when the model itself cannot be fitted.
@@ -313,8 +361,8 @@ def api_analysis_moderate():
     terms = [terms[j] for j in keep]
 
     X = [[cols[c][i] for c in range(len(cols))] for i in range(len(kept))]
-    y = [r[ycol] for r in kept]
-    v = [r[vcol] for r in kept]
+    y = [float(r[ycol]) for r in kept]
+    v = [float(r[vcol]) for r in kept]
     groups = [r["study_key"] for r in kept]
 
     # Two-level model: effects are nested in studies.  Stage 1 combines the
@@ -473,13 +521,15 @@ def api_analysis_subgroup():
                     continue
                 groups.setdefault(_norm(v), []).append(r)
     out = []
+    # The user's prior controls apply here as on /bayes (they were ignored).
+    mu_sd, tau_prior, tau_sd = _resolve_bayes_priors(request.args)
     for v, gg in groups.items():
         y = [r["effect"] for r in gg]
         vv = [r["var"] for r in gg]
         if len(y) < 2:
             continue
         if model == "bayes":
-            res = _bayes_pool(y, vv)
+            res = _bayes_pool(y, vv, mu_sd=mu_sd, tau_sd=tau_sd, tau_prior=tau_prior)
             if not res:
                 continue
             out.append({"level": v, "label": _mod_label(by, v), "k": res["k"],

@@ -17,7 +17,12 @@ import threading
 import time
 from statslib import BAYES_MU_SD, BAYES_MU_SD_PRESETS, BAYES_TAU_PRESETS, BAYES_TAU_SD, _bayes_pool, _wls
 from studio_lib import _is_continuous, _is_object_field, _norm, _schema, _summary_field_lists, _values, atomic_replace, load_extraction
-from studio_state import FROZEN, S, log, paper_keys
+from studio_state import FROZEN, S, log, paper_keys, run_analysis_locally
+try:  # ``Scripts/`` reaches sys.path through studio_state; keep a fallback anyway
+    import csvio as CSVIO  # plain or gzip-compressed dataset products
+except Exception:  # pragma: no cover - source layout fallback
+    sys.path.insert(0, os.path.join(S.ROOT, "Scripts"))
+    import csvio as CSVIO
 
 # Per-intervention model (Scripts/PER_INTERVENTION_MODEL.md): route every coding
 # read through suite_common's record_interventions / effective_record so
@@ -104,11 +109,17 @@ ANALYSIS_CACHE = os.path.join(S.TEMP, ".analysis_cache.json")
 def _analysis_fingerprint():
     """Hash of the inputs that drive publication_bias.py / figures.py."""
     items = []
-    patterns = [os.path.join(S.EXTRACTION, "*.json"),
-                os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
-                os.path.join(S.ROOT, "Scripts", "*.py")]
+    patterns = [os.path.join(S.EXTRACTION, "*.json")]
     for pat in patterns:
         for f in glob.glob(pat):
+            try:
+                st = os.stat(f)
+                items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
+            except OSError:
+                pass
+    for pat in (os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
+                os.path.join(S.ROOT, "Scripts", "*.py")):
+        for f in CSVIO.glob(pat):
             try:
                 st = os.stat(f)
                 items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
@@ -810,7 +821,7 @@ def _inputs_fingerprint():
     for pat in (os.path.join(S.EXTRACTION, "*.json"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized_variables.csv")):
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 st = os.stat(f)
                 items.append(f"{f}:{int(st.st_mtime)}:{st.st_size}")
@@ -844,7 +855,8 @@ def _prewarm_analysis():
     threading.Thread(target=work, daemon=True).start()
 
 def _study_has_data(key):
-    return os.path.isfile(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv"))
+    return S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv")) or \
+        S.has_file(os.path.join(S.DATASETS or "", key, key + " - harmonized.csv.gz"))
 
 def _common_cat_fields():
     return _summary_field_lists()[0]
@@ -2166,7 +2178,16 @@ def _moderator_single_figure(name, kind, entries, rows):
         ax.set_title(f"{label} (continuous) · k={len(pts)}", fontsize=9)
         ax.grid(alpha=0.25)
     else:
-        entries = entries or []
+        # A level whose pooled estimate is not finite (all-NaN moderator) is
+        # dropped; if none remain the figure is skipped rather than emitted
+        # as an empty frame.
+        def _fin(x):
+            try:
+                return math.isfinite(float(x))
+            except (TypeError, ValueError):
+                return False
+        entries = [e for e in (entries or [])
+                   if _fin(e.get("estimate")) and _fin(e.get("lo")) and _fin(e.get("hi"))]
         if not entries:
             return None
         names = [e["label"] for e in entries][::-1]
@@ -2427,10 +2448,22 @@ def _subgroup_rows(by, layer, spec, exclusions, scope="unrestricted"):
     out.sort(key=lambda x: -x["k"])
     return out
 
+def _export_name(layer, spec, exclusions, stamp, ext):
+    """Export file path under temp/.  ``layer``/``spec``/``exclusions`` come
+    straight from the query string, so they are reduced to a safe token: a spec
+    such as ``../../x`` must not write outside temp/."""
+    def tok(s):
+        return re.sub(r"[^A-Za-z0-9_.-]+", "-", str(s or "")).strip(".-")[:60] or "x"
+    temp = os.path.join(S.ROOT, "temp")
+    os.makedirs(temp, exist_ok=True)
+    return os.path.join(temp, f"analysis_export_{tok(layer)}_{tok(spec)}_"
+                              f"{tok(exclusions)}_{stamp}.{ext}")
+
+
 def _export_xlsx(layer, spec, exclusions, scope, stamp):
     from openpyxl import Workbook
     temp = os.path.join(S.ROOT, "temp")
-    out = os.path.join(temp, f"analysis_export_{layer}_{spec}_{exclusions}_{stamp}.xlsx")
+    out = _export_name(layer, spec, exclusions, stamp, "xlsx")
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -2439,8 +2472,15 @@ def _export_xlsx(layer, spec, exclusions, scope, stamp):
         ws = wb.create_sheet(safe or "sheet")
         if cols:
             ws.append([str(c) for c in cols])
+
+        def cell(v):
+            # openpyxl writes a float NaN/inf as <v>nan</v>, which Excel reports
+            # as a corrupt workbook ("We found a problem with some content").
+            if isinstance(v, float) and not math.isfinite(v):
+                return None
+            return v
         for r in rows:
-            ws.append([r.get(c) for c in cols])
+            ws.append([cell(r.get(c)) for c in cols])
 
     for key, fname, label in ANALYSIS_TABLES:
         path = os.path.join(temp, fname)
@@ -2463,7 +2503,7 @@ def _export_xlsx(layer, spec, exclusions, scope, stamp):
 def _export_pptx(layer, spec, exclusions, scope, stamp):
     from pptx import Presentation
     from pptx.util import Inches, Pt
-    out = os.path.join(S.ROOT, "temp", f"analysis_export_{layer}_{spec}_{exclusions}_{stamp}.pptx")
+    out = _export_name(layer, spec, exclusions, stamp, "pptx")
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(10), Inches(7.5)
     blank = prs.slide_layouts[6]
@@ -2519,14 +2559,49 @@ def _export_pptx(layer, spec, exclusions, scope, stamp):
     prs.save(out)
     return out
 
+_INTERP_CACHE = {}
+
+
 def _python_interpreter():
+    """The interpreter that runs the pipeline scripts.
+
+    From source this is ``sys.executable``.  In the frozen (PyInstaller) build
+    ``sys.executable`` is CodingStudio.exe itself, so a system Python is looked
+    up.  The candidate must actually be usable: on Windows ``python.exe`` is
+    often the Microsoft Store *stub* under ``WindowsApps`` (it opens the Store),
+    and a bare Python without numpy/pandas/scipy fails on the first import of
+    ``suite_common``.
+    """
     if not FROZEN:
         return sys.executable
-    for name in ("python", "python3", "py"):
-        exe = shutil.which(name)
-        if exe:
-            return exe
-    return None
+    # ONE lookup for both tabs: the Reproduction tab's validated finder
+    # (CODING_STUDIO_PYTHON, then py/python/python3, first that imports
+    # pandas+numpy, cached) -- so the Analysis and Reproduction tabs can never
+    # pick different interpreters in a packaged build.  Imported lazily: it is
+    # only needed in the frozen build.
+    try:
+        from routes_repro import _interpreter as _repro_interpreter
+    except Exception:  # noqa: BLE001
+        return None
+    exe, _note = _repro_interpreter()
+    if not exe:
+        return None
+    # The analysis scripts additionally need scipy (stat_core) and openpyxl
+    # (the workbooks); check once per interpreter so a run fails with a clear
+    # message instead of an ImportError traceback half-way through.
+    if _INTERP_CACHE.get("checked") != exe:
+        try:
+            kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+                  "stderr": subprocess.DEVNULL, "timeout": 60}
+            if os.name == "nt":
+                kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            ok = subprocess.run([exe, "-c", "import scipy, openpyxl"], **kw).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        if not ok:
+            return None   # not cached: the user may install the packages and retry
+        _INTERP_CACHE["checked"] = exe
+    return exe
 
 def _analysis_worker(kind, force=False, include_fully_within=False):
     state = _analysis_run
@@ -2540,8 +2615,12 @@ def _analysis_worker(kind, force=False, include_fully_within=False):
         state["log"] = "".join(log_lines)[-20000:]
 
     if exe is None:
-        state.update(ok=False, error="no Python interpreter found (packaged app); "
-                                     "run Scripts/publication_bias.py from a Python environment")
+        state.update(ok=False, error="no usable Python interpreter found (packaged app): "
+                                     "install Python 3 with numpy, pandas, scipy and openpyxl "
+                                     "on PATH (or set CODING_STUDIO_PYTHON to its python "
+                                     "executable), or run Scripts/publication_bias.py from a "
+                                     "Python environment")
+        emit("! " + state["error"] + "\n")   # the run-log panel shows only `log`
         state["running"] = False
         state["finished"] = datetime.now().isoformat(timespec="seconds")
         return
@@ -2549,6 +2628,7 @@ def _analysis_worker(kind, force=False, include_fully_within=False):
     missing = [s for s in wanted if not os.path.exists(os.path.join(scripts_dir, s))]
     if missing:
         state.update(ok=False, error="missing script(s): " + ", ".join(missing))
+        emit("! " + state["error"] + "\n")
         state["running"] = False
         state["finished"] = datetime.now().isoformat(timespec="seconds")
         return
@@ -2626,6 +2706,27 @@ def start_background_run(kind="essential", force=False, include_fully_within=Non
     """
     include = _include_fully_within(include_fully_within)
     wanted = ANALYSIS_RUN_KINDS.get(kind, [])
+    # An online project runs its analysis on the studio server (INTERFACES §4):
+    # the pipeline needs every Extraction/ and Datasets/*/- harmonized file and
+    # a mirror only holds the core slice.  The "run analysis locally" switch
+    # (or CODING_STUDIO_RUN_ANALYSIS=1) opts back in for a full offline copy.
+    if S.online and not run_analysis_locally():
+        now = datetime.now().isoformat(timespec="seconds")
+        message = ("this is an online project: its analysis runs on the studio server "
+                   "(enable 'run analysis locally' to run the pipeline here)")
+        _analysis_run.update(running=False, kind=kind, ok=False, error=message,
+                             log="! " + message + "\n", cached=False,
+                             started=now, finished=now)
+        log("analysis run disabled (online project)")
+        return "disabled"
+    if S.online and run_analysis_locally() and S.store is not None:
+        # The Datasets products are on-demand in the core tier (INTERFACES 4):
+        # the pipeline reads every harmonized.csv, so the switch fetches them
+        # before the scripts start rather than letting the globs miss them.
+        try:
+            S.store.prefetch_analysis(blocking=True)
+        except Exception as exc:  # noqa: BLE001 - offline: the run reports its own gaps
+            log(f"analysis prefetch incomplete: {exc!r}")
     with _analysis_lock:
         if _analysis_run["running"]:
             return "running"
@@ -2652,8 +2753,25 @@ def start_background_run(kind="essential", force=False, include_fully_within=Non
                              cached=False, fully_within=include,
                              started=datetime.now().isoformat(timespec="seconds"),
                              finished=None)
-    threading.Thread(target=_analysis_worker, args=(kind, force, include), daemon=True).start()
+    threading.Thread(target=_analysis_worker_safe, args=(kind, force, include),
+                     daemon=True).start()
     return "started"
+
+
+def _analysis_worker_safe(kind, force=False, include_fully_within=False):
+    """Run the worker so that an unexpected exception can never leave
+    ``running=True`` behind -- that would block every later run with a 409
+    ("a run is already in progress") until the app is restarted."""
+    try:
+        _analysis_worker(kind, force, include_fully_within)
+    except Exception as e:  # noqa: BLE001
+        _analysis_run.update(ok=False, error=f"analysis run crashed: {type(e).__name__}: {e}")
+        _analysis_run["log"] = (_analysis_run.get("log") or "") + f"! {_analysis_run['error']}\n"
+        log(f"analysis run kind={kind} crashed: {e!r}")
+    finally:
+        if _analysis_run.get("running"):
+            _analysis_run["running"] = False
+            _analysis_run["finished"] = datetime.now().isoformat(timespec="seconds")
 
 def autorun_if_stale():
     """Regenerate stale analysis tables in the background (called at server start)."""
@@ -2697,7 +2815,7 @@ def _newest_data_input_mtime():
     for pat in (os.path.join(S.EXTRACTION, "*.json"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized.csv"),
                 os.path.join(S.DATASETS or "", "*", "* - harmonized_variables.csv")):
-        for f in glob.glob(pat):
+        for f in CSVIO.glob(pat):
             try:
                 newest = max(newest, os.path.getmtime(f))
             except OSError:

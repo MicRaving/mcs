@@ -3,7 +3,7 @@
    the specific locations.
 
    The server renders each PDF page to a PNG and returns search hits
-   as fractions of the page box ("/api/pdfsearch/<key>?q=...").  This
+   as fractions of the page box ("api/pdfsearch/<key>?q=...").  This
    helper overlays absolutely-positioned highlight rectangles on the
    rendered pages, so it works at any zoom/fit and in dark mode.
 
@@ -11,7 +11,7 @@
      const find = PdfSearch.create({
        getWrap: () => document.querySelector("#viewer .pdf-scroll"),
        getInput/getCount/getPrev/getNext,
-       fetch: (q) => api("/api/pdfsearch/<key>?q=" + encodeURIComponent(q)),
+       fetch: (q) => api("api/pdfsearch/<key>?q=" + encodeURIComponent(q)),
        ensurePage: async (page) => { ... },   // optional (paged viewers)
      });
      find.refresh();   // call after the viewer re-renders its pages

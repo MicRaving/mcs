@@ -42,30 +42,92 @@ import os
 
 # Full-text exclusions agreed by the coders in Coding Studio are published to
 # ``Screening/fulltext_agreed.json``; every stage drops those whole studies.
+# That file does not exist in either known project today, so the load-bearing
+# source is the canonical coding's own ``Fulltext_Exclusion_Criterion`` field
+# (AGENTS.md: C1-C4 on every record; non-empty = the study fails an inclusion
+# criterion).  The two are UNIONED so a study flagged by either source is
+# dropped everywhere (owner decision 2026-11-19: a full-text-excluded study is
+# never part of any inferential or descriptive result).
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _FULLTEXT_PATH = os.path.join(_ROOT, "Screening", "fulltext_agreed.json")
+_EXTRACTION_DIR = os.path.join(_ROOT, "Extraction")
 _FULLTEXT_CACHE = {"mtime": None, "keys": set()}
+_CRITERION_FIELD = "Fulltext_Exclusion_Criterion"
+
+
+#: {file name: ((mtime_ns, size), excluded?)} - per-file memo of the scan below.
+_FIELD_MEMO = {}
+
+
+def _criterion_field_keys():
+    """Study keys whose canonical coding records a full-text exclusion.
+
+    Memoised per file on (mtime_ns, size): only Extraction files that changed
+    since the last call are re-parsed.  ``os.scandir`` returns the stat data
+    with the directory listing, so an unchanged corpus costs one listing.
+
+    (Before 2026-11-23 this re-parsed all ~830 files, 74 MB, on EVERY call;
+    the pipeline calls it once per dataset folder / record, which made
+    ``publication_bias.py`` read ~320 GB and run for hours.)
+    """
+    keys = set()
+    seen = set()
+    try:
+        entries = list(os.scandir(_EXTRACTION_DIR))
+    except OSError:
+        _FIELD_MEMO.clear()
+        return keys
+    for entry in entries:
+        name = entry.name
+        if not name.endswith(".json"):
+            continue
+        seen.add(name)
+        try:
+            st = entry.stat()
+            sig = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            continue
+        memo = _FIELD_MEMO.get(name)
+        if memo is None or memo[0] != sig:
+            excluded = False
+            try:
+                with open(entry.path, encoding="utf-8") as fh:
+                    data = json.load(fh)
+                recs = data if isinstance(data, list) else [data]
+                excluded = any(isinstance(rec, dict)
+                               and str(rec.get(_CRITERION_FIELD) or "").strip()
+                               for rec in recs)
+            except Exception:
+                excluded = False
+            memo = (sig, excluded)
+            _FIELD_MEMO[name] = memo
+        if memo[1]:
+            keys.add(name[: -len(".json")])
+    for gone in set(_FIELD_MEMO) - seen:
+        del _FIELD_MEMO[gone]
+    return keys
 
 
 def fulltext_excluded_keys():
-    """Study keys excluded at full text by coder agreement (cached by mtime)."""
+    """Study keys excluded at full text (agreed file ∪ coding criterion field)."""
+    keys = _criterion_field_keys()
     try:
         mtime = os.path.getmtime(_FULLTEXT_PATH)
     except OSError:
         _FULLTEXT_CACHE.update(mtime=None, keys=set())
-        return set()
+        return keys
     if _FULLTEXT_CACHE["mtime"] == mtime and _FULLTEXT_CACHE["keys"]:
-        return _FULLTEXT_CACHE["keys"]
-    keys = set()
+        return keys | _FULLTEXT_CACHE["keys"]
+    agreed = set()
     try:
         with open(_FULLTEXT_PATH, encoding="utf-8") as fh:
             data = json.load(fh)
         if isinstance(data, dict):
-            keys = {str(k) for k in data}
+            agreed = {str(k) for k in data}
     except Exception:
-        keys = set()
-    _FULLTEXT_CACHE.update(mtime=mtime, keys=keys)
-    return keys
+        agreed = set()
+    _FULLTEXT_CACHE.update(mtime=mtime, keys=agreed)
+    return keys | agreed
 
 
 def is_fulltext_excluded(study_key):

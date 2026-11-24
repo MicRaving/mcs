@@ -1,10 +1,16 @@
 """Agreement logic: raters, the per-study coding index, Gwet's AC, conflicts and settlements.
 
 Full-text raters are the ORIGINAL coder files ``Codings/<Key> - <coder>.json``
-(DS = DeepSeek round 1, SB, MM, the human coders, ...).  They are read and never
-written.  ``Extraction/<Key>.json`` is the CONSENSUS coding: the analysis route
-and the one file a settlement writes into.  It is deliberately not a rater:
-settling a conflict changes it, so scoring it would make the agreement circular.
+(every human or model coder).  They are read and never written.
+``Extraction/<Key>.json`` is the CONSENSUS coding: the analysis route and the
+one file a settlement writes into.  It is deliberately not a rater: settling a
+conflict changes it, and it is usually reconciled from the raters' files, so
+scoring it would make the agreement circular and inflate it (on the reference
+project: .91 with it counted as a rater, .82 without).  Only a project that has
+fewer than two coder files in total (a fresh project: the Extraction plus one
+coder) falls back to scoring the Extraction as the rater ``LLM/base`` - the
+``agreement.extraction_role`` setting of the project manifest overrides this
+(``auto`` | ``rater`` | ``consensus``).
 
 Every Master decision - full-text and abstract - lands in ONE file,
 ``Codings/_settlements.json``, together with the value the consensus held
@@ -12,10 +18,17 @@ before, the raters' values at decision time and the rows the decision applies
 to, so a settlement is auditable and can be undone.  A study only counts as
 settled when the file says so; a consensus that happens to equal a rater's file
 is not a settlement.
+
+Nothing here names a project's fields or coders: field names are resolved
+through the scheme's roles (``_dv_name_of``, ``no_majority_fields``) and the
+coder that anchors a conflict case / carries the PDF source spans is derived
+from the data (the coder with the most papers / the most spans) unless the
+manifest sets ``agreement.anchor_rater`` / ``agreement.span_raters``.
 """
 
 import copy
 import csv
+import glob
 import io
 import json
 import os
@@ -26,12 +39,14 @@ import tempfile
 import threading
 import time
 import uuid
+import hashlib
 from datetime import datetime
 
+import project_context
 from screening_lib import screening_index
-from studio_lib import (_is_continuous, _is_object_field, _norm, _schema, _values,
-                        atomic_replace, safe_token)
-from studio_state import S, SCHEMA, log, on_reroot, paper_keys
+from studio_lib import (_is_continuous, _is_object_field, _norm, _schema, _scheme_stamp,
+                        _values, atomic_replace, safe_token)
+from studio_state import S, log, paper_keys
 
 # The canonical veracity / timepoint decoders live in the pipeline's
 # stdlib-only ``contract`` module; this tab uses them instead of its own
@@ -52,18 +67,114 @@ AGREEMENT_REFERENCE = "LLM/base"
 #: ``Extraction/<Key>.json`` - the consensus coding, never a rater.
 CONSENSUS = "Consensus"
 
-#: First-round coder; anchors DV case ids when it coded the row.
-ANCHOR_RATER = "DS"
-
-#: Coders whose files carry PDF source spans, in order of preference.
-SPAN_RATERS = ("MM", "SB")
-
 _LABEL_MAX_LEVELS = 50
 
 _AGREE_LOCK = threading.RLock()
 
 #: Cached exclude-filtered DV alignments, keyed by (index signature, excluded raters).
 _DV_ALIGN_CACHE = {}
+
+
+# ---------------------------------------------------------------- project settings
+# Everything that used to be a hard-coded coder / field name is resolved here.
+
+def agreement_settings():
+    """The manifest's ``agreement`` block (``{}`` when the project sets none).
+
+    Keys (all optional): ``extraction_role`` (``auto`` | ``rater`` |
+    ``consensus``), ``anchor_rater`` (the coder whose rows anchor a DV case id),
+    ``span_raters`` (coders preferred for PDF source spans, in order) and
+    ``no_majority_fields`` (field names a bulk "accept majority" must skip, in
+    addition to the role-derived ones).
+    """
+    try:
+        block = (project_context.manifest() or {}).get("agreement")
+    except Exception:  # noqa: BLE001 - the manifest is optional
+        block = None
+    return block if isinstance(block, dict) else {}
+
+
+def _settings_sig():
+    return json.dumps(agreement_settings(), sort_keys=True, default=str)
+
+
+_ROLE_NAMES = {"stamp": None, "map": {}, "pin": None}
+
+
+def _role_names():
+    """``{(kind, role): field name}`` of the active scheme (kind = experiment | dv).
+
+    Resolved once per index build (``pin``): the per-row lookups of a build must
+    not re-stat the scheme files hundreds of thousands of times.
+    """
+    if _ROLE_NAMES["pin"] is not None:
+        return _ROLE_NAMES["pin"]
+    schema = _schema()
+    if _ROLE_NAMES["stamp"] is schema:
+        return _ROLE_NAMES["map"]
+    out = {}
+    for kind, bucket in (("experiment", "common_fields"), ("dv", "dv_fields")):
+        for f in schema.get(bucket) or []:
+            role = f.get("role")
+            if role and f.get("name"):
+                out.setdefault((kind, role), f["name"])
+    _ROLE_NAMES.update(stamp=schema, map=out)
+    return out
+
+
+def _dv_name_of(role, default):
+    """The name of the DV field carrying ``role`` (``default`` = the v3.1 name)."""
+    return _role_names().get(("dv", role)) or default
+
+
+def _exp_name_of(role, default):
+    return _role_names().get(("experiment", role)) or default
+
+
+#: Roles a bulk "accept majority" must never decide (a fact or a judgement the
+#: paper does not dictate - AGENTS.md "never majority-vote a fact or a judgement").
+_NO_MAJORITY_ROLES = ("eligible_primary", "polarity", "fulltext_exclusion_criterion",
+                      "n_arms", "control_group_type", "fully_within", "sample_n",
+                      "n_recruited", "gender_ratio")
+
+#: Used for a scheme whose fields carry no roles (the v3.1 names).
+_NO_MAJORITY_LEGACY = ("eligible_primary", "dv_polarity", "Fulltext_Exclusion_Criterion",
+                       "n_arms", "control_group_type", "Fully_Within", "N_Analyzed",
+                       "N_Recruited", "Gender_Ratio")
+
+
+def no_majority_fields():
+    """Field names no majority may settle: role-derived + the manifest's extras."""
+    names = set()
+    roles = _role_names()
+    for role in _NO_MAJORITY_ROLES:
+        for kind in ("experiment", "dv"):
+            if (kind, role) in roles:
+                names.add(roles[(kind, role)])
+    # a field the scheme carries under a v3.1 name but without a role
+    schema = _schema()
+    present = {f.get("name") for bucket in ("common_fields", "dv_fields")
+               for f in (schema.get(bucket) or [])}
+    names.update(n for n in _NO_MAJORITY_LEGACY if n in present)
+    extra = agreement_settings().get("no_majority_fields")
+    if isinstance(extra, (list, tuple)):
+        names.update(str(x) for x in extra)
+    return frozenset(names)
+
+
+def _extraction_is_rater(coder_names):
+    """Whether ``Extraction/<Key>.json`` is scored as the rater ``LLM/base``.
+
+    ``consensus`` never, ``rater`` always, ``auto`` (default) only when the
+    whole project has fewer than two coder files' coders - a fresh project with
+    the Extraction and one coder still gets an agreement figure.
+    """
+    mode = str(agreement_settings().get("extraction_role") or "auto").lower()
+    if mode == "rater":
+        return True
+    if mode == "consensus":
+        return False
+    return len(set(coder_names)) < 2
 
 
 # ---------------------------------------------------------------- field definitions
@@ -173,7 +284,10 @@ def gwet_ac(case_ratings, categories, weights=None):
                     s += w(k, l) * nk * nl
         sum_q.append(s - ri[i])
     pa = sum(sum_q[i] / (ri[i] * (ri[i] - 1)) for i in range(n) if ri[i] >= 2) / n2
-    pi = [sum((agree[i][k] / ri[i]) for i in range(n) if ri[i] >= 1) / n for k in range(q)]
+    # irrCAC drops subjects nobody rated in a scored category (e.g. only an
+    # out-of-vocabulary value): pi_k is the mean over RATED subjects.
+    n1 = sum(1 for r in ri if r >= 1)
+    pi = [sum((agree[i][k] / ri[i]) for i in range(n) if ri[i] >= 1) / n1 for k in range(q)]
     sum_w = sum(w(k, l) for k in range(q) for l in range(q))
     pe = (sum_w * sum(pi[k] * (1 - pi[k]) for k in range(q))) / (q * (q - 1)) if q >= 2 else 0.0
     coeff = (pa - pe) / (1 - pe) if pe < 1 else None
@@ -271,6 +385,10 @@ def _bucket_one(raw):
     return b if b in ("pre", "post", "followup") else ""
 
 
+def _tp_names():
+    return (_dv_name_of("timepoint_1", "timepoint_1"), _dv_name_of("timepoint_2", "timepoint_2"))
+
+
 def _timepoint_bucket(tp1, tp2=None):
     """Canonical timepoint bucket (pre/post/followup) from timepoint_1/2."""
     bs = {b for b in (_bucket_one(tp1), _bucket_one(tp2)) if b}
@@ -289,11 +407,12 @@ def _domains_tuple(raw):
 def canonical_dv_key(dv):
     """Stable identity of one DV row, WITHOUT the free-text dv_name."""
     return (
-        _domains_tuple(dv.get("dv_domain")),
-        _veracity_token(dv.get("dv_name")),
-        _timepoint_bucket(dv.get("timepoint_1"), dv.get("timepoint_2")),
-        _norm(dv.get("contrast_type")),
-        str(dv.get("Intervention_ID") or "").strip().lower(),
+        _domains_tuple(dv.get(_dv_name_of("dv_domain", "dv_domain"))),
+        _veracity_token(dv.get(_dv_name_of("dv_name", "dv_name"))),
+        _timepoint_bucket(dv.get(_dv_name_of("timepoint_1", "timepoint_1")),
+                          dv.get(_dv_name_of("timepoint_2", "timepoint_2"))),
+        _norm(dv.get(_dv_name_of("contrast_type", "contrast_type"))),
+        str(dv.get(_dv_name_of("intervention_id", "Intervention_ID")) or "").strip().lower(),
     )
 
 
@@ -310,11 +429,17 @@ def _dv_agreement_defs():
     """Closed-label DV fields that may be scored (never dv_name / numeric metrics)."""
     base = {f["name"]: f for f in _agreement_field_defs() if f["kind"] == "dv"}
     out = []
-    for name in ("dv_domain", "veracity", "contrast_type", "dv_polarity",
-                 "eligible_primary", "score_types", "timepoint"):
-        if name in _PSEUDO_DV_LEVELS:
-            out.append(_pseudo_dv_field(name, name.capitalize(), _PSEUDO_DV_LEVELS[name]))
-        elif name in base:
+    # (role, v3.1 name): the scheme's own name for the role wins
+    for role, legacy in (("dv_domain", "dv_domain"), ("veracity", "veracity"),
+                         ("contrast_type", "contrast_type"), ("polarity", "dv_polarity"),
+                         ("eligible_primary", "eligible_primary"),
+                         ("score_types", "score_types"), ("timepoint", "timepoint")):
+        if role in _PSEUDO_DV_LEVELS:
+            # derived from dv_name / timepoint_1,2, not a field of the scheme
+            out.append(_pseudo_dv_field(role, role.capitalize(), _PSEUDO_DV_LEVELS[role]))
+            continue
+        name = _dv_name_of(role, legacy)
+        if name in base:
             out.append(base[name])
     return out
 
@@ -332,10 +457,11 @@ def settleable_field(name):
 
 def _dv_field_value(dv, fdef):
     name = fdef["name"]
-    if name == "veracity":
-        return _veracity_token(dv.get("dv_name"))
-    if name == "timepoint":
-        return _timepoint_bucket(dv.get("timepoint_1"), dv.get("timepoint_2"))
+    if name == "veracity" and fdef.get("derived"):
+        return _veracity_token(dv.get(_dv_name_of("dv_name", "dv_name")))
+    if name == "timepoint" and fdef.get("derived"):
+        return _timepoint_bucket(dv.get(_dv_name_of("timepoint_1", "timepoint_1")),
+                                 dv.get(_dv_name_of("timepoint_2", "timepoint_2")))
     return _field_value(dv.get(name), fdef)
 
 
@@ -348,12 +474,13 @@ def _compact_span(sp):
 
 
 def _dv_row_info(rater, key, case_sid, rec_index, dv, dv_index, fdefs):
-    norm_name = _norm_dv_name(dv.get("dv_name"))
+    dv_name = dv.get(_dv_name_of("dv_name", "dv_name"))
+    norm_name = _norm_dv_name(dv_name)
     return {
         "rater": rater, "key": key, "study_id": case_sid,
         "block": (key, case_sid),
         "rec_index": rec_index, "dv_index": dv_index,
-        "name": dv.get("dv_name") or "",
+        "name": dv_name or "",
         "align_key": canonical_dv_key(dv),
         "name_norm": norm_name,
         "tokens": _name_tokens(norm_name),
@@ -602,11 +729,34 @@ def insufficient_note(coverage, matched_pairs=None):
 # ---------------------------------------------------------------- corpus files
 # One directory listing per folder per request.  The old loader globbed
 # ``Codings/`` once per paper (826 x ~3,900 entries = 3.3 M names, ~26 s).
+# The listing is the **manifest** in an online project (``S.names``): an AI route
+# coding that is on demand (``Codings/<Key> - SB|MM|DS.json``, see
+# ``protocol.AI_ROUTE_TAGS``) is still a rater, and its content is fetched in one
+# batch by :func:`ensure_rater_files` before the index reads it.
 
 def _scan(folder):
-    """{file name: (mtime_ns, size)} for the ``*.json`` files of one folder."""
+    """{file name: signature} for the ``*.json`` files of one folder.
+
+    The signature changes whenever the content this layer reads may have
+    changed: ``(mtime_ns, size)`` of a local file, and ``("blob", hash, size)``
+    of a file the manifest knows but the mirror has not downloaded (it has no
+    mtime; the hash is the server's content id).
+    """
     out = {}
-    if not folder or not os.path.isdir(folder):
+    if not folder:
+        return out
+    rel = S.relpath(folder) if S.ROOT else None
+    if S.online and S.store is not None and rel is not None:
+        try:
+            for e in S.names(rel, ".json"):
+                if e.get("local"):
+                    out[e["name"]] = (int(e.get("mtime_ns") or 0), int(e.get("size") or 0))
+                else:
+                    out[e["name"]] = ("blob", str(e.get("hash") or ""), int(e.get("size") or 0))
+            return out
+        except Exception as exc:  # noqa: BLE001 - offline: use the disk
+            log(f"agreement: manifest listing of {folder} failed: {exc!r}")
+    if not os.path.isdir(folder):
         return out
     try:
         with os.scandir(folder) as it:
@@ -638,7 +788,8 @@ def _split_coder_name(base, keys):
 def is_rater_coder(coder):
     """Paper-coding rater files only: no harmonizer overrides, no store files."""
     c = str(coder or "").strip()
-    return bool(c) and not c.startswith("harmonizer") and c != CONSENSUS and not c.startswith("_")
+    return (bool(c) and not c.startswith("harmonizer") and c != CONSENSUS
+            and c != AGREEMENT_REFERENCE and not c.startswith("_"))
 
 
 def corpus_files():
@@ -672,6 +823,43 @@ def _read_records(path):
     if isinstance(data, dict):
         return [data]
     return data if isinstance(data, list) else None
+
+
+def rater_paths(files=None):
+    """The project-relative rater files of the corpus (``Codings/<Key> - ...``)."""
+    files = corpus_files() if files is None else files
+    out = set()
+    for f in files.values():
+        for path, _sig in f["raters"].values():
+            rel = S.relpath(path)
+            if rel:
+                out.add(rel)
+    return sorted(out)
+
+
+def ensure_rater_files(files=None, label="agreement: coder files"):
+    """Make every rater file local - the on-demand routes in **one batch**.
+
+    The agreement/IRR index opens every ``Codings/<Key> - <coder>.json``, and
+    the AI route codings are on demand (``protocol.AI_ROUTE_TAGS``): the tab
+    asks for the missing ones once (``State.ensure_many``, one sync round with
+    progress) instead of one blocking request per file per page load.  A local
+    project fetches nothing.
+
+    Returns ``{total, needed, fetched, missing, offline, bytes}``.  ``missing``
+    is what is still absent afterwards - offline, or unknown to the server - and
+    the routes report it as ``not_available_offline`` so the view never shows a
+    quietly different number.
+    """
+    empty = {"total": 0, "needed": 0, "fetched": 0, "missing": [],
+             "offline": False, "bytes": 0}
+    if not S.online or S.store is None:
+        return empty
+    try:
+        return S.ensure_many(rater_paths(files), label=label)
+    except Exception as exc:  # noqa: BLE001 - a fetch failure is reported, not raised
+        log(f"agreement: coder-file prefetch failed: {exc!r}")
+        return dict(empty, missing=rater_paths(files), offline=True)
 
 
 def norm_sid(sid):
@@ -710,14 +898,51 @@ def _case_sids(recs, ref):
     return [o if o is not None else own[i] for i, o in enumerate(out)]
 
 
+#: The coder whose rows anchor DV case ids (set per index build, see
+#: :func:`_agreement_index`): ``agreement.anchor_rater`` of the manifest, else the
+#: first-round coder = the one who coded the most papers.
+_ANCHOR = {"rater": None}
+
+
 def _anchor_of(raters):
-    if ANCHOR_RATER in raters:
-        return ANCHOR_RATER
+    a = _ANCHOR["rater"]
+    if a and a in raters:
+        return a
     return sorted(raters, key=lambda r: str(r).lower())[0] if raters else None
 
 
+def _project_anchor(files):
+    """The configured anchor coder, else the coder with the most papers."""
+    cfg = str(agreement_settings().get("anchor_rater") or "").strip()
+    if cfg:
+        return cfg
+    counts = {}
+    for f in files.values():
+        for coder in f["raters"]:
+            counts[coder] = counts.get(coder, 0) + 1
+    if not counts:
+        return None
+    return sorted(counts, key=lambda c: (-counts[c], str(c).lower()))[0]
+
+
+def _span_order(recs_by):
+    """Coders in order of preference for a PDF source span.
+
+    The manifest's ``agreement.span_raters`` first; then the coders that carry
+    spans, the one with the most ``source_spans`` entries first.
+    """
+    cfg = agreement_settings().get("span_raters")
+    first = [c for c in (cfg if isinstance(cfg, (list, tuple)) else []) if c in recs_by]
+
+    def n_spans(c):
+        return sum(len(r.get("source_spans") or {}) for r in recs_by[c] if isinstance(r, dict))
+    rest = sorted((c for c in recs_by if c not in first),
+                  key=lambda c: (-n_spans(c), str(c).lower()))
+    return first + rest
+
+
 # ---------------------------------------------------------------- per-study index
-def _derive_key(key, files, fields, dv_defs):
+def _derive_key(key, files, fields, dv_defs, ext_rater=False):
     """Everything the agreement tab needs about one paper (cached per file signature)."""
     recs_by = {}
     for coder, (path, _sig) in sorted(files["raters"].items()):
@@ -725,6 +950,9 @@ def _derive_key(key, files, fields, dv_defs):
         if recs:
             recs_by[coder] = recs
     cons = _read_records(files["consensus"][0]) if files.get("consensus") else None
+    if ext_rater and cons:
+        # a project without a second coder: the Extraction is the other rater
+        recs_by.setdefault(AGREEMENT_REFERENCE, cons)
     if cons:
         ref = _own_sids(cons)
     else:
@@ -747,7 +975,7 @@ def _derive_key(key, files, fields, dv_defs):
     pos = {}        # rater -> {field: {case: value}}  (positional index; APA export)
     rec_spans = {}  # (case_sid, field) -> span from a span-carrying route
     rows = []
-    span_order = list(SPAN_RATERS) + [c for c in recs_by if c not in SPAN_RATERS]
+    span_order = _span_order(recs_by)
     for coder in span_order:
         for i, rec in enumerate(recs_by.get(coder) or []):
             if not isinstance(rec, dict):
@@ -808,7 +1036,7 @@ def _derive_key(key, files, fields, dv_defs):
         "key": key, "raters": sorted(recs_by), "has_consensus": bool(cons),
         "n_records": {c: len(r) for c, r in recs_by.items()},
         "labels": labels, "exp": exp, "pos": pos, "rec_spans": rec_spans,
-        "cons_exp": cons_exp, "blocks": blocks,
+        "cons_exp": cons_exp, "blocks": blocks, "span_order": span_order,
     }
 
 
@@ -820,24 +1048,35 @@ _KEY_CACHE = {}
 _CACHE_META = {"root": None, "schema": None, "disk_loaded": False}
 
 #: Bump when the derived structure changes, so a stale pickle is never trusted.
-_CACHE_VERSION = 4
+_CACHE_VERSION = 5
 
 _REL_CACHE = {}
 
 
 def _schema_stamp():
+    """Changes whenever the active project's scheme (fields, roles) changes."""
     try:
-        return os.path.getmtime(SCHEMA)
-    except OSError:
+        return (_scheme_stamp(), _settings_sig())
+    except Exception:  # noqa: BLE001
         return None
 
 
 def _disk_cache_path():
-    return os.path.join(S.TEMP, "agreement_index.pkl") if S.TEMP else None
+    """The pickle lives in the USER's cache folder, never inside the project.
+
+    A pickle is code: a project folder received from somebody else must not be
+    able to plant one that is loaded when the project is opened.
+    """
+    if not S.ROOT:
+        return None
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("XDG_CACHE_HOME") \
+        or os.path.join(os.path.expanduser("~"), ".cache")
+    tag = hashlib.sha1(os.path.normcase(os.path.abspath(S.ROOT)).encode("utf-8")).hexdigest()[:16]
+    return os.path.join(base, "CodingStudio", "cache", f"agreement_index_{tag}.pkl")
 
 
 def _load_disk_cache():
-    """Seed the per-paper cache from the last run (first build takes ~20 s)."""
+    """Seed the per-paper cache from the last run (a first build takes ~20 s)."""
     _CACHE_META["disk_loaded"] = True
     path = _disk_cache_path()
     if not path or not os.path.exists(path):
@@ -858,7 +1097,8 @@ def _save_disk_cache():
     if not path:
         return
     try:
-        fd, tmp = tempfile.mkstemp(suffix=".pkl", dir=S.TEMP)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(suffix=".pkl", dir=os.path.dirname(path))
         with os.fdopen(fd, "wb") as fh:
             pickle.dump({"version": _CACHE_VERSION, "root": S.ROOT,
                          "schema": _CACHE_META["schema"], "keys": dict(_KEY_CACHE)},
@@ -868,10 +1108,10 @@ def _save_disk_cache():
         log(f"agreement: could not save the index cache: {exc!r}")
 
 
-def _key_sig(files):
+def _key_sig(files, mode):
     cons = files.get("consensus")
     return (cons[1] if cons else None,
-            tuple(sorted((c, s) for c, (_p, s) in files["raters"].items())))
+            tuple(sorted((c, s) for c, (_p, s) in files["raters"].items())), mode)
 
 
 def _agreement_index():
@@ -890,8 +1130,18 @@ def _agreement_index():
             _INDEX.update(sig=None, data=None)
             _CACHE_META.update(root=S.ROOT, schema=schema, disk_loaded=False)
         files = corpus_files()
-        sigs = {k: _key_sig(f) for k, f in files.items()}
-        gsig = hash((S.ROOT, schema, tuple(sorted(sigs.items()))))
+        # The AI route codings are on demand: fetch the missing ones in ONE batch
+        # before the index reads them (INTERFACES 4).  Offline, the ones that stay
+        # absent are reported by the route as `not_available_offline`.
+        fetch = ensure_rater_files(files)
+        if fetch.get("needed"):
+            files = corpus_files()      # the downloaded files now carry a local stamp
+        ext_rater = _extraction_is_rater(c for f in files.values() for c in f["raters"])
+        _ANCHOR["rater"] = _project_anchor(files)
+        mode = (bool(ext_rater), _ANCHOR["rater"])
+        sigs = {k: _key_sig(f, mode) for k, f in files.items()}
+        gsig = hash((S.ROOT, schema, tuple(sorted(sigs.items())),
+                     tuple(fetch.get("missing") or [])))
         if _INDEX["sig"] == gsig and _INDEX["data"] is not None:
             return _INDEX["data"]
         if not _CACHE_META["disk_loaded"]:
@@ -900,11 +1150,16 @@ def _agreement_index():
         dv_defs = _dv_agreement_defs()
         rebuilt = 0
         t0 = time.time()
-        for k, sig in sigs.items():
-            hit = _KEY_CACHE.get(k)
-            if hit is None or hit[0] != sig:
-                _KEY_CACHE[k] = (sig, _derive_key(k, files[k], fields, dv_defs))
-                rebuilt += 1
+        _ROLE_NAMES["pin"] = None
+        _ROLE_NAMES["pin"] = _role_names()
+        try:
+            for k, sig in sigs.items():
+                hit = _KEY_CACHE.get(k)
+                if hit is None or hit[0] != sig:
+                    _KEY_CACHE[k] = (sig, _derive_key(k, files[k], fields, dv_defs, ext_rater))
+                    rebuilt += 1
+        finally:
+            _ROLE_NAMES["pin"] = None
         for k in [k for k in _KEY_CACHE if k not in sigs]:
             del _KEY_CACHE[k]
         by_key = {k: _KEY_CACHE[k][1] for k in sorted(sigs, key=str.lower)}
@@ -921,7 +1176,11 @@ def _agreement_index():
                 "dv_studies": _dv_study_alignment(blocks),
                 "rater_names": sorted(summary, key=str.lower),
                 "rater_summary": [summary[r] for r in sorted(summary, key=str.lower)],
-                "by_key": by_key, "sig": gsig}
+                "by_key": by_key, "sig": gsig, "ext_rater": bool(ext_rater),
+                "anchor": _ANCHOR["rater"],
+                # what the on-demand prefetch did (one batch, with progress) and
+                # what stayed absent (offline) - the routes report it, never hide it
+                "rater_fetch": fetch}
         _INDEX.update(sig=gsig, data=data)
         _DV_ALIGN_CACHE.clear()
         _REL_CACHE.clear()
@@ -932,7 +1191,6 @@ def _agreement_index():
         return data
 
 
-@on_reroot
 def _invalidate_agreement(_old=None, _new=None):
     """Force a re-scan on the next request (file signatures pick up what changed)."""
     with _AGREE_LOCK:
@@ -1101,64 +1359,65 @@ def abstract_fields():
     return list(_ABSTRACT_FIELDS)
 
 
-_ABSTRACT_FILE_CACHE = {}
-
-
 def _abstract_agreement_index():
-    """{coder: {uid: {C1..C4: verdict}}} from Screening/<coder>.json + the AI screen."""
+    """{coder: {uid: {C1..C4: verdict}}} from Screening/<coder>.json."""
     out = {}
-    labs = [lab for lab, _ in abstract_fields()]
-    for name, sig in sorted(_scan(S.SCREENING).items()):
-        if name.startswith("_"):
+    if not S.SCREENING or not os.path.isdir(S.SCREENING):
+        return out
+    # The criteria are normalised from the scheme on every abstract_fields()
+    # call: read them ONCE here, never inside the 30k-record loops below (that
+    # made the abstract agreement take minutes).
+    labels = [lab for lab, _ in abstract_fields()]
+    from screening_lib import ai_entry, load_screening_decisions
+    try:
+        idx = screening_index()
+    except Exception:  # noqa: BLE001
+        idx = {}
+    # a decision file may key a duplicate-accession record by its row
+    # ("row-30348") while another uses "X#2": compare them as ONE record
+    alias = (idx.get("info") or {}).get("alias") or {}
+    # "yes" / "YES " and "Yes" are one category (the workbook and hand edits
+    # differ in case); anything else is kept as written
+    cats = {c.lower(): c for c in _ABSTRACT_CATS}
+
+    def canon(v):
+        v = str(v).strip()
+        return cats.get(v.lower(), v)
+    for p in sorted(glob.glob(os.path.join(S.SCREENING, "*.json"))):
+        coder = os.path.splitext(os.path.basename(p))[0]
+        try:
+            dec = load_screening_decisions(coder)    # cached by file stamp
+        except Exception:  # noqa: BLE001
             continue
-        coder = name[:-5]
-        path = os.path.join(S.SCREENING, name)
-        hit = _ABSTRACT_FILE_CACHE.get(path)
-        if hit and hit[0] == (sig, tuple(labs)):
-            if hit[1]:
-                out[coder] = hit[1]
+        if not isinstance(dec, dict):
             continue
         by_uid = {}
-        try:
-            with open(path, encoding="utf-8") as fh:
-                dec = json.load(fh)
-        except (OSError, ValueError) as exc:
-            log(f"agreement: cannot read {path}: {exc!r}")
-            dec = None
-        if isinstance(dec, dict):
-            for uid, rec in dec.items():
-                crits = (rec or {}).get("criteria") or {} if isinstance(rec, dict) else {}
-                vals = {}
-                for lab in labs:
-                    v = (crits.get(lab) or {}).get("verdict")
-                    if v:
-                        vals[lab] = str(v).strip()
-                if vals:
-                    by_uid[str(uid)] = vals
-        _ABSTRACT_FILE_CACHE[path] = ((sig, tuple(labs)), by_uid)
+        for uid, rec in dec.items():
+            crits = (rec or {}).get("criteria") or {}
+            vals = {}
+            for lab in labels:
+                v = (crits.get(lab) or {}).get("verdict")
+                if v and str(v).strip():
+                    vals[lab] = canon(v)
+            if vals:
+                by_uid[alias.get(str(uid), str(uid))] = vals
         if by_uid:
             out[coder] = by_uid
     # The original LLM abstract codings: the master workbook's C1–C4 verdicts
     # (the AI screening reference) are included as a rater.
-    try:
-        idx = screening_index()
-    except Exception as exc:  # noqa: BLE001
-        log(f"agreement: screening index unavailable: {exc!r}")
-        idx = {}
     llm = {}
     for rec in (idx.get("rows") or []):
         ai = rec.get("ai") or {}
         vals = {}
-        for lab in labs:
-            v = str((ai.get(lab) or {}).get("verdict") or "").strip()
+        for lab in labels:
+            v = str(ai_entry(ai, lab).get("verdict") or "").strip()
             if v:
-                vals[lab] = v
+                vals[lab] = canon(v)
         if vals:
             llm[str(rec.get("id"))] = vals
     if llm:
         out.setdefault(AGREEMENT_REFERENCE, llm)
     return out
-
 
 def _abstract_case_maps(index):
     """{label: {uid: {rater: verdict}}}."""
@@ -1177,12 +1436,9 @@ def _rater_sort_key(rater, reference=AGREEMENT_REFERENCE):
 
 
 # ---------------------------------------------------------------- conflicts
-#: Judgements the paper does not dictate (AGENTS.md "never majority-vote a fact
-#: or a judgement"): a bulk "accept majority" skips them; a Master settles each.
-NO_MAJORITY_FIELDS = frozenset({
-    "eligible_primary", "dv_polarity", "Fulltext_Exclusion_Criterion", "n_arms",
-    "control_group_type", "Fully_Within", "N_Analyzed", "N_Recruited", "Gender_Ratio",
-})
+#: Judgements the paper does not dictate: `no_majority_fields()` (role-derived,
+#: see above) - a bulk "accept majority" skips them; a Master settles each.
+NO_MAJORITY_FIELDS = no_majority_fields   # callable: the set depends on the scheme
 
 
 def majority_value(values):
@@ -1239,7 +1495,7 @@ def study_conflicts(d, field_names=None, kind=None):
                 crow = block["_cons"].get(ui)
                 raters = sorted(unit, key=_rater_sort_key)
                 span = None
-                for r in list(SPAN_RATERS) + raters:
+                for r in d["span_order"] + raters:
                     sp = unit.get(r, {}).get("span") if r in unit else None
                     if sp:
                         span = dict(sp, coder=r)
@@ -1350,8 +1606,10 @@ def _legacy_entries():
                             "target": target, "rater_values": None,
                             "master": master,
                             "decided_at": stamps.get((master, key, case_id, field)) or mtime,
-                            "applied": field not in PSEUDO_DV_FIELDS,
-                            "apply_note": "migrated; already written into the consensus",
+                            "applied": False,
+                            "apply_note": ("migrated: the value was written to the master's own "
+                                           f"coding file Codings/{key} - {master}.json, not to the "
+                                           "consensus; settle again to apply it"),
                             "note": "", "source": f"migrated from {_LEGACY_DIRNAME}/{name}",
                         })
     if os.path.exists(log_path):
@@ -1568,19 +1826,18 @@ def settle_cases(key, decisions, master, note="", source="app"):
                 apply_note = "the consensus coding has no row for this case"
             elif case["field"] == "timepoint":
                 cell, _ = _cell(recs, case)
-                cur_tp = {"timepoint_1": cell.get("timepoint_1"),
-                          "timepoint_2": cell.get("timepoint_2")}
+                tp1, tp2 = _tp_names()
+                cur_tp = {tp1: cell.get(tp1), tp2: cell.get(tp2)}
                 previous = (copy.deepcopy(old.get("previous_value"))
                             if (old and old.get("previous_value_known"))
                             else copy.deepcopy(cur_tp))
                 known = True
-                if _timepoint_bucket(cur_tp["timepoint_1"], cur_tp["timepoint_2"]) != stored:
-                    cell["timepoint_1"] = stored
-                    if _bucket_one(cell.get("timepoint_2")) not in ("", stored):
-                        cell["timepoint_2"] = None
+                if _timepoint_bucket(cur_tp[tp1], cur_tp[tp2]) != stored:
+                    cell[tp1] = stored
+                    if _bucket_one(cell.get(tp2)) not in ("", stored):
+                        cell[tp2] = None
                     changed = True
-                written = {"timepoint_1": cell.get("timepoint_1"),
-                           "timepoint_2": cell.get("timepoint_2")}
+                written = {tp1: cell.get(tp1), tp2: cell.get(tp2)}
                 applied = True
             else:
                 cell, cur_val = _cell(recs, case)
@@ -1640,11 +1897,11 @@ def clear_settlement(key, case, master):
                 cell, current = _cell(recs, case)
                 prev = entry.get("previous_value")
                 if case["field"] == "timepoint" and isinstance(prev, dict):
-                    cur_tp = {"timepoint_1": cell.get("timepoint_1"),
-                              "timepoint_2": cell.get("timepoint_2")}
+                    tp1, tp2 = _tp_names()
+                    cur_tp = {tp1: cell.get(tp1), tp2: cell.get(tp2)}
                     if cur_tp == entry.get("written"):
-                        cell["timepoint_1"] = copy.deepcopy(prev.get("timepoint_1"))
-                        cell["timepoint_2"] = copy.deepcopy(prev.get("timepoint_2"))
+                        cell[tp1] = copy.deepcopy(prev.get(tp1))
+                        cell[tp2] = copy.deepcopy(prev.get(tp2))
                         _write_consensus(path, raw)
                         restored = True
                     else:

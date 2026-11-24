@@ -1,0 +1,17 @@
+# Allow-list build context for Server/Dockerfile (build context = repo root).
+# BuildKit reads this file because it sits next to Server/Dockerfile.
+# Docker applies the LAST matching rule, so the re-excludes below win.
+
+*
+
+!Scripts/online_shared
+!Scripts/online_shared/**
+!Server
+!Server/**
+
+# re-exclude what must not reach the image
+Server/tests
+Scripts/online_shared/tests
+**/__pycache__
+**/*.pyc
+**/.pytest_cache

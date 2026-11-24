@@ -106,6 +106,36 @@ VOCAB_FOR_FIELD = {
 
 NUM_RE = re.compile(r"(\d+)\s*=\s*")
 
+# 2026-10-22 label humanization: the level labels a coder SEES live in ONE
+# place - ``scheme_legacy.VOCAB_OPTION_LABELS`` - so a schema.json rebuild and
+# a scheme conversion can never disagree about them.  The stored VALUES are
+# still the raw tokens.
+import scheme_legacy as _SL
+
+SCORE_TYPES_DESCRIPTION = (
+    "How the score is computed (choose all).\n"
+    "separate_true - Separate true: true items scored alone\n"
+    "separate_false - Separate false: false items scored alone\n"
+    "separate_manipulative - Separate manipulative: manipulative items scored alone\n"
+    "separate_nonmanipulative - Separate non-manipulative: clean items scored alone\n"
+    "discernment_difference - Discernment difference: true minus false\n"
+    "composite - Composite: items pooled into one score\n"
+    "signal_detection_auc - SDT AUC: area under the ROC curve\n"
+    "signal_detection_d_prime - SDT d': sensitivity (zHit minus zFA)\n"
+    "signal_detection_c - SDT c: response bias\n"
+    "signal_detection_other - SDT other: another signal-detection index\n"
+    "dichotomous_accuracy - Dichotomous accuracy: 0/1 correct\n"
+    "continuous_accuracy - Continuous accuracy: graded accuracy\n"
+    "proportion - Proportion: a share of responses\n"
+    "proportion_difference - Proportion difference: difference of shares\n"
+    "behavioral_choice - Behavioral choice: an option chosen\n"
+    "count - Count: a number of instances\n"
+    "single_item - Single item: one item only\n"
+    "behavioral_intention - Behavioral intention: self-reported intent\n"
+    "change_score - Change score: post minus pre\n"
+    "other - Other: describe it in Discernment Defined As"
+)
+
 # ---------------------------------------------------------------------------
 # Campaign-level schema corrections (2026-09-19, analysis-tab fix).
 #
@@ -307,57 +337,84 @@ def apply_campaign_overrides(payload):
             "editor": "text",
         })
 
-    # Full-text inclusion criteria (C1-C4): recorded on EVERY coding, so a study that fails an
+    # Full-text inclusion criteria: recorded on EVERY coding, so a study that fails an
     # inclusion criterion is still fully coded / harmonized / reproduced as normal (see AGENTS.md).
+    # The eight full-text exclusion criteria (owner decision 2026-11-19); the
+    # three legacy alias strings become their canonical values.
+    _FT_CRITERIA = [
+        {"value": "C1", "label": "No misinformation intervention (C1)"},
+        {"value": "C2", "label": "No control/comparison group (C2)"},
+        {"value": "C3", "label": "Not English (C3)"},
+        {"value": "C4", "label": "Not a primary experimental study (C4)"},
+        {"value": "irretrievable", "label": "Fulltext irretrievable (no obtainable copy)"},
+        {"value": "no_contrast",
+         "label": "No eligible contrast reported (study ran, but reports none)"},
+        {"value": "duplicate",
+         "label": "Duplicate/non-independent report of an included study"},
+        {"value": "domain_mismatch",
+         "label": "Outcome/intervention outside misinformation susceptibility"},
+    ]
     if not any(f.get("name") == "Fulltext_Exclusion_Criterion" for f in common):
         common.append({
             "name": "Fulltext_Exclusion_Criterion",
-            "label": "Full-text exclusion criterion (C1-C4)",
+            "label": "Full-text exclusion criterion",
             "group": "Metadata & Identification",
             "type": "multiselect",
             "base_type": "string",
             "description": ("Leave EMPTY when the study meets every inclusion criterion. Otherwise "
-                            "list the unmet criterion/criteria: C1 = No misinformation intervention; "
-                            "C2 = No control/comparison group; C3 = Not English; C4 = Not a primary "
-                            "experimental study. A study that fails a criterion is STILL fully coded, "
+                            "list the unmet criterion/criteria - the eight full-text exclusion "
+                            "criteria: C1 = No misinformation intervention; C2 = No "
+                            "control/comparison group; C3 = Not English; C4 = Not a primary "
+                            "experimental study (an observational study with no experimental "
+                            "intervention is C4); irretrievable = full text not obtainable; "
+                            "no_contrast = no eligible contrast reported; duplicate = "
+                            "non-independent report of an included study; domain_mismatch = "
+                            "outcome/intervention outside misinformation susceptibility. "
+                            "A study that fails a criterion is STILL fully coded, "
                             "harmonized and reproduced as normal."),
             "required": False,
             "derived": False,
             "module": None,
             "editor": "multiselect",
-            "options": [
-                {"value": "C1", "label": "No misinformation intervention (C1)"},
-                {"value": "C2", "label": "No control/comparison group (C2)"},
-                {"value": "C3", "label": "Not English (C3)"},
-                {"value": "C4", "label": "Not a primary experimental study (C4)"},
-                # Three non-criterion buckets the screening layer also uses, so the coding and
-                # the screening workbook share ONE canonical vocabulary (2026-10-02):
-                {"value": "insufficient reporting",
-                 "label": "insufficient reporting (study ran, but no eligible contrast is reported)"},
-                {"value": "fulltext irretrievable",
-                 "label": "fulltext irretrievable (no obtainable copy)"},
-                {"value": "duplicate of an included study",
-                 "label": "duplicate of an included study (non-independent report)"},
-            ],
+            "options": [dict(o) for o in _FT_CRITERIA],
         })
 
     # The fallback source (Scripts/coding_web/schema.json) ALREADY contains this field, so the
     # append above is skipped on a rebuild -- re-assert the canonical vocabulary onto whichever
     # instance exists, otherwise the rebuild silently keeps the old option list.
+    # Owner decision 2026-11-19: the eight full-text exclusion criteria.  The
+    # three legacy alias strings ("insufficient reporting", "fulltext
+    # irretrievable", "duplicate of an included study") become their canonical
+    # values (no coding ever carried them, so nothing is re-mapped).
+    _FT_CRITERIA = [
+        {"value": "C1", "label": "No misinformation intervention (C1)"},
+        {"value": "C2", "label": "No control/comparison group (C2)"},
+        {"value": "C3", "label": "Not English (C3)"},
+        {"value": "C4", "label": "Not a primary experimental study (C4)"},
+        {"value": "irretrievable", "label": "Fulltext irretrievable (no obtainable copy)"},
+        {"value": "no_contrast",
+         "label": "No eligible contrast reported (study ran, but reports none)"},
+        {"value": "duplicate",
+         "label": "Duplicate/non-independent report of an included study"},
+        {"value": "domain_mismatch",
+         "label": "Outcome/intervention outside misinformation susceptibility"},
+    ]
     for _f in common:
         if _f.get("name") == "Fulltext_Exclusion_Criterion":
-            _f["options"] = [
-                {"value": "C1", "label": "No misinformation intervention (C1)"},
-                {"value": "C2", "label": "No control/comparison group (C2)"},
-                {"value": "C3", "label": "Not English (C3)"},
-                {"value": "C4", "label": "Not a primary experimental study (C4)"},
-                {"value": "insufficient reporting",
-                 "label": "insufficient reporting (study ran, but no eligible contrast is reported)"},
-                {"value": "fulltext irretrievable",
-                 "label": "fulltext irretrievable (no obtainable copy)"},
-                {"value": "duplicate of an included study",
-                 "label": "duplicate of an included study (non-independent report)"},
-            ]
+            _f["options"] = [dict(o) for o in _FT_CRITERIA]
+            _f["label"] = "Full-text exclusion criterion"
+            _f["description"] = (
+                "Leave EMPTY when the study meets every inclusion criterion. Otherwise "
+                "list the unmet criterion/criteria - the eight full-text exclusion "
+                "criteria: C1 = No misinformation intervention; C2 = No "
+                "control/comparison group; C3 = Not English; C4 = Not a primary "
+                "experimental study (an observational study with no experimental "
+                "intervention is C4); irretrievable = full text not obtainable; "
+                "no_contrast = no eligible contrast reported; duplicate = "
+                "non-independent report of an included study; domain_mismatch = "
+                "outcome/intervention outside misinformation susceptibility. "
+                "A study that fails a criterion is STILL fully coded, harmonized "
+                "and reproduced as normal.")
 
     # Sample group whitelist + Attention_Cues group.
     for f in common:
@@ -450,7 +507,10 @@ def apply_campaign_overrides(payload):
         if f.get("name") == "Intervention_Type":
             f["vocab"] = list(itypes)
             if "options" in f:
-                f["options"] = [{"value": t, "label": t} for t in itypes]
+                # humanized labels from the ONE table (values stay the tokens)
+                label_of = dict(_SL.VOCAB_OPTION_LABELS.get("Intervention_Type") or [])
+                f["options"] = [{"value": t, "label": label_of.get(t, t)}
+                                for t in itypes]
             if f.get("description"):
                 f["description"] = _drop_retired(
                     f["description"], RETIRED_INTERVENTION_TYPES)
@@ -460,8 +520,7 @@ def apply_campaign_overrides(payload):
         if f.get("name") == "score_types":
             if "vocab" in f:
                 f["vocab"] = list(stypes)
-            f["description"] = ("Controlled multi-label list: " +
-                                ", ".join(stypes) + ".")
+            f["description"] = SCORE_TYPES_DESCRIPTION
 
     # ------------------------------------------------------------------
     # Follow-up moderator-collapse vocabularies (2026-09-19, PI-approved).

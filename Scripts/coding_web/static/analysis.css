@@ -227,6 +227,8 @@ body.view-analysis #an-full-top { display: inline-flex !important; }
 /* ------------------------------------------------------------ on-the-fly moderation */
 .an-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); gap: 16px; align-items: start; }
 .an-main { min-width: 0; }
+/* a wide summary table scrolls inside its card instead of being cut off */
+#an-summary > div { overflow-x: auto; }
 .an-side {
   position: sticky; top: 12px; border: 1px solid var(--line); border-radius: var(--r-lg);
   background: var(--panel); box-shadow: var(--shadow-1); overflow: hidden;

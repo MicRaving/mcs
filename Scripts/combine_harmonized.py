@@ -44,6 +44,8 @@ except Exception:
 import tempfile  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "Scripts"))
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 DS = os.path.join(ROOT, "Datasets")
 RESULTS = os.path.join(ROOT, "Results")
 TMP = os.path.join(ROOT, "temp")
@@ -91,6 +93,7 @@ def discover():
         if not os.path.isdir(os.path.join(DS, d)) or d in SKIP or d.startswith("."):
             continue
         f = os.path.join(DS, d, d + " - harmonized.csv")
+        f = CSVIO.resolve(f)          # the product may be stored gzip-compressed
         if not os.path.isfile(f):
             continue
         try:

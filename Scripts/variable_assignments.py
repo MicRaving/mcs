@@ -75,6 +75,8 @@ ROOT = os.path.dirname(HERE)
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
+
 # --- shared contract (defensive: authored by another workstream) ------------
 try:  # pragma: no cover - import shape depends on the parallel workstream
     import contract as _contract
@@ -211,9 +213,16 @@ def _ensure_dirs():
 
 
 def _atomic_csv(df, path):
-    """Write ``df`` to ``path`` atomically (temp file + safe_replace)."""
+    """Write ``df`` to ``path`` atomically (temp file + safe_replace).
+
+    The temp file keeps the destination's compression suffix: a dataset product
+    may be stored as ``<Key> - harmonized.csv.gz`` (see ``csvio``), and pandas
+    only gzips when the *file name* says so - a plain-text temp renamed onto a
+    ``.gz`` target would leave an unreadable file behind.
+    """
     _ensure_dirs()
-    tmp = os.path.join(TMP_DIR, f".__tmp_{os.getpid()}_{int(time.time()*1000)}.csv")
+    suffix = ".csv.gz" if str(path).lower().endswith(".gz") else ".csv"
+    tmp = os.path.join(TMP_DIR, f".__tmp_{os.getpid()}_{int(time.time()*1000)}{suffix}")
     df.to_csv(tmp, index=False, encoding="utf-8-sig")
     if _HAVE_SAFE_REPLACE:
         _safe_replace.safe_replace(tmp, path)
@@ -564,7 +573,7 @@ def _handle_splits(key, folder, side, wide, assignments, records):
                             note="dv_veracity_split not importable"))
         return side, wide
     side_path = os.path.join(folder, f"{key} - harmonized_variables.csv")
-    wide_path = os.path.join(folder, f"{key} - harmonized.csv")
+    wide_path = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     before = (_file_hash(side_path), _file_hash(wide_path))
     try:
         n_new, n_src = _split.attach(key, folder, sources)
@@ -683,7 +692,7 @@ def apply_files(key, folder):
     no-op re-apply touches nothing.  Returns ``[]`` when there is no sidecar.
     """
     side_path = os.path.join(folder, f"{key} - harmonized_variables.csv")
-    wide_path = os.path.join(folder, f"{key} - harmonized.csv")
+    wide_path = CSVIO.resolve(os.path.join(folder, f"{key} - harmonized.csv"))
     if not os.path.isfile(side_path):
         return []
     side = _read_csv(side_path)

@@ -34,6 +34,14 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+#: The agent bundle: the generated contract an agent reads instead of the
+#: legacy schema.json.  It is written by ``Scripts/convert_legacy_schema.py
+#: --bundle`` (and by ``GET /api/scheme/bundle``).
+# forward slashes: the path is read by an agent, not by the OS
+# the agent bundle travels with the CodingStudio app, in
+# <app dir>/Schemes/<scheme id>/bundles/
+BUNDLE_DIR = "Scripts/coding_web/Schemes/misinformation/bundles"
 TMP = os.path.join(ROOT, "temp", "mm")
 #: The router's own bookkeeping lives OUTSIDE the agents' scratch namespace: an
 #: agent that wipes ``temp/mm`` must not take the queue state with it.

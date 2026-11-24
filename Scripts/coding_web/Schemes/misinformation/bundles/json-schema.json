@@ -1,0 +1,3215 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "codingstudio://misinformation-interventions/record",
+ "title": "Misinformation Interventions (v3.1)",
+ "type": "object",
+ "properties": {
+  "Study_ID": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Study ID",
+   "description": "Study ID — Unique ID string, [Author][Year]_Exp[1-9]. — Study_ID = first-author surname + year + `_ExpN`, ASCII only, e.g. `Austin2025_Exp1`, `Jolley2014_Exp9`; a two-study paper uses `_Exp1`, `_Exp2`. One record per trial/experiment, and the record's `DV_Metrics` hold that experiment's own contrasts. Required.",
+   "x-role": "study_id"
+  },
+  "Parent_Study_ID": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Parent Study ID",
+   "description": "Parent Study ID — Study_ID of the record one level up in the hierarchy (experiment -> paper/study). Null for a top-level record.  The per-record aggregation level was removed on 2026-09-17; every extraction record now describes one experiment and carries its own DV contrasts. — Bookkeeping key - no source span required. Leave it null for a top-level record: every record now describes one experiment and carries its own DV contrasts.",
+   "x-role": "parent_study_id"
+  },
+  "Year": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Publication Year",
+   "description": "Publication Year — Publication year. — Metadata field: read the publication year from page 1 of the paper (the title block or the citation line). Required.",
+   "x-role": "year"
+  },
+  "Publication": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "enum": [
+    "paper_peer_reviewed",
+    "paper_unreviewed",
+    "thesis",
+    "dissertation",
+    "preprint",
+    "working_paper",
+    "conference_paper",
+    "unpublished_manuscript",
+    "report",
+    null
+   ],
+   "title": "Publication",
+   "description": "Publication — Merged publication form (one moderator). Controlled vocabulary: paper_peer_reviewed, paper_unreviewed, thesis, dissertation, preprint, working_paper, conference_paper, unpublished_manuscript, report. Splits `paper` into peer-reviewed vs unreviewed. — Metadata field: read the publication form from page 1 (the journal line, the thesis statement or the preprint banner). Use only the codes in the options list.",
+   "x-role": "publication"
+  },
+  "DOI": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "DOI",
+   "description": "DOI — Digital Object Identifier, or null. — Metadata field: read the DOI from page 1 (the header, the first-page footer or the journal citation line). Leave it null when the paper prints no DOI.",
+   "x-role": "doi"
+  },
+  "Authors": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Authors",
+   "description": "Authors — Author names (Last, First), semicolon-separated. — Metadata field: read the author list from page 1 and write it as `Last, First; Last, First`. Required.",
+   "x-role": "authors"
+  },
+  "Title": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Title",
+   "description": "Title — Title of the paper. — Metadata field: read the title from page 1, verbatim. Required.",
+   "x-role": "title"
+  },
+  "Study_Description": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Study Description",
+   "description": "Study Description — 2-sentence description of the study design and primary aim. — Required on every record. Write two sentences describing the study design and the primary aim, taken from the paper's abstract and method section. Bookkeeping key - no source span required. Required.",
+   "x-role": "description"
+  },
+  "N_Recruited": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "N Recruited",
+   "description": "N Recruited — Number of participants recruited before exclusions, or null. — A table-based numeric field: mark the table cell/row (or the participant-flow sentence) that reports how many were recruited before exclusions. Leave it null when the paper does not state it.",
+   "x-role": "n_recruited"
+  },
+  "N_Analyzed": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "N Analyzed",
+   "description": "N Analyzed — Final analyzed sample size, or null. — A table-based numeric field: mark the table cell/row (or the participant-flow sentence) that reports the final analysed sample. Leave it null when the paper does not state the analysed N.",
+   "x-role": "sample_n"
+  },
+  "N_Reported_Per_Condition": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "N Reported Per Condition",
+   "description": "N Reported Per Condition — 1=cell sizes explicitly reported, 0=not reported (must be inferred), null=unclear. — 1 = the paper reports the cell size of every condition explicitly, 0 = the cell sizes must be inferred, null = unclear. When you set 0, say in Rationale_Notes how the cell sizes were obtained.",
+   "x-role": "n_reported_per_condition"
+  },
+  "N_Inference_Method": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "N Inference Method",
+   "description": "N Inference Method — 1=Reported, 2=Equal split of total N, 3=Other (specify in Rationale_Notes). — 1 = the cell sizes are reported, 2 = an equal split of the total N was assumed, 3 = another derivation - then specify it in Rationale_Notes.",
+   "x-role": "n_inference_method"
+  },
+  "Age_Mean": {
+   "type": [
+    "number",
+    "null"
+   ],
+   "title": "Mean Age",
+   "description": "Mean Age — Numeric mean age, or null (leave null when only a median/range/category is reported). — A table-based numeric field: mark the table cell/row that reports the mean age. Leave it null when the paper reports only a median, a range or a category.",
+   "x-role": "age_mean"
+  },
+  "Age_SD": {
+   "type": [
+    "number",
+    "null"
+   ],
+   "title": "Age SD",
+   "description": "Age SD — Standard deviation of age, or null. — A table-based numeric field: mark the table cell/row that reports the SD of age; null when the paper reports only the mean.",
+   "x-role": "age_sd"
+  },
+  "Age_Reported_As": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Age Reported As",
+   "description": "Age Reported As — 1=Mean/SD, 2=Median/Range, 3=Categorical band, 4=Not reported. — 1 = mean/SD, 2 = median/range, 3 = categorical band, 4 = not reported. This field says how the paper reports age; Age_Mean and Age_SD carry the numbers.",
+   "x-role": "age_reported_as"
+  },
+  "Age_Group": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Age Group",
+   "description": "Age Group — 1=Children, 2=Adolescents, 3=Adults, 4=Mixed. Null if cannot be determined. — 1 = children, 2 = adolescents, 3 = adults, 4 = mixed. Derive it from the sample the paper describes; null when it cannot be determined.",
+   "x-role": "age_group"
+  },
+  "Gender_Ratio": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "title": "Gender Ratio",
+   "description": "Gender Ratio — Object mapping gender labels to percentages or counts, e.g. {\"female\": 59, \"male\": 40, \"non-binary\": 1}; null if not reported. — A table-based numeric field: mark the table cell/row that reports the gender breakdown, and write it as an object mapping the paper's own gender labels to the reported percentages or counts. Null if not reported.",
+   "x-role": "gender_ratio"
+  },
+  "Gender_Reported_As": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Gender Reported As",
+   "description": "Gender Reported As — 1=Percentages, 2=Counts, 3=Not reported. — 1 = the paper reports percentages, 2 = counts, 3 = not reported. Gender_Ratio carries the numbers.",
+   "x-role": "gender_reported_as"
+  },
+  "Covariates": {
+   "type": [
+    "array",
+    "null"
+   ],
+   "items": {
+    "type": "object",
+    "properties": {
+     "covariate": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "dv_name": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "r_val": {
+      "type": [
+       "number",
+       "null"
+      ]
+     }
+    },
+    "additionalProperties": true
+   },
+   "title": "Covariates",
+   "description": "Covariates — Array of objects listing variables controlled for, [{\"covariate\": string, \"dv_name\": string, \"r_val\": number|null}]. Empty array if none. — A list-valued field: mark a passage that supports the listed values - one entry per variable the paper controlled for, with the DV it belongs to and the reported correlation when the paper gives one. Empty array if the paper controls for nothing.",
+   "x-role": "covariates"
+  },
+  "Country": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Countries",
+   "description": "Countries — Array of country strings, e.g. [\"USA\", \"UK\"]. Empty array if not reported. — A list-valued field: mark a passage that supports the listed values - one country string per country the sample was drawn in. Empty array if the paper does not report the country.",
+   "x-role": "country"
+  },
+  "Sample_Region": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Sample Region",
+   "description": "Sample Region — Region/description when Country is not applicable (e.g. \"international English-speaking\", \"Sub-Saharan Africa\"). — A free-text field: write the region or description the paper gives where a country does not apply (e.g. 'international English-speaking', 'Sub-Saharan Africa'). Leave it empty when the paper does not report one - never invent a value.",
+   "x-role": "sample_region"
+  },
+  "International_Sample": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "International Sample",
+   "description": "International Sample — 1=sample spans multiple countries, 0=single country, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact - the sample spans more than one country (1) or a single country (0). Null when the paper does not make it clear.",
+   "x-role": "international_sample"
+  },
+  "WEIRD_Western": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "WEIRD - Western",
+   "description": "WEIRD - Western — 1=Western, 0=not, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact (the sample's Western status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
+   "x-role": "weird_western"
+  },
+  "WEIRD_Educated": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "WEIRD - Educated",
+   "description": "WEIRD - Educated — 1=Educated/high-education, 0=not, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact (the sample's education level, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
+   "x-role": "weird_educated"
+  },
+  "WEIRD_Industrialized": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "WEIRD - Industrialized",
+   "description": "WEIRD - Industrialized — 1=Industrialized, 0=not, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact (the sample's industrialized status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
+   "x-role": "weird_industrialized"
+  },
+  "WEIRD_Rich": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "WEIRD - Rich",
+   "description": "WEIRD - Rich — 1=Rich/high-income, 0=not, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact (the sample's income status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
+   "x-role": "weird_rich"
+  },
+  "WEIRD_Democratic": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "WEIRD - Democratic",
+   "description": "WEIRD - Democratic — 1=Democratic, 0=not, null=unclear. — A boolean/derived coding: mark the sentence that states the underlying fact (the sample's democratic status, or the country and region it comes from), not the code itself. Null when the paper does not make it clear.",
+   "x-role": "weird_democratic"
+  },
+  "Setting": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    null
+   ],
+   "title": "Setting",
+   "description": "Setting — 1=Lab, 2=Field, 3=Classroom, 4=Online panel survey, 5=Online experiment, 6=Simulated field, 7=Other. — Mark the sentence or the method section that states where the study ran: 1 lab, 2 field, 3 classroom, 4 online panel survey, 5 online experiment, 6 simulated field, 7 other.",
+   "x-role": "setting"
+  },
+  "dataset_availability_status": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Dataset Availability Status",
+   "description": "Dataset Availability Status — 1=Open URL, 2=Upon request, 3=Not available, 4=Not stated. — 1 = the paper gives an open URL, 2 = the data are available on request, 3 = the data are not available, 4 = not stated. An absence coding: for 4, mark the nearest relevant statement and say in Rationale_Notes that the paper contains no explicit statement.",
+   "x-role": "dataset_availability"
+  },
+  "data_url": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Data URL",
+   "description": "Data URL — Direct URL to the dataset, or null. — A free-text field: copy the direct URL to the dataset exactly as the paper prints it. Leave it empty when there is none - never reconstruct a URL.",
+   "x-role": "dataset_url"
+  },
+  "data_repository": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Data Repository",
+   "description": "Data Repository — Repository name/ID (e.g. OSF ujwy3, Dryad, Zenodo), or null. — A free-text field: name the repository and, where the paper gives one, its identifier (e.g. 'OSF ujwy3', 'Dryad', 'Zenodo'). Leave it empty when the paper names no repository.",
+   "x-role": "data_repository"
+  },
+  "data_available": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Data Available (derived)",
+   "description": "Data Available (derived) — Derived, not paper-coded: 1 when a harmonized participant-level dataset exists in `Datasets/<Study Key>/`, else 0. Populated by the reanalysis / analysis-suite scripts (`Scripts/suite_common.py:_data_available_map`). — Not paper-coded: the pipeline sets this to 1 when a harmonized participant-level dataset exists in `Datasets/<Study Key>/` and to 0 otherwise. Leave it empty when you code.",
+   "x-role": "data_available"
+  },
+  "code_available": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Code Available",
+   "description": "Code Available — 1=analysis code available, 0=not, null=not stated. — 1 = the paper offers analysis code, 0 = it does not, null = not stated. A boolean/derived coding: mark the sentence that states the underlying fact (the availability statement, a repository link or the open-science badge).",
+   "x-role": "code_available"
+  },
+  "preregistration_status": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Preregistration Status",
+   "description": "Preregistration Status — 1=None, 2=Registered (no URL given), 3=Registered (URL given). — 1 = no preregistration, 2 = registered but no URL given, 3 = registered with a URL. An absence coding: for 1, mark the nearest relevant statement (e.g. the open-science statement) and say in Rationale_Notes that the paper contains no explicit statement of a preregistration.",
+   "x-role": "preregistration_status"
+  },
+  "preregistration_url": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Preregistration URL",
+   "description": "Preregistration URL — URL of the preregistration, or null. — Copy the preregistration URL exactly as the paper prints it. Leave it empty when the paper registers without a URL (preregistration_status = 2) or does not register at all.",
+   "x-role": "preregistration_url"
+  },
+  "ethics": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Ethics Approval",
+   "description": "Ethics Approval — 0=No mention, 1=Mentioned, 2=Institution named, 3=Institution and protocol number. — 0 = the paper does not mention ethics, 1 = it mentions ethics approval, 2 = it names the institution, 3 = it gives the institution and the protocol number. Mark the sentence (or the ethics-approval footnote) that states it.",
+   "x-role": "ethics"
+  },
+  "consent_reported": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Consent Reported",
+   "description": "Consent Reported — 1=informed consent reported, 0=not, null=not stated. — 1 = the paper reports that informed consent was obtained, 0 = it does not, null = not stated. A boolean/derived coding: mark the sentence that states the underlying fact (the consent sentence in the participants or ethics section).",
+   "x-role": "consent_reported"
+  },
+  "n_arms": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Number of Arms",
+   "description": "Number of Arms — Number of independent experimental groups/conditions. — Count the independent experimental groups/conditions the experiment has, including the control arm. The number decides how many eligible primary contrasts the experiment can carry - one per intervention arm against the shared no-intervention control.",
+   "x-role": "n_arms"
+  },
+  "design_factors": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Design Factors",
+   "description": "Design Factors — Array of manipulated factors, e.g. [\"inoculation\", \"misinformation\"] or [\"credibility_badge\", \"social_norm\"]. — A list-valued field: mark a passage that supports the listed values - one string per manipulated factor, e.g. ['inoculation', 'misinformation']. Empty array when the design is single-factor.",
+   "x-role": "design_factors"
+  },
+  "factor_levels": {
+   "type": [
+    "array",
+    "null"
+   ],
+   "items": {
+    "type": "object",
+    "properties": {
+     "factor": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "levels": {
+      "type": [
+       "array",
+       "null"
+      ]
+     }
+    },
+    "additionalProperties": true
+   },
+   "title": "Factor Levels",
+   "description": "Factor Levels — Array of objects, [{\"factor\": string, \"levels\": [string]}]. — A list-valued field: mark a passage that supports the listed values - one entry per factor with its levels, e.g. [{'factor': 'inoculation', 'levels': ['yes', 'no']}].",
+   "x-role": "factor_levels"
+  },
+  "within_between": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Within/Between",
+   "description": "Within/Between — 1=Between-subjects, 2=Within-subjects, 3=Mixed. — 1 = between-subjects, 2 = within-subjects, 3 = mixed. Mark the sentence that states how participants were allocated.",
+   "x-role": "design"
+  },
+  "unit_of_analysis": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Unit of Analysis",
+   "description": "Unit of Analysis — 1=Participant, 2=Item/headline, 3=Dyad/group, 4=Other. — 1 = participant, 2 = item/headline, 3 = dyad/group, 4 = other. Mark the sentence that states the unit the analysis treats as the observation - and set 2 when the paper analyses headlines or claims as the data points.",
+   "x-role": "unit_of_analysis"
+  },
+  "clustering": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Clustering",
+   "description": "Clustering — Clustering/random effects structure, e.g. \"standard errors clustered by post\", or null. — A free-text field: write the clustering/random-effects structure the paper uses, e.g. 'standard errors clustered by post'. Leave it empty when the paper does not state one - never invent a value.",
+   "x-role": "clustering"
+  },
+  "control_group_type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Control Group Type",
+   "description": "Control Group Type — 1=No-treatment/Passive, 2=Placebo (unrelated content), 3=Active (alternative intervention), 4=Waitlist, 5=Misinformation-only, 6=Other. — 1 = no-treatment/passive, 2 = placebo (unrelated content), 3 = active (alternative intervention), 4 = waitlist, 5 = misinformation-only, 6 = other. Mark the sentence that describes the control arm. A contrast is eligible_primary = 1 only when this control receives no misinformation intervention of its own.",
+   "x-role": "control_group_type"
+  },
+  "Intervention_Type": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "enum": [
+     "inoculation",
+     "prebunking_warning",
+     "lateral_reading",
+     "credibility_labels",
+     "media_literacy_tips",
+     "fact_checking_training",
+     "openmindedness_intervention",
+     "debunking_and_rebuttals",
+     "community_correction",
+     "accuracy_prompts",
+     "friction",
+     "social_norms",
+     "platform_exposure_reduction",
+     "other"
+    ],
+    "type": "string"
+   },
+   "title": "Intervention Type",
+   "description": "Intervention Type — Multi-label list of intervention types from the merged vocabulary: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Multi-type experiments are allowed (e.g. [\"inoculation\", \"friction\"]). The former intervention_module field was removed on 2026-09-17; the module-specific coding fields are now implied by these types. — A list-valued field: mark a passage that supports the listed values - one code per intervention the experiment delivers; a multi-type experiment is allowed. When the paper separates the components, keep the `Interventions[]` arms explicit and bind every DV to its arm with `Intervention_ID`. Suggested values: inoculation, prebunking_warning, lateral_reading, credibility_labels, media_literacy_tips, fact_checking_training, openmindedness_intervention, debunking_and_rebuttals, community_correction, accuracy_prompts, friction, social_norms, platform_exposure_reduction, other. Any other value is accepted.",
+   "x-role": "intervention_type"
+  },
+  "Intervention_Type_Detail": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Intervention Type Detail",
+   "description": "Intervention Type Detail — REQUIRED when Intervention_Type includes \"other\"; specify the combined/specific approach. Otherwise null. — REQUIRED when Intervention_Type includes 'other': write the combined or specific approach the paper used. Otherwise leave it empty.",
+   "x-role": "intervention_detail"
+  },
+  "Intervention_Topic": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Intervention Topic",
+   "description": "Intervention Topic — Topic or domain of the intervention (e.g. vaccines, climate change), or null. — A free-text field: write the topic or domain the intervention addressed (e.g. vaccines, climate change). Leave it empty when the paper does not report one - never invent a value.",
+   "x-role": "intervention_topic"
+  },
+  "Intervention_Duration": {
+   "type": [
+    "number",
+    "null"
+   ],
+   "title": "Intervention Duration (minutes)",
+   "description": "Intervention Duration (minutes) — Numeric duration of the intervention in minutes, or null. — A table-based numeric field: mark the sentence or table cell that reports the exposure time in minutes. Leave it null when the paper does not state a duration.",
+   "x-role": "intervention_duration"
+  },
+  "Modality": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Modality",
+   "description": "Modality — 1=Text, 2=Video, 3=Game/Gamified, 4=Mixed, 5=Other (specify in detail/notes), 6=Personal training. — 1 = text, 2 = video, 3 = game/gamified, 4 = mixed, 5 = other (say which in the notes), 6 = personal training. Mark the method-section sentence that describes the delivery channel.",
+   "x-role": "modality"
+  },
+  "Exposure_Schedule": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Exposure Schedule",
+   "description": "Exposure Schedule — 1=Single massed session, 2=Spaced (multiple continuous sessions), 3=Boosted (delayed follow-up session). — 1 = a single massed session, 2 = spaced over several continuous sessions, 3 = boosted (a delayed follow-up session). Mark the procedure-section sentence that describes the schedule.",
+   "x-role": "exposure_schedule"
+  },
+  "Pedagogy_Type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Pedagogy Type",
+   "description": "Pedagogy Type — 1=Direct Instruction, 2=Guided Inquiry, 3=Co-created/Collaborative. — 1 = direct instruction, 2 = guided inquiry, 3 = co-created/collaborative. Mark the procedure sentence that describes how the material was taught.",
+   "x-role": "pedagogy_type"
+  },
+  "Instructor_Type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Instructor Type",
+   "description": "Instructor Type — 1=Researcher, 2=Teacher, 3=Peer, 4=Computer, 5=Anthropomorphic Agent, 6=Other. — 1 = researcher, 2 = teacher, 3 = peer, 4 = computer, 5 = anthropomorphic agent, 6 = other. Mark the sentence that names who delivered the intervention.",
+   "x-role": "instructor_type"
+  },
+  "Feedback_Mechanics": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Feedback Mechanics",
+   "description": "Feedback Mechanics — 0=None, 1=Knowledge of Results (correct/incorrect), 2=Elaborated (explanation), 3=Forced Mastery. — 0 = none, 1 = knowledge of results (correct/incorrect), 2 = elaborated (an explanation), 3 = forced mastery. Mark the procedure sentence that describes the feedback given during the intervention.",
+   "x-role": "feedback_mechanics"
+  },
+  "Attention_Cues": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Attention Cues",
+   "description": "Attention Cues — Array of applicable strings: [\"Visual Signaling/Highlighting\", \"Explicit Ignore Instructions\", \"Physiological/Emotional Focus\"]. — A list-valued field: mark a passage that supports the listed values - every cue the intervention used to hold attention: visual signalling/highlighting, explicit ignore instructions, physiological/emotional focus. Suggested values: Visual Signaling/Highlighting, Explicit Ignore Instructions, Physiological/Emotional Focus. Any other value is accepted.",
+   "x-role": "attention_cues"
+  },
+  "Affective_Design": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    null
+   ],
+   "title": "Affective Design",
+   "description": "Affective Design — 0=Neutral, 1=Intentional Negative Trigger, 2=Humor/Positive Reinforcement. — 0 = neutral, 1 = intentional negative trigger, 2 = humour/positive reinforcement. Mark the sentence that describes the affective framing of the intervention.",
+   "x-role": "affective_design"
+  },
+  "Media_Support": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Media Support",
+   "description": "Media Support — Array of applicable strings: [\"Model teaching\", \"Visual aids\"]. — A list-valued field: mark a passage that supports the listed values - the media supports the intervention used, e.g. ['Model teaching', 'Visual aids']. Suggested values: Visual aids, Video, Audio, Text, Interactive/gamified, Model teaching, Physical materials, Other. Any other value is accepted.",
+   "x-role": "media_support"
+  },
+  "Comm_Strategies": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Communication Strategies",
+   "description": "Communication Strategies — Array of applicable strings: [\"Interview techniques\", \"Sketching/narrative\", \"Verbal labelling\"]. — A list-valued field: mark a passage that supports the listed values - the communication strategies used, e.g. ['Interview techniques', 'Sketching/narrative', 'Verbal labelling']. Suggested values: Sketching/narrative, Verbal labelling, Interview techniques, Group discussion, Debate, Other. Any other value is accepted.",
+   "x-role": "comm_strategies"
+  },
+  "ICAP_Role": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "ICAP Role",
+   "description": "ICAP Role — 1=Passive, 2=Active, 3=Constructive, 4=Interactive. — 1 = passive, 2 = active, 3 = constructive, 4 = interactive. Mark the sentence that describes how far the intervention made the learner engage with the material.",
+   "x-role": "icap_role"
+  },
+  "Social_Context": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Social Context",
+   "description": "Social Context — 1=Individual, 2=Prosocial, 3=Competitive. — 1 = individual, 2 = prosocial, 3 = competitive. Mark the sentence that describes whether the intervention was done alone, in a prosocial setting or in a competitive one.",
+   "x-role": "social_context"
+  },
+  "Retrieval_Practice": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Retrieval Practice",
+   "description": "Retrieval Practice — 0=Absent, 1=Present. — 0 = absent, 1 = present. Mark the procedure sentence that shows whether the intervention made learners retrieve the material (e.g. practice tests, recall prompts).",
+   "x-role": "retrieval_practice"
+  },
+  "Contrasting_Cases": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Contrasting Cases",
+   "description": "Contrasting Cases — 0=No, 1=Yes (manipulative vs. neutral examples). — 0 = no, 1 = yes - the intervention contrasted manipulative with neutral examples. Mark the passage that shows the contrast.",
+   "x-role": "contrasting_cases"
+  },
+  "Concept_Labeling": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Concept Labeling",
+   "description": "Concept Labeling — 0=Implicit, 1=Explicit. — 0 = implicit, 1 = explicit. Mark the passage that shows whether the intervention named the concept explicitly.",
+   "x-role": "concept_labeling"
+  },
+  "Interleaving": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Interleaving",
+   "description": "Interleaving — 0=Blocked, 1=Interleaved. — 0 = blocked, 1 = interleaved. Mark the passage that shows whether the material or the practice was mixed or blocked.",
+   "x-role": "interleaving"
+  },
+  "Practice_Strategy": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Practice Strategy",
+   "description": "Practice Strategy — Array of applicable strings: [\"Recall tests\", \"Easy-to-hard sequencing\"]. — A list-valued field: mark a passage that supports the listed values - the practice strategies used, e.g. ['Recall tests', 'Easy-to-hard sequencing']. Suggested values: Recall tests, Easy-to-hard sequencing, Classification/sorting, Compare-and-contrast, Self-explanation/reflection, Guided practice, Feedback-based practice, Media production, Other. Any other value is accepted.",
+   "x-role": "practice_strategy"
+  },
+  "Self_Efficacy": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Self-Efficacy Support",
+   "description": "Self-Efficacy Support — 0=No, 1=Yes (explicit support/indicators). — 0 = no, 1 = yes - the intervention explicitly supported self-efficacy (e.g. mastery feedback, efficacy statements). Mark the passage that shows it.",
+   "x-role": "self_efficacy"
+  },
+  "Synthetic": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Synthetic Stimuli",
+   "description": "Synthetic Stimuli — 1=Synthetic, 2=Real, 3=Mixed. — 1 = synthetic stimuli, 2 = real stimuli, 3 = mixed. Mark the method sentence that says how the stimuli were made.",
+   "x-role": "synthetic"
+  },
+  "Stimuli": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    null
+   ],
+   "title": "Stimuli Type",
+   "description": "Stimuli Type — 1=Headlines, 2=Claims, 3=Source, 4=Headline+Claim, 5=Claim+Source, 6=Headline+Source, 7=Video, 8=Images, 9=Other. — 1 = headlines, 2 = claims, 3 = source, 4 = headline+claim, 5 = claim+source, 6 = headline+source, 7 = video, 8 = images, 9 = other. Mark the stimuli-section sentence (or the table heading) that names the material.",
+   "x-role": "stimuli"
+  },
+  "Stimuli_Topic": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Stimuli Topic",
+   "description": "Stimuli Topic — Topic or domain of the stimuli, or null. — A free-text field: write the topic or domain of the stimuli, e.g. vaccines, climate change. Leave it empty when the paper does not report one - never invent a value.",
+   "x-role": "stimuli_topic"
+  },
+  "Rationale_Notes": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Rationale Notes",
+   "description": "Rationale Notes — Brief note on inferred values, group-size inference, and effect-size conversions. Empty string if none. — Record here every inference the paper does not state: the group-size inference and its method, the effect-size conversion and its assumption, the paper's silence on an absence coding, and any design fact the fields cannot carry (e.g. a fully-within design). Bookkeeping key - no source span required. Empty string when there is nothing to note.",
+   "x-role": "notes"
+  },
+  "Fulltext_Exclusion_Criterion": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "enum": [
+     "C1",
+     "C2",
+     "C3",
+     "C4",
+     "insufficient reporting",
+     "fulltext irretrievable",
+     "duplicate of an included study"
+    ],
+    "type": "string"
+   },
+   "title": "Full-text exclusion criterion (C1-C4)",
+   "description": "Full-text exclusion criterion (C1-C4) — Leave EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria: C1 = No misinformation intervention; C2 = No control/comparison group; C3 = Not English; C4 = Not a primary experimental study. A study that fails a criterion is STILL fully coded, harmonized and reproduced as normal. — Leave it EMPTY when the study meets every inclusion criterion. Otherwise list the unmet criterion/criteria and only those: C1 = no misinformation intervention, C2 = no control/comparison group, C3 = not English, C4 = not a primary experimental study. If the study meets C1-C4 but reports no eligible intervention-vs-control contrast (e.g. every arm is treated), leave the field empty and explain the design fact in Rationale_Notes - never write a label such as 'insufficient reporting' here. A failed criterion never excuses a thin coding: still code every experiment and every DV normally.",
+   "x-role": "fulltext_exclusion_criterion"
+  },
+  "Corresponding_Author_Name": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Corresponding author (name)",
+   "description": "Corresponding author (name) — Name of the author the paper directs correspondence to, e.g. \"Jane Roe\". Empty when the paper names no corresponding author. Recorded separately from the address in 'Corresponding_Author_Email'. — The person the paper directs correspondence to, e.g. 'Jane Roe'; null when the paper names no corresponding author. A candidate counts only when the name is one of the paper's own authors, so an editor, a production office, a repository mailbox or an IRB contact is never mistaken for the contact. Bookkeeping key - no source span required.",
+   "x-role": "corresponding_author_name"
+  },
+  "Corresponding_Author_Email": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Corresponding author (email)",
+   "description": "Corresponding author (email) — E-mail address of the corresponding author, as printed in the paper. Empty when no address is printed or none could be resolved to the corresponding author. — The e-mail address as printed in the paper; null when no address is printed or none resolves to the corresponding author. Never invent an address from a domain pattern - null plus 'paper: no corresponding author named' is the correct answer for a paper that prints no address.",
+   "x-role": "corresponding_author_email"
+  },
+  "Corresponding_Author_Source": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Corresponding author (source)",
+   "description": "Corresponding author (source) — Where the corresponding author was read from, e.g. \"pdf: correspondence note, p. 1\" or \"openalex: corresponding_author_ids\". — Where the contact was read from, e.g. 'pdf: correspondence note, p. 1', 'openalex: corresponding_author_ids', or 'paper: no corresponding author named' when the paper names none. All three corresponding-author fields are record-level and appear on every record.",
+   "x-role": "corresponding_author_source"
+  },
+  "Fully_Within": {
+   "type": [
+    "boolean",
+    "null"
+   ],
+   "title": "Fully within (single arm)",
+   "description": "Fully within (single arm) — True when the experiment has no control arm, so it is excluded from every pooled product by default. — Set it true when the experiment has no control arm at all (every arm is treated, or a single-arm pre-post design). A fully-within experiment is excluded from every pooled product by default, and its within-person pre-post change is coded as contrast_type = 4. Record the design fact in Rationale_Notes.",
+   "x-role": "fully_within"
+  },
+  "Inoculation_Target": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Inoculation Target",
+   "description": "Inoculation Target — 1=Fact-based, 2=Technique-based, 3=Logic-based. — 1 = fact-based, 2 = technique-based, 3 = logic-based. Mark the sentence that describes what the inoculation taught."
+  },
+  "Threat_Warning": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    null
+   ],
+   "title": "Threat Warning",
+   "description": "Threat Warning — 0=Absent, 1=Implicit, 2=Explicit forewarning. — 0 = absent, 1 = implicit, 2 = explicit forewarning. Mark the sentence that shows whether a threat was signalled."
+  },
+  "Manipulation_Strategy": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Manipulation Strategies",
+   "description": "Manipulation Strategies — Verbatim list of techniques refuted, e.g. [\"Ad Hominem\", \"False Cause\", \"Bandwagon\", \"Emotional storytelling\", \"Fake experts\", \"Naturalistic fallacy\", \"Conspiracy theories\", \"False balance\"]. — A list-valued field: mark a passage that supports the listed values - the techniques the inoculation refuted, verbatim, e.g. ['Ad Hominem', 'False Cause']."
+  },
+  "Active_vs_Passive": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Active vs Passive",
+   "description": "Active vs Passive — 1=Passive inoculation (text reading, video viewing), 2=Active inoculation (gamified interactive roleplay), 3=Mixed. — 1 = passive inoculation (reading a text, watching a video), 2 = active (gamified, interactive role-play), 3 = mixed. Mark the procedure-section sentence."
+  },
+  "Perspective_Taking": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Perspective Taking",
+   "description": "Perspective Taking — 0=None/neutral, 1=Defender perspective, 2=Misinformation creator/evil perspective (e.g. Bad News game), 3=Both. — 0 = none/neutral, 1 = defender perspective, 2 = misinformation-creator/evil perspective (e.g. the Bad News game), 3 = both."
+  },
+  "Technique_Count": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Number of Techniques",
+   "description": "Number of Techniques — Number of manipulation techniques explicitly taught/refuted, or null. — The number of manipulation techniques explicitly taught or refuted; null when the paper does not enumerate them."
+  },
+  "Technique_Taxonomy": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Standardized Technique Taxonomy",
+   "description": "Standardized Technique Taxonomy — Standardized controlled names: [\"emotional_manipulation\", \"fake_experts\", \"conspiracy\", \"polarization\", \"amplification\", \"trolling\", \"naturalistic_fallacy\", \"ad_hominem\", \"false_dichotomy\", \"coherence_break\", \"discrediting\", \"scapegoating\", \"false_balance\"]. — A list-valued field: mark a passage that supports the listed values - one standardized name per technique the inoculation refuted, e.g. ['emotional_manipulation', 'fake_experts']. Suggested values: emotional_manipulation, fake_experts, conspiracy, polarization, amplification, trolling, naturalistic_fallacy, ad_hominem, false_dichotomy, coherence_break, discrediting, scapegoating, false_balance, conjunction_fallacy, impersonation. Any other value is accepted."
+  },
+  "Forewarning_Explicitness": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    2,
+    null
+   ],
+   "title": "Forewarning Explicitness",
+   "description": "Forewarning Explicitness — 0=Absent, 1=Implicit, 2=Explicit. — 0 = absent, 1 = implicit, 2 = explicit. Mark the sentence that shows how explicitly the threat was forewarned."
+  },
+  "Refutation_Present": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Refutation Present",
+   "description": "Refutation Present — 1=Explicit refutation included, 0=Threat forewarning only, null=Unclear. — 1 = an explicit refutation was included, 0 = threat forewarning only, null = unclear. Mark the sentence that shows the refutation."
+  },
+  "Immunizing_Message_Length_Words": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Immunizing Message Length (words)",
+   "description": "Immunizing Message Length (words) — Word count of the inoculation/immunizing text, or null. — The word count of the inoculation/immunizing text; null when the paper does not report it. If you count the message the paper prints, say in Rationale_Notes that the value was counted rather than reported."
+  },
+  "Booster_Session_Administered": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Booster Session Administered",
+   "description": "Booster Session Administered — 0=No booster, 1=Booster administered at follow-up. — 0 = no booster, 1 = a booster was administered at follow-up. Mark the procedure-section sentence that names the booster session."
+  },
+  "Booster_Content": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Booster Content",
+   "description": "Booster Content — Description of any delayed booster session content, or null. — A free-text field: describe the content of the delayed booster session. Leave it empty when there was no booster - never invent a value."
+  },
+  "Longevity_Test_Delay_Days": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Follow-up Delay (Days)",
+   "description": "Follow-up Delay (Days) — Days between inoculation and delayed post-test, or 0 if immediate only. — The number of days between the inoculation and the delayed post-test; 0 when only an immediate test was run."
+  },
+  "Verification_Strategy_Type": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Strategy Taught",
+   "description": "Strategy Taught — List of verification heuristics taught: [\"lateral_reading\", \"reverse_image_search\", \"click_restraint\", \"wikipedia_source_tracking\", \"original_context_tracing\", \"source_credibility_check\", \"fact_checking_site_use\", \"CRAAP_checklist\"]. — A list-valued field: mark a passage that supports the listed values - the verification heuristics taught, e.g. ['lateral_reading', 'click_restraint']."
+  },
+  "Educational_Format": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    null
+   ],
+   "title": "Format of Instruction",
+   "description": "Format of Instruction — 1=Classroom curriculum/course modules (teacher modeling and guided practice), 2=Short standalone instructional video, 3=Gamified interactive learning module, 4=Prompt/pop-up nudge during browsing, 5=Written guidelines/cheatsheet, 6=Self-guided web platform, 7=Other. — 1 = classroom curriculum/course module, 2 = short standalone instructional video, 3 = gamified interactive module, 4 = prompt/pop-up nudge, 5 = written guidelines/cheatsheet, 6 = self-guided web platform, 7 = other."
+  },
+  "Instructional_Duration_Minutes": {
+   "type": [
+    "number",
+    "null"
+   ],
+   "title": "Instruction Duration (Minutes)",
+   "description": "Instruction Duration (Minutes) — Total exposure in minutes (or estimate for a curriculum). — The total exposure in minutes; an estimate is allowed for a curriculum - say so, and say how large the estimate is, in Rationale_Notes."
+  },
+  "Assessment_Paradigm": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Assessment Paradigm",
+   "description": "Assessment Paradigm — 1=Technique-adoption paradigm (authentic web evaluation with screen recording/digital trace), 2=Controlled website credibility judgment task, 3=Self-reported verification-strategy usage, 4=Knowledge/skill assessment quiz. — 1 = technique-adoption paradigm (authentic web evaluation with screen recording or digital trace), 2 = controlled website-credibility judgment task, 3 = self-reported verification-strategy usage, 4 = knowledge/skill assessment quiz."
+  },
+  "Tracked_Behavioral_Indicators": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Tracked Web Navigation Behaviors",
+   "description": "Tracked Web Navigation Behaviors — List of tracked metrics: [\"opened_new_tabs\", \"search_engine_queries\", \"time_on_source_domain\", \"external_credibility_references\"]. — A list-valued field: mark a passage that supports the listed values - the tracked metrics, e.g. ['opened_new_tabs', 'time_on_source_domain']."
+  },
+  "Target_Audience_Level": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Target Population",
+   "description": "Target Population — 1=Middle/high-school students, 2=College/university students, 3=General adult public, 4=Older adults, 5=Professionals (e.g. teachers, journalists). — 1 = middle/high-school students, 2 = college/university students, 3 = general adult public, 4 = older adults, 5 = professionals (teachers, journalists)."
+  },
+  "Intervention_Source_Concept": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Source Concept",
+   "description": "Source Concept — 1=Sourcing, 2=Lateral Reading, 3=Both/Mixed. Sourcing = leaving the text to assess author/publisher credibility via third-party sources. — 1 = sourcing, 2 = lateral reading, 3 = both/mixed. Sourcing = leaving the text to assess the author/publisher via third-party sources; lateral reading = reading what other sources say about the source."
+  },
+  "Search_Task": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Search Task",
+   "description": "Search Task — Description of the search/evaluation task participants completed, or null. — A free-text field: describe the search/evaluation task participants completed. Leave it empty when the paper does not report one - never invent a value."
+  },
+  "Training_Strategies": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Training Strategies",
+   "description": "Training Strategies — Array: [\"Explicit strategy instruction\", \"Modeling/demonstration\", \"Scaffolded practice\", \"Feedback\", \"Group discussion\"]. — A list-valued field: mark a passage that supports the listed values - the training strategies used, e.g. ['Explicit strategy instruction', 'Modeling/demonstration']."
+  },
+  "Human_Trainer": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Human Trainer",
+   "description": "Human Trainer — 1=Researcher, 2=Teacher, 3=Peer, 4=Computer/AI, 5=Other. — 1 = researcher, 2 = teacher, 3 = peer, 4 = computer/AI, 5 = other. Mark the sentence that names who delivered the training."
+  },
+  "Tips_Content_Checklist": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Specific Tips Included",
+   "description": "Specific Tips Included — Subset of tips: [\"be_skeptical_of_headlines\", \"inspect_the_url\", \"investigate_the_source\", \"watch_for_unusual_formatting\", \"check_the_photos_images\", \"inspect_dates\", \"check_evidence_and_references\", \"cross_check_other_reports\", \"check_if_satire\", \"consider_the_source\", \"look_for_expert_consensus\"]. — A list-valued field: mark a passage that supports the listed values - the tips actually delivered, e.g. ['be_skeptical_of_headlines', 'inspect_the_url']."
+  },
+  "Delivery_Channel": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Delivery Channel",
+   "description": "Delivery Channel — 1=Static graphic/infographic embedded in feed/survey, 2=Platform advertisement/sponsored post (e.g. Meta tips campaign), 3=Text message/ WhatsApp micro-course, 4=Print pamphlet/flyer, 5=Short video clip, 6=Other. — 1 = static graphic/infographic embedded in a feed or survey, 2 = platform advertisement/sponsored post, 3 = text message or WhatsApp micro-course, 4 = print pamphlet/flyer, 5 = short video clip, 6 = other."
+  },
+  "Exposure_Frequency": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Delivery Schedule",
+   "description": "Delivery Schedule — 1=Single one-off exposure, 2=Multi-day repeated micro-lessons (e.g. 5-day SMS), 3=Always-accessible sidebar/guide. — 1 = a single one-off exposure, 2 = multi-day repeated micro-lessons, 3 = an always-accessible sidebar/guide."
+  },
+  "Geographic_Setting": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Geographic / Economic Context",
+   "description": "Geographic / Economic Context — 1=Global North, 2=Global South, 3=Cross-national, 4=Other/unclear. — 1 = Global North, 2 = Global South, 3 = cross-national, 4 = other/unclear."
+  },
+  "Target_Sample_Literacy": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Target Sample Demographics",
+   "description": "Target Sample Demographics — 1=General urban/internet users, 2=Rural / lower education and digital literacy population, 3=Mixed. — 1 = general urban/internet users, 2 = rural or lower-education and lower-digital-literacy population, 3 = mixed."
+  },
+  "Discernment_vs_General_Skepticism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Evaluated Discernment Effect",
+   "description": "Evaluated Discernment Effect — 1=Selective discernment increased (lower belief/sharing of false, preserved belief of true), 2=General skepticism induced (decreased belief in both true and false), 3=No significant effect. — 1 = selective discernment increased (belief/sharing of false fell, belief of true preserved), 2 = general scepticism induced (belief in both true and false fell), 3 = no significant effect. Code it from the reported pattern, not from the authors' label."
+  },
+  "Tip_Topic_Specific": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Topic-Specific vs General",
+   "description": "Topic-Specific vs General — 1=Generic/topic-agnostic tips, 0=Topic-specific tips, null=Unclear. — 1 = generic/topic-agnostic tips, 0 = topic-specific tips, null = unclear."
+  },
+  "Fact_Check_Strategy": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Strategy Taught",
+   "description": "Strategy Taught — Subset: [\"claim_decomposition\", \"search_operator_use\", \"fact_checking_website_use\", \"reverse_image_search\", \"original_context_tracing\", \"SIFT\", \"evidence_tracing\", \"expert_consensus_lookup\"]. — A list-valued field: mark a passage that supports the listed values - the fact-checking strategies taught, e.g. ['claim_decomposition', 'SIFT']."
+  },
+  "Training_Focus": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Training Focus",
+   "description": "Training Focus — 1=Claim/fact verification, 2=Source verification, 3=Both claim and source, 4=Other. — 1 = claim/fact verification, 2 = source verification, 3 = both claim and source, 4 = other."
+  },
+  "Training_Format": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Training Format",
+   "description": "Training Format — 1=Direct instruction, 2=Modeling/demonstration, 3=Scaffolded practice with feedback, 4=Gamified practice, 5=Self-directed materials, 6=Mixed. — 1 = direct instruction, 2 = modeling/demonstration, 3 = scaffolded practice with feedback, 4 = gamified practice, 5 = self-directed materials, 6 = mixed."
+  },
+  "Transfer_Task": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Transfer Task",
+   "description": "Transfer Task — Description of any novel-context transfer task, or null. — A free-text field: describe any novel-context transfer task. Leave it empty when the paper reports none - never invent a value."
+  },
+  "Feedback_Provided": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Feedback Provided",
+   "description": "Feedback Provided — 1=Yes (corrective/elaborated feedback during practice), 0=No, null=Unclear. — 1 = corrective/elaborated feedback was given during practice, 0 = no, null = unclear. Mark the procedure-section sentence that shows the feedback."
+  },
+  "Mechanism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    null
+   ],
+   "title": "Mechanism",
+   "description": "Mechanism — 1=Actively open-minded thinking (AOT) training, 2=Consider-the-opposite/ counterargument generation, 3=Perspective-taking induction, 4=Intellectual-humility training, 5=Values affirmation, 6=Reflection/ metacognitive prompt, 7=Other. — 1 = actively open-minded thinking (AOT) training, 2 = consider-the-opposite/counterargument generation, 3 = perspective-taking induction, 4 = intellectual-humility training, 5 = values affirmation, 6 = reflection/metacognitive prompt, 7 = other."
+  },
+  "Target_Response": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Target Response",
+   "description": "Target Response — 1=Belief updating/receptivity to correction, 2=Myside bias reduction, 3=Sharing behaviour, 4=Openness attitudes, 5=Multiple. — 1 = belief updating/receptivity to correction, 2 = myside-bias reduction, 3 = sharing behaviour, 4 = openness attitudes, 5 = multiple."
+  },
+  "Session_Structure": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Session Structure",
+   "description": "Session Structure — 1=Single brief exercise, 2=Multi-session training, 3=Integrated into curriculum, 4=Booster session. — 1 = a single brief exercise, 2 = multi-session training, 3 = integrated into the curriculum, 4 = a booster session."
+  },
+  "Delivered_Via": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Delivered Via",
+   "description": "Delivered Via — 1=Text exercise, 2=Video, 3=Interactive dialogue, 4=Group discussion, 5=Task/quiz, 6=Mixed. — 1 = text exercise, 2 = video, 3 = interactive dialogue, 4 = group discussion, 5 = task/quiz, 6 = mixed."
+  },
+  "Outcome_Measures": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Outcome Measures",
+   "description": "Outcome Measures — Array, e.g. [\"AOT scale\", \"receptiveness to opposing views\", \"belief accuracy\", \"sharing intentions\"]. — A list-valued field: mark a passage that supports the listed values - the outcome measures the paper reports, e.g. ['AOT scale', 'belief accuracy']."
+  },
+  "Refutation_Type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Refutation Strategy Type",
+   "description": "Refutation Strategy Type — 1=Topic rebuttal / factual debunking (correcting facts directly), 2=Technique rebuttal (exposing rhetorical tactics/fallacies), 3=Combined topic and technique rebuttal. — 1 = topic rebuttal (the facts corrected directly), 2 = technique rebuttal (rhetorical tactics exposed), 3 = combined topic and technique rebuttal."
+  },
+  "Correction_Structure_Steps": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Four-Step Structure Compliance",
+   "description": "Four-Step Structure Compliance — Subset of the 4 debunking steps present: [\"fact_first_statement\", \"salience_warning_pre_exposure\", \"misinformation_specification_and_flaw_explanation\", \"alternative_causal_explanation\"]. — A list-valued field: mark a passage that supports the listed values - the debunking steps that are present, e.g. ['fact_first_statement', 'alternative_causal_explanation']."
+  },
+  "Alternative_Causal_Explanation_Present": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Alternative Causal Explanation Present",
+   "description": "Alternative Causal Explanation Present — 1=Explicit alternative causal model provided, 0=Simple retraction/negation only, null=Unclear. — 1 = an explicit alternative causal model was provided, 0 = a simple retraction/negation only, null = unclear."
+  },
+  "Narrative_Format": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Correction Format",
+   "description": "Correction Format — 1=Narrative correction (story/case-based), 2=Non-narrative correction (factual/list-based), 3=Visual/infographic. — 1 = narrative (story/case-based) correction, 2 = non-narrative (factual/list-based), 3 = visual/infographic."
+  },
+  "Correction_Source": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    null
+   ],
+   "title": "Source of Debunking",
+   "description": "Source of Debunking — 1=Professional independent fact-checker, 2=Government/public-health institution, 3=Peer/social correction (user comment), 4=Algorithmic/ platform system message, 5=Anonymous/unattributed source, 6=Trusted messenger (e.g. local health worker), 7=Other. — 1 = professional independent fact-checker, 2 = government/public-health institution, 3 = peer/social correction, 4 = algorithmic/platform system message, 5 = anonymous/unattributed source, 6 = trusted messenger, 7 = other. Mark the sentence that names who delivered the correction."
+  },
+  "Timing_Relative_to_Misinformation": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Timing of Correction",
+   "description": "Timing of Correction — 1=Immediate correction (same exposure instance), 2=Delayed correction (subsequent session/turn), 3=Pre-exposure rebuttal. — 1 = immediate correction (the same exposure instance), 2 = delayed correction (a later session or turn), 3 = pre-exposure rebuttal."
+  },
+  "Misinformation_Continued_Influence_Assessed": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Continued Influence Effect (CIE) Measured",
+   "description": "Continued Influence Effect (CIE) Measured — 1=Yes (open-ended inferential reasoning/scenario comprehension), 0=No (isolated item belief/accuracy rating only). — 1 = yes - the design assessed continued influence with open-ended inferential reasoning or scenario comprehension, 0 = no - only an isolated belief or accuracy item was measured."
+  },
+  "Repeated_Correction": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Repeated Correction",
+   "description": "Repeated Correction — 1=Yes (same correction delivered more than once), 0=No, null=Unclear. — 1 = the same correction was delivered more than once, 0 = no, null = unclear."
+  },
+  "Threat_to_Worldview": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Identities/Worldviews Threat",
+   "description": "Identities/Worldviews Threat — 1=Yes (correction challenges a salient identity/worldview), 0=No, null=Unclear. — 1 = the correction challenges a salient identity or worldview, 0 = no, null = unclear."
+  },
+  "Crowd_Mechanism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Crowd Mechanism",
+   "description": "Crowd Mechanism — 1=Community notes/context annotations, 2=Peer comment correction, 3=Collective intelligence/judgment platform, 4=Crowd flagging/reporting, 5=Collective evaluation task, 6=Other. — 1 = community notes/context annotations, 2 = peer comment correction, 3 = collective intelligence/judgment platform, 4 = crowd flagging/reporting, 5 = collective evaluation task, 6 = other."
+  },
+  "Visibility": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Correction Visibility",
+   "description": "Correction Visibility — 1=Visible to all users, 2=Visible only to a subgroup, 3=Collapsed/behind a click, null=Unclear. — 1 = visible to all users, 2 = visible only to a subgroup, 3 = collapsed/behind a click, null = unclear."
+  },
+  "Primary_Outcome": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Primary Outcome",
+   "description": "Primary Outcome — 1=Belief accuracy, 2=Sharing/engagement, 3=Correction adoption, 4=Discernment, 5=Multiple. — 1 = belief accuracy, 2 = sharing/engagement, 3 = correction adoption, 4 = discernment, 5 = multiple."
+  },
+  "Rating_System": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Credibility System",
+   "description": "Credibility System — 1=Continuous journalistic index (e.g. NewsGuard 0-100), 2=Categorical/ color-coded badge (green trustworthy/red untrustworthy), 3=Binary trust seal/warning shield, 4=Crowdsourced trust metric, 5=The Trust Project transparency indicators, 6=Other. — 1 = continuous journalistic index (e.g. NewsGuard 0-100), 2 = categorical/colour-coded badge, 3 = binary trust seal or warning shield, 4 = crowdsourced trust metric, 5 = The Trust Project transparency indicators, 6 = other."
+  },
+  "Unit_of_Evaluation": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Evaluated Unit",
+   "description": "Evaluated Unit — 1=Domain/news-outlet level, 2=Specific publication channel/page, 3=Individual author/journalist. — 1 = domain/news-outlet level, 2 = a specific publication channel or page, 3 = individual author/journalist."
+  },
+  "Interface_Integration_Method": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Interface Integration Method",
+   "description": "Interface Integration Method — 1=Browser extension/add-on in natural browsing, 2=In-feed badge beside the headline, 3=Search-engine results page snippet label, 4=Survey experimental card overlay, 5=Other. — 1 = browser extension/add-on in natural browsing, 2 = in-feed badge beside the headline, 3 = search-engine results snippet label, 4 = survey experimental card overlay, 5 = other."
+  },
+  "Metric_Transparency_Degree": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    null
+   ],
+   "title": "Information Detail Provided",
+   "description": "Information Detail Provided — 1=Simple badge/score only, 2=Expandable nutrition label with specific criteria (transparency, corrections, ownership). — 1 = a simple badge/score only, 2 = an expandable label with specific criteria (transparency, corrections, ownership)."
+  },
+  "Information_Diet_Quality_Assessed": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Information Diet Quality Assessed",
+   "description": "Information Diet Quality Assessed — 1=Yes (tracked domain visits/exposure quality via digital trace), 0=No (isolated headline evaluation only). — 1 = yes - the design tracked domain visits or exposure quality via a digital trace, 0 = no - an isolated headline evaluation only."
+  },
+  "Label_Provider": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Label Provider",
+   "description": "Label Provider — 1=Independent rating org (NewsGuard/Trust Project), 2=Platform, 3=Researchers, 4=Crowd, 5=Other. — 1 = an independent rating organisation (NewsGuard/Trust Project), 2 = a platform, 3 = the researchers, 4 = a crowd, 5 = other."
+  },
+  "Label_Type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Label Type",
+   "description": "Label Type — 1=General warning label (content may be disputed/inaccurate), 2=Specific fact-checking label (fact-checker attribution + rating), 3=Contextual information label (background without rating). — 1 = general warning label, 2 = specific fact-checking label (fact-checker attribution plus a rating), 3 = contextual information label without a rating."
+  },
+  "Rating_Granularity": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Veracity Rating Granularity",
+   "description": "Veracity Rating Granularity — 1=Binary (\"False\"/\"Disputed\"), 2=Graded/multi-level (e.g. False, Partly False, Altered, Missing Context), 3=Numeric scale. — 1 = binary ('False'/'Disputed'), 2 = graded/multi-level (e.g. False, Partly False, Altered, Missing Context), 3 = a numeric scale."
+  },
+  "Display_Timing_and_Salience": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Display Mode",
+   "description": "Display Mode — 1=In-line tag below/above headline, 2=Interstitial warning/obscuring overlay (click-through), 3=Post-interaction warning (after share click). — 1 = an in-line tag below/above the headline, 2 = an interstitial warning or obscuring overlay, 3 = a post-interaction warning after the share click."
+  },
+  "Fact_Checker_Identity_Visible": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Fact-Checking Source Disclosed",
+   "description": "Fact-Checking Source Disclosed — 1=Named independent fact-checker (PolitiFact, Snopes), 2=Platform message (\"Independent fact-checkers\"), 3=Unspecified source. — 1 = a named independent fact-checker, 2 = a platform message ('Independent fact-checkers'), 3 = an unspecified source."
+  },
+  "Implied_Truth_Effect_Tested": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Implied Truth Effect Tested",
+   "description": "Implied Truth Effect Tested — 1=Yes (tested whether unlabelled false headlines gained spurious accuracy), 0=No (only labelled vs control). — 1 = yes - the design tested whether unlabelled false headlines gained spurious accuracy, 0 = no - only labelled vs control."
+  },
+  "Primary_Outcome_Variable": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Primary Evaluated Outcome",
+   "description": "Primary Evaluated Outcome — 1=Accuracy/veracity judgments, 2=Sharing intentions/click-to-share, 3=Belief in underlying claim, 4=Both accuracy and sharing. — 1 = accuracy/veracity judgments, 2 = sharing intentions / click-to-share, 3 = belief in the underlying claim, 4 = both accuracy and sharing."
+  },
+  "Audience": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Label Audience",
+   "description": "Label Audience — 1=General users, 2=Targeted at sharers, 3=Targeted at consumers, 4=Both. — 1 = general users, 2 = targeted at sharers, 3 = targeted at consumers, 4 = both."
+  },
+  "Prompt_Mechanism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Prompt Mechanism",
+   "description": "Prompt Mechanism — 1=Direct headline accuracy evaluation (rate veracity of a single neutral/unrelated headline), 2=Explicit prime/reminder (text prompt reminding user accuracy matters), 3=Educational video/multimedia prime on the value of accurate information, 4=Passive accuracy salience banner/header, 5=Other prompt format. — 1 = direct headline accuracy evaluation, 2 = an explicit prime/reminder, 3 = an educational video/multimedia prime, 4 = a passive accuracy-salience banner/header, 5 = other prompt format."
+  },
+  "Evaluation_Item_Veracity": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Veracity of Prompt Item",
+   "description": "Veracity of Prompt Item — 1=True, 2=False, 3=Neutral/non-political, 4=Both true and false shown, null=Not applicable. — 1 = true, 2 = false, 3 = neutral/non-political, 4 = both true and false shown, null = not applicable."
+  },
+  "Evaluation_Item_Political_Concordance": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Political Concordance of Prompt Headline",
+   "description": "Political Concordance of Prompt Headline — 1=Politically concordant, 2=Politically discordant, 3=Politically neutral/apolitical, null=Not applicable. — 1 = politically concordant, 2 = politically discordant, 3 = politically neutral/apolitical, null = not applicable."
+  },
+  "Prompt_Timing": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Timing of Prompt",
+   "description": "Timing of Prompt — 1=Prior to feed browsing task, 2=In-line during feed browsing (periodically), 3=At immediate point of sharing decision. — 1 = before the feed-browsing task, 2 = in-line during feed browsing, 3 = at the immediate point of the sharing decision."
+  },
+  "Delivery_Context": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Delivery Context",
+   "description": "Delivery Context — 1=Survey/lab simulation (headline-discernment paradigm), 2=Social media platform direct message (field experiment, e.g. Twitter DM), 3=Platform public feed/interstitial. — 1 = a survey/lab simulation (headline-discernment paradigm), 2 = a social-media platform direct message (field experiment), 3 = a platform public feed or interstitial."
+  },
+  "Number_of_Prompts": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "title": "Prompt Repetition Count",
+   "description": "Prompt Repetition Count — Total number of accuracy prompts delivered during the experimental session. — The total number of accuracy prompts delivered during the experimental session."
+  },
+  "Evaluated_Headline_Domain": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Evaluated Content Domain",
+   "description": "Evaluated Content Domain — Array of content domains tested, e.g. [\"politics\", \"covid-19\", \"climate_change\", \"general_science\", \"conspiracy\"]. — A list-valued field: mark a passage that supports the listed values - the content domains tested, e.g. ['politics', 'covid-19']."
+  },
+  "Primary_Discernment_Metric": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Primary Discernment Metric",
+   "description": "Primary Discernment Metric — 1=Sharing discernment (Sharing True minus Sharing False), 2=Accuracy discernment (Belief True minus Belief False), 3=Raw false-sharing reduction only, 4=Quality score of shared domains (digital trace data). — 1 = sharing discernment (sharing true minus sharing false), 2 = accuracy discernment (belief true minus belief false), 3 = raw false-sharing reduction only, 4 = quality score of the shared domains (digital-trace data)."
+  },
+  "Friction_Mechanism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Friction Mechanism",
+   "description": "Friction Mechanism — 1=Read-before-sharing prompt (open/read article link), 2=Pause-and-think reflection prompt, 3=Second-step confirmation modal (extra click), 4=Cognitive justification requirement (write why true/false), 5=Time delay constraint (mandatory wait timer), 6=Other. — 1 = read-before-sharing prompt, 2 = pause-and-think reflection prompt, 3 = second-step confirmation modal, 4 = cognitive justification requirement, 5 = time delay constraint, 6 = other."
+  },
+  "Friction_Modality": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Modal Interface Type",
+   "description": "Modal Interface Type — 1=Non-blocking warning/banner, 2=Blocking pop-up modal requiring user input, 3=Hard delay timer. — 1 = non-blocking warning/banner, 2 = a blocking pop-up modal requiring user input, 3 = a hard delay timer."
+  },
+  "Target_Action": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Action Subject to Friction",
+   "description": "Action Subject to Friction — 1=Share/Retweet action, 2=Post creation/submission, 3=External link navigation, 4=Like/Upvote. — 1 = share/retweet action, 2 = post creation/submission, 3 = external link navigation, 4 = like/upvote."
+  },
+  "Content_Targeting_Rule": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "Targeting Rule for Friction Trigger",
+   "description": "Targeting Rule for Friction Trigger — 1=Universal friction (all links/shares), 2=Unopened-link trigger only, 3=Suspect/flagged content trigger only. — 1 = universal friction (all links/shares), 2 = an unopened-link trigger only, 3 = a suspect/flagged-content trigger only."
+  },
+  "Primary_Behavioral_Outcome": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Primary Outcome Metric",
+   "description": "Primary Outcome Metric — 1=Sharing intention (self-report), 2=Observed platform sharing (digital trace), 3=Link click-through/reading rate, 4=Sharing discernment (true vs. false sharing-rate delta). — 1 = sharing intention (self-report), 2 = observed platform sharing (digital trace), 3 = link click-through/reading rate, 4 = sharing discernment (the true vs false sharing-rate delta)."
+  },
+  "Friction_Disclosed": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    0,
+    1,
+    null
+   ],
+   "title": "Friction Disclosed to User",
+   "description": "Friction Disclosed to User — 1=Yes (rationale shown), 0=No (silent friction), null=Unclear. — 1 = yes - the rationale was shown, 0 = silent friction, null = unclear."
+  },
+  "Norm_Type": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Social Norm Type",
+   "description": "Social Norm Type — 1=Descriptive norm (what most people do), 2=Injunctive norm (what is approved/disapproved), 3=Dynamic norm (trending change in peer behaviour), 4=Combined descriptive and injunctive. — 1 = descriptive norm (what most people do), 2 = injunctive norm (what is approved/disapproved), 3 = dynamic norm (a trending change in peer behaviour), 4 = combined descriptive and injunctive."
+  },
+  "Norm_Framing": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    null
+   ],
+   "title": "Normative Framing",
+   "description": "Normative Framing — 1=Positive/truth-promoting framing, 2=Negative/misinformation-discouraging framing. — 1 = positive/truth-promoting framing, 2 = negative/misinformation-discouraging framing."
+  },
+  "Reference_Group": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Reference Group Specified",
+   "description": "Reference Group Specified — 1=Broad platform peer group, 2=National/fellow-citizen group, 3=Ideological/in-group peers, 4=Unspecified/generic social consensus, 5=Local community. — 1 = a broad platform peer group, 2 = a national/fellow-citizen group, 3 = ideological in-group peers, 4 = unspecified/generic social consensus, 5 = a local community."
+  },
+  "Delivery_Format": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Presentation Format",
+   "description": "Presentation Format — 1=Statistical normative statement/banner, 2=Simulated social counter/ upvote ratio, 3=Peer comment feedback prompt, 4=Interactive norm elicitation task. — 1 = a statistical normative statement/banner, 2 = a simulated social counter or upvote ratio, 3 = a peer comment feedback prompt, 4 = an interactive norm elicitation task."
+  },
+  "Primary_Target_Variable": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Primary Behavioral / Cognitive Outcome",
+   "description": "Primary Behavioral / Cognitive Outcome — 1=Sharing intentions, 2=Belief in misinformation, 3=Flagging/reporting suspicious content, 4=Discernment score. — 1 = sharing intentions, 2 = belief in misinformation, 3 = flagging/reporting suspicious content, 4 = a discernment score."
+  },
+  "Ingroup_Congruence": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    null
+   ],
+   "title": "In-group Congruence of Norm Source",
+   "description": "In-group Congruence of Norm Source — 1=Ideological in-group source, 2=Out-group/general source, 3=Not applicable, null=Unclear. — 1 = an ideological in-group source, 2 = an out-group/general source, 3 = not applicable, null = unclear."
+  },
+  "Exposure_Mechanism": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    null
+   ],
+   "title": "Exposure Mechanism",
+   "description": "Exposure Mechanism — 1=Downranking/demotion in feed or search, 2=Removal/deletion of content, 3=Deplatforming/account removal, 4=Reduced distribution/reach, 5=Warning interruption before exposure, 6=Other. — 1 = downranking/demotion in feed or search, 2 = removal/deletion of content, 3 = deplatforming/account removal, 4 = reduced distribution/reach, 5 = a warning interruption before exposure, 6 = other."
+  },
+  "Platform": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Platform",
+   "description": "Platform — Platform or system (e.g. \"Facebook\", \"Instagram\", \"Search\", \"YouTube\"), or null. — A free-text field: name the platform or system, e.g. 'Facebook', 'Instagram', 'Search', 'YouTube'. Leave it empty when the paper does not name one - never invent a value."
+  },
+  "Targeting_Rule": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Targeting Rule",
+   "description": "Targeting Rule — 1=Untrustworthy sources/domains, 2=False content items, 3=Engagement/reach threshold, 4=Universal exposure limit, 5=Other. — 1 = untrustworthy sources/domains, 2 = false content items, 3 = an engagement/reach threshold, 4 = a universal exposure limit, 5 = other."
+  },
+  "Assignment_Level": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    null
+   ],
+   "title": "Assignment Level",
+   "description": "Assignment Level — 1=User-level randomization, 2=Cluster/geography randomization, 3=Platform-wide policy, 4=Natural experiment, 5=Other. — 1 = user-level randomization, 2 = cluster/geography randomization, 3 = a platform-wide policy, 4 = a natural experiment, 5 = other."
+  },
+  "Content_Harm_Level": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Content Harm Level",
+   "description": "Content Harm Level — 1=Low-quality/untrustworthy, 2=False/misleading, 3=Harmful, 4=Mixed, null=Unclear. — 1 = low-quality/untrustworthy, 2 = false/misleading, 3 = harmful, 4 = mixed, null = unclear."
+  },
+  "Theory_Basis": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Theory Basis",
+   "description": "Theory Basis — Theory the intervention is based on (e.g. \"inoculation theory\", \"elaboration likelihood\", \"motivated reasoning\", \"none stated\"), or null. — A free-text field: name the theory the intervention is based on (e.g. 'inoculation theory', 'elaboration likelihood', 'motivated reasoning') or write 'none stated'. Never invent a source."
+  },
+  "Intervention_Delivery": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Intervention Delivery",
+   "description": "Intervention Delivery — 1=Direct Instruction, 2=Interactive/Practice, 3=Game-based, 4=Other. — 1 = direct instruction, 2 = interactive/practice, 3 = game-based, 4 = other."
+  },
+  "Message_Timing": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Message Timing",
+   "description": "Message Timing — 1=Pre-exposure/prebunking, 2=Concurrent, 3=Post-exposure/debunking, 4=Mixed. — 1 = pre-exposure/prebunking, 2 = concurrent, 3 = post-exposure/debunking, 4 = mixed."
+  },
+  "Correction_Scope": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Correction Scope",
+   "description": "Correction Scope — 1=Specific claim, 2=Technique/generalizable, 3=General/abstract, 4=Other. — 1 = a specific claim, 2 = technique/generalizable, 3 = general/abstract, 4 = other."
+  },
+  "Intervention_Components": {
+   "type": [
+    "array",
+    "null",
+    "string"
+   ],
+   "items": {
+    "type": "string"
+   },
+   "title": "Intervention Components",
+   "description": "Intervention Components — Array of applicable strings: [\"Correction\", \"Warning\", \"Skills training\", \"Feedback\", \"Nudge\", \"Platform downranking/exposure reduction\", \"Community messaging\"]. — A list-valued field: mark a passage that supports the listed values - the components the intervention combined, e.g. ['Correction', 'Warning', 'Skills training']. Suggested values: Corrective information, Threat/forewarning, Refutation, Technique exposure, Narrative/storytelling, Discussion/interaction, Emotion induction/regulation, Source salience, Instruction, Nudge, Feedback, Community messaging, Platform/exposure reduction, Other. Any other value is accepted."
+  },
+  "Source_Eval_Strategy": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "Source Evaluation Strategy",
+   "description": "Source Evaluation Strategy — The strategy taught - e.g. \"lateral reading\", \"click restraint\", \"source-checking\", \"fact-checking site use\", \"CRAAP\". — A free-text field: name the source-evaluation strategy taught, e.g. 'lateral reading', 'click restraint', 'CRAAP'. Leave it empty when the paper does not state one - never invent a value."
+  },
+  "Assessment_Format": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "enum": [
+    1,
+    2,
+    3,
+    4,
+    null
+   ],
+   "title": "Assessment Format",
+   "description": "Assessment Format — 1=Quantitative rating scales, 2=Multiple-choice/forced-choice, 3=Open response/qualitative, 4=Mixed. — 1 = quantitative rating scales, 2 = multiple-choice/forced-choice, 3 = open response/qualitative, 4 = mixed."
+  },
+  "DV_Metrics": {
+   "type": [
+    "array",
+    "null"
+   ],
+   "title": "Effect sizes",
+   "description": "One entry per inferential dependent variable and per reported group contrast. The entries follow the 'DV_Metrics' definition.",
+   "items": {
+    "$ref": "#/$defs/metric"
+   }
+  }
+ },
+ "required": [
+  "Study_ID",
+  "Year",
+  "Authors",
+  "Title",
+  "Study_Description"
+ ],
+ "additionalProperties": true,
+ "$defs": {
+  "metric": {
+   "type": "object",
+   "title": "Effect sizes",
+   "description": "One inferential dependent variable and one group contrast. Every number must be sourced from the paper; a number that is not reported is left null and explained in the missing-metrics reason field.",
+   "properties": {
+    "dv_name": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "DV Name",
+     "description": "DV Name — Name/label of the dependent variable. — Name the dependent variable as the paper names it, e.g. 'Accuracy (true minus false headlines)'. One row per distinct contrast x outcome x timepoint, so the name may repeat across rows; keep it recognisable.",
+     "x-role": "dv_name"
+    },
+    "dv_domain": {
+     "type": [
+      "array",
+      "null",
+      "string"
+     ],
+     "items": {
+      "enum": [
+       "technique_recognition",
+       "credibility",
+       "sharing_intention",
+       "search_behavior",
+       "attitude_policy",
+       "trust",
+       "media_literacy_attitudes",
+       "critical_thinking",
+       "other",
+       "engagement_behavior",
+       "confidence",
+       "affect",
+       "belief_accuracy"
+      ],
+      "type": "string"
+     },
+     "title": "DV Domains",
+     "description": "DV Domains — Controlled multi-label list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other.  The former levels echo_chamber, information_overload, social_norms, behavioral_choice and general_transfer were merged into \"other\" on 2026-09-17; confidence and affect were merged into \"other\", engagement_behavior into \"sharing_intention\", and belief_accuracy into \"credibility\" on 2026-09-19. — Controlled list: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Do not code confidence, certainty or metacognition as a dv_domain - they are a separate strand that is never pooled, so they are coded as 'other' (the retired label 'affect' is also read as 'other'). The domain decides dv_polarity: a credibility score is better when it is higher for TRUE news, a sharing score is worse when it is higher for FALSE news, and technique_recognition mixes the two - derive the polarity per DV, never per domain. Suggested values: technique_recognition, credibility, sharing_intention, search_behavior, attitude_policy, trust, media_literacy_attitudes, critical_thinking, other. Any other value is accepted.",
+     "x-role": "dv_domain"
+    },
+    "score_types": {
+     "type": [
+      "array",
+      "null",
+      "string"
+     ],
+     "items": {
+      "enum": [
+       "separate_true",
+       "separate_false",
+       "separate_manipulative",
+       "separate_nonmanipulative",
+       "discernment_difference",
+       "composite",
+       "signal_detection_auc",
+       "signal_detection_d_prime",
+       "signal_detection_c",
+       "dichotomous_accuracy",
+       "continuous_accuracy",
+       "proportion",
+       "proportion_difference",
+       "behavioral_choice",
+       "other",
+       "count",
+       "single_item",
+       "behavioral_intention",
+       "change_score",
+       "signal_detection_other"
+      ],
+      "type": "string"
+     },
+     "title": "Score Types",
+     "description": "Score Types — Controlled multi-label list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. — Controlled list: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, signal_detection_other, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score. Use separate_true / separate_false when the paper reports a score per stimulus veracity, and discernment_difference when the DV is the difference between them. The veracity component decides dv_polarity: a score that is higher for true news is better, a score that is higher for false news is worse. Suggested values: separate_true, separate_false, separate_manipulative, separate_nonmanipulative, discernment_difference, composite, signal_detection_auc, signal_detection_d_prime, signal_detection_c, dichotomous_accuracy, continuous_accuracy, proportion, proportion_difference, behavioral_choice, other, count, single_item, behavioral_intention, change_score, signal_detection_other. Any other value is accepted.",
+     "x-role": "score_types"
+    },
+    "discernment_defined_as": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Discernment Defined As",
+     "description": "Discernment Defined As — How a difference/discernment score is computed, e.g. \"manipulative minus non-manipulative\", or null. — Write how the difference/discernment score is computed, e.g. 'manipulative minus non-manipulative'. Null when the DV is not a difference score. The veracity of the two components decides the sign of dv_polarity.",
+     "x-role": "discernment"
+    },
+    "dv_polarity": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      0,
+      1,
+      null
+     ],
+     "title": "DV Polarity",
+     "description": "DV Polarity — 1=higher score is better/protective, 0=higher score is worse, null=not applicable. — 1 = higher is better/protective, 0 = higher is worse, null = not applicable. Derive it per DV, never assume it: more discernment, more credibility for TRUE news, LESS sharing of FALSE news and more analytic processing are better (1). A rating where higher means more belief in or sharing of false information is 0. The polarity depends on the domain and on the stimulus veracity, so read dv_domain and score_types before answering.",
+     "x-role": "polarity"
+    },
+    "scale_type": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      null
+     ],
+     "title": "Scale Type",
+     "description": "Scale Type — 1=Limited Likert, 2=Slider/continuous, 3=Proportion/percentage, 4=Count, 5=Signal-detection index, 6=Dichotomous, 7=Other. — 1 = limited Likert, 2 = slider/continuous, 3 = proportion/percentage, 4 = count, 5 = signal-detection index, 6 = dichotomous, 7 = other.",
+     "x-role": "scale_type"
+    },
+    "scale_points": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "Scale Points",
+     "description": "Scale Points — Number of response scale points, if applicable. — The number of response-scale points the DV used (e.g. 7 for a 7-point Likert). Null when the DV is not a scale.",
+     "x-role": "scale_points"
+    },
+    "scale_min": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Scale Min",
+     "description": "Scale Min — Minimum possible score/value. — The minimum possible score or value of the DV.",
+     "x-role": "scale_min"
+    },
+    "scale_max": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Scale Max",
+     "description": "Scale Max — Maximum possible score/value. — The maximum possible score or value of the DV.",
+     "x-role": "scale_max"
+    },
+    "comparison_label": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Comparison Label",
+     "description": "Comparison Label — Label of the specific contrast and timepoint, e.g. \"Good Bad Vaxx vs Control (post)\". — Label the specific contrast and timepoint, e.g. 'Good Bad Vaxx vs Control (post)'.",
+     "x-role": "comparison_label"
+    },
+    "group1_label": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Group 1 Label",
+     "description": "Group 1 Label — First group name in the comparison. — The name of the first group in the comparison, as the paper names it - the group the n1i/m1i/sd1i values and the t/F statistics belong to.",
+     "x-role": "group1_label"
+    },
+    "group2_label": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Group 2 Label",
+     "description": "Group 2 Label — Second group name in the comparison. — The name of the second group in the comparison, as the paper names it - the control arm for an eligible primary contrast.",
+     "x-role": "group2_label"
+    },
+    "contrast_type": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      null
+     ],
+     "title": "Contrast Type",
+     "description": "Contrast Type — 1=Primary treatment vs no-treatment control, 2=Treatment vs active/placebo control, 3=Dose-response, 4=Within-person, 5=Factorial main effect, 6=Simple effect, 7=Other, 8=Misinformation vs no misinformation, 9=Informative message vs control, 10=Factorial interaction, 11=Omnibus model term, 12=Moderator main effect, 13=Non-intervention factor. — 1 = primary treatment vs no-treatment control, 2 = treatment vs active/placebo control, 3 = dose-response, 4 = within-person, 5 = factorial main effect, 6 = simple effect, 7 = other, 8 = misinformation vs no misinformation, 9 = informative message vs control, 10 = factorial interaction, 11 = omnibus model term (never eligible), 12 = moderator main effect, 13 = non-intervention factor.",
+     "x-role": "contrast_type"
+    },
+    "eligible_primary": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      0,
+      1,
+      null
+     ],
+     "title": "Eligible Primary",
+     "description": "Eligible Primary — 1=eligible primary meta-analytic contrast (intervention vs no-inoculation control), 0=not primary, null=unclear. — 1 = the eligible primary meta-analytic contrast: the primary intervention vs a NO-misinformation-intervention control. 0 = everything else: active comparators, dose contrasts, within-person training gains, moderator terms, omnibus terms, interactions, descriptives and arm-vs-arm contrasts. Never code an omnibus term or a decomposition more than once as eligible.",
+     "x-role": "eligible_primary"
+    },
+    "timepoint_1": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Timepoint 1",
+     "description": "Timepoint 1 — First timepoint label, e.g. \"post\", \"followup_4w\", \"pre\". — Put the measured timepoint in timepoint_1: 'post' for the immediate posttest, 'pre' for a pretest, 'followup_<n>' for a later measurement. Never pool a follow-up as an immediate posttest and never treat a pretest row as an outcome.",
+     "x-role": "timepoint_1"
+    },
+    "timepoint_2": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Timepoint 2",
+     "description": "Timepoint 2 — Second timepoint label, or null for cross-sectional single-time contrasts. — The comparison timepoint when the contrast is a change (e.g. 'post' when timepoint_1 = 'pre'), null for a cross-sectional single-time contrast. A pretest row is not an outcome: use it only as a pre-post change.",
+     "x-role": "timepoint_2"
+    },
+    "posttest_type": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      null
+     ],
+     "title": "Posttest Type",
+     "description": "Posttest Type — 1=Immediate, 2=Delayed, 3=Both, 4=Cross-sectional, 5=Other. — 1 = immediate, 2 = delayed, 3 = both, 4 = cross-sectional, 5 = other.",
+     "x-role": "posttest_type"
+    },
+    "delay_weeks": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Delay (weeks)",
+     "description": "Delay (weeks) — Numeric delay in weeks; null if only immediate effects are reported. — The numeric delay in weeks between the intervention and the measured outcome; null if only immediate effects are reported.",
+     "x-role": "delay_weeks"
+    },
+    "n1i_pre": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Pre Group 1",
+     "description": "N Pre Group 1 — Pre-test sample size group 1. — The pretest sample size of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives (n1i_pre, m1i_pre, sd1i_pre, n2i_pre, m2i_pre, sd2i_pre) and the six posttest ones; that pair is the 'descriptives' effect route - the preferred, always poolable one.",
+     "x-role": "n1_pre"
+    },
+    "m1i_pre": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Pre Group 1",
+     "description": "Mean Pre Group 1 — Pre-test mean group 1. — The pretest mean of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "m1_pre"
+    },
+    "sd1i_pre": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Pre Group 1",
+     "description": "SD Pre Group 1 — Pre-test SD group 1. — The pretest SD of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "sd1_pre"
+    },
+    "n2i_pre": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Pre Group 2",
+     "description": "N Pre Group 2 — Pre-test sample size group 2. — The pretest sample size of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "n2_pre"
+    },
+    "m2i_pre": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Pre Group 2",
+     "description": "Mean Pre Group 2 — Pre-test mean group 2. — The pretest mean of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "m2_pre"
+    },
+    "sd2i_pre": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Pre Group 2",
+     "description": "SD Pre Group 2 — Pre-test SD group 2. — The pretest SD of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "sd2_pre"
+    },
+    "n1i_post": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Post Group 1",
+     "description": "N Post Group 1 — Post-test sample size group 1. — The posttest sample size of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route - the preferred, always poolable one.",
+     "x-role": "n1_post"
+    },
+    "m1i_post": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Post Group 1",
+     "description": "Mean Post Group 1 — Post-test mean group 1. — The posttest mean of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "m1_post"
+    },
+    "sd1i_post": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Post Group 1",
+     "description": "SD Post Group 1 — Post-test SD group 1. — The posttest SD of group 1, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "sd1_post"
+    },
+    "n2i_post": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Post Group 2",
+     "description": "N Post Group 2 — Post-test sample size group 2. — The posttest sample size of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "n2_post"
+    },
+    "m2i_post": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Post Group 2",
+     "description": "Mean Post Group 2 — Post-test mean group 2. — The posttest mean of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "m2_post"
+    },
+    "sd2i_post": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Post Group 2",
+     "description": "SD Post Group 2 — Post-test SD group 2. — The posttest SD of group 2, read from the table cell that reports it. A pre-post row carries the six pretest descriptives and the six posttest ones; that pair is the 'descriptives' effect route.",
+     "x-role": "sd2_post"
+    },
+    "n1i": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Group 1",
+     "description": "N Group 1 — Sample size group 1 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i): a DV row that carries all six is poolable on its own, and this is the PREFERRED route. The sample size of group 1 at the tested timepoint.",
+     "x-role": "n1"
+    },
+    "m1i": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Group 1",
+     "description": "Mean Group 1 — Mean group 1 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i) - the preferred, always poolable route. The mean of group 1 at the tested timepoint.",
+     "x-role": "m1"
+    },
+    "sd1i": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Group 1",
+     "description": "SD Group 1 — SD group 1 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i) - the preferred, always poolable route. The SD of group 1 at the tested timepoint.",
+     "x-role": "sd1"
+    },
+    "n2i": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "N Group 2",
+     "description": "N Group 2 — Sample size group 2 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i) - the preferred, always poolable route. The sample size of group 2 at the tested timepoint (the control arm for an eligible primary contrast).",
+     "x-role": "n2"
+    },
+    "m2i": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Mean Group 2",
+     "description": "Mean Group 2 — Mean group 2 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i) - the preferred, always poolable route. The mean of group 2 at the tested timepoint.",
+     "x-role": "m2"
+    },
+    "sd2i": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "SD Group 2",
+     "description": "SD Group 2 — SD group 2 for the tested timepoint (metafor alias). — Part of the 'descriptives' effect route (n1i, m1i, sd1i, n2i, m2i, sd2i) - the preferred, always poolable route. The SD of group 2 at the tested timepoint.",
+     "x-role": "sd2"
+    },
+    "t_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "t Statistic",
+     "description": "t Statistic — Exact t-test statistic. — Part of the 't' effect route: t_val + (n1i and n2i, or n_total). A balanced two-arm design may give only n_total (n1 = n2 = n_total / 2).",
+     "x-role": "t"
+    },
+    "F_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "F Statistic",
+     "description": "F Statistic — Exact F-statistic. — Part of the '1-df F' effect route: F_val + df_num + df_den + (n1i and n2i, or n_total). Only df_num == 1 is a two-arm contrast.",
+     "x-role": "F"
+    },
+    "df_num": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "df Numerator",
+     "description": "df Numerator — Numerator df for F-tests. — The numerator df of the F test - part of the '1-df F' effect route. df_num > 1 means a multi-df omnibus: it compares more than two cells at once, cannot be signed, and must never be converted into a single two-arm d nor be the eligible primary effect.",
+     "x-role": "df_num"
+    },
+    "df_den": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "df Denominator",
+     "description": "df Denominator — Denominator df for F-tests. — The denominator df of the F test - part of the '1-df F' effect route (F_val + df_num + df_den + n).",
+     "x-role": "df_den"
+    },
+    "z_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "z Statistic",
+     "description": "z Statistic — Exact z statistic (e.g. logistic/ordinal regression). — The exact z statistic the paper reports (e.g. logistic or ordinal regression). It is not one of the eight effect routes on its own: report it, but the row still needs a route it can be pooled by.",
+     "x-role": "z"
+    },
+    "chi2_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Chi-square Statistic",
+     "description": "Chi-square Statistic — Exact chi-square statistic. — The exact chi-square statistic the paper reports. A multi-df chi2 is an omnibus: it is never the eligible primary effect and must not be converted into a single two-arm effect.",
+     "x-role": "chi2"
+    },
+    "r_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "r Correlation",
+     "description": "r Correlation — Exact correlation coefficient. — Part of the 'r' effect route: r_val + n_total.",
+     "x-role": "r"
+    },
+    "n_total": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "title": "Total N",
+     "description": "Total N — Total N for correlation/statistical fallback conversions. — Part of the 't' and 'r' effect routes (t_val + n_total, r_val + n_total), and the fallback for a balanced two-arm design, where n1 = n2 = n_total / 2. A DV row with no complete effect route must carry a non-empty missing_metrics_reason.",
+     "x-role": "n_total"
+    },
+    "beta_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Regression Beta",
+     "description": "Regression Beta — Unstandardized or standardized regression coefficient (state which in conversion_method). — Part of the 'regression coefficient' effect route: beta_val + (beta_se, sei or vi) or n_total.",
+     "x-role": "beta"
+    },
+    "beta_se": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Regression Beta SE",
+     "description": "Regression Beta SE — Standard error of the regression coefficient. — The standard error of the regression coefficient - part of the 'regression coefficient' effect route.",
+     "x-role": "beta_se"
+    },
+    "log_odds": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Log Odds",
+     "description": "Log Odds — Log-odds coefficient. — The log-odds coefficient the paper reports.",
+     "x-role": "log_odds"
+    },
+    "odds_ratio": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Odds Ratio",
+     "description": "Odds Ratio — Odds ratio. — Part of the 'odds ratio' effect route: odds_ratio + or_ci_low + or_ci_high.",
+     "x-role": "or"
+    },
+    "or_ci_low": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Odds Ratio CI Low",
+     "description": "Odds Ratio CI Low — Lower bound of the odds-ratio confidence interval. — The lower bound of the odds-ratio confidence interval - part of the 'odds ratio' effect route.",
+     "x-role": "or_ci_low"
+    },
+    "or_ci_high": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Odds Ratio CI High",
+     "description": "Odds Ratio CI High — Upper bound of the odds-ratio confidence interval. — The upper bound of the odds-ratio confidence interval - part of the 'odds ratio' effect route.",
+     "x-role": "or_ci_high"
+    },
+    "risk_ratio": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Risk Ratio",
+     "description": "Risk Ratio — Risk ratio. — The risk ratio the paper reports.",
+     "x-role": "rr"
+    },
+    "p_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "p Value",
+     "description": "p Value — Exact p-value, or the reported bound when censored. — The exact p-value, or the reported bound when the p-value is censored. A p-value alone is not an effect: leave the effect empty and record the reason in missing_metrics_reason unless the p-value came with a usable statistic.",
+     "x-role": "p"
+    },
+    "p_censored": {
+     "type": [
+      "integer",
+      "null"
+     ],
+     "enum": [
+      0,
+      1,
+      null
+     ],
+     "title": "p Censored",
+     "description": "p Censored — 1=reported as an inequality (e.g. p<.001), 0=exact value. — 1 = the p-value was reported as an inequality (e.g. p < .001), 0 = an exact value.",
+     "x-role": "p_censored"
+    },
+    "eta2_p": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Partial Eta Squared",
+     "description": "Partial Eta Squared — Partial eta-squared for ANOVA effects. — The partial eta-squared the paper reports. A multi-df eta2 is an omnibus: it is never the eligible primary effect and must not be converted into a single two-arm effect.",
+     "x-role": "eta2p"
+    },
+    "eta2_p_ci_low": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Partial Eta Squared CI Low",
+     "description": "Partial Eta Squared CI Low — Lower bound of the partial eta-squared CI. — The lower bound of the partial eta-squared confidence interval.",
+     "x-role": "eta2p_ci_low"
+    },
+    "eta2_p_ci_high": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Partial Eta Squared CI High",
+     "description": "Partial Eta Squared CI High — Upper bound of the partial eta-squared CI. — The upper bound of the partial eta-squared confidence interval.",
+     "x-role": "eta2p_ci_high"
+    },
+    "d_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Cohen's d",
+     "description": "Cohen's d — Pre-calculated Cohen's d. — Part of the 'standardised d/g' effect route: d_val or g_val + (n1i and n2i, or n_total).",
+     "x-role": "d"
+    },
+    "g_val": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Hedges' g",
+     "description": "Hedges' g — Pre-calculated Hedges' g. — Part of the 'standardised d/g' effect route: d_val or g_val + (n1i and n2i, or n_total).",
+     "x-role": "g"
+    },
+    "d_ci_low": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "d CI Low",
+     "description": "d CI Low — Lower CI bound for d. — The lower confidence bound the paper reports for d.",
+     "x-role": "d_ci_low"
+    },
+    "d_ci_high": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "d CI High",
+     "description": "d CI High — Upper CI bound for d. — The upper confidence bound the paper reports for d.",
+     "x-role": "d_ci_high"
+    },
+    "g_ci_low": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "g CI Low",
+     "description": "g CI Low — Lower CI bound for g. — The lower confidence bound the paper reports for g.",
+     "x-role": "g_ci_low"
+    },
+    "g_ci_high": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "g CI High",
+     "description": "g CI High — Upper CI bound for g. — The upper confidence bound the paper reports for g.",
+     "x-role": "g_ci_high"
+    },
+    "d_se": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "d SE",
+     "description": "d SE — Standard error for d. — The standard error the paper reports for d.",
+     "x-role": "d_se"
+    },
+    "g_se": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "g SE",
+     "description": "g SE — Standard error for g. — The standard error the paper reports for g.",
+     "x-role": "g_se"
+    },
+    "yi": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Effect Size (yi)",
+     "description": "Effect Size (yi) — Standardized effect size estimate used for meta-analysis. — Part of the 'reported effect' effect route: yi + (vi or sei).",
+     "x-role": "yi"
+    },
+    "vi": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Effect Size Variance (vi)",
+     "description": "Effect Size Variance (vi) — Variance of the effect size. — The variance of the effect size - part of the 'reported effect' effect route (yi + vi or sei).",
+     "x-role": "vi"
+    },
+    "sei": {
+     "type": [
+      "number",
+      "null"
+     ],
+     "title": "Effect Size SE (sei)",
+     "description": "Effect Size SE (sei) — Standard error of the effect size. — The standard error of the effect size - part of the 'reported effect' effect route (yi + vi or sei).",
+     "x-role": "sei"
+    },
+    "effect_size_type_reported": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "enum": [
+      "d",
+      "g",
+      "eta2p",
+      "beta",
+      "odds_ratio",
+      "r",
+      "means",
+      "none",
+      "dprime",
+      "c",
+      "other",
+      "t",
+      "F",
+      "chi2",
+      "log_odds",
+      "means_sd",
+      "cohen_d",
+      "cohens_d",
+      "hedges_g",
+      "smd",
+      "d_val",
+      "g_val",
+      null
+     ],
+     "title": "Effect Size Type Reported",
+     "description": "Effect Size Type Reported — Which effect size the paper reported - d, g, eta2p, beta, odds_ratio, r, none. — Which effect size the paper reported: d, g, eta2p, beta, odds_ratio, r, means, dprime, c, other, none. Read it from the paper - 'none' means the paper reported no standardised effect, and the row is then refused by the standardisation guard, so set it to the estimator the paper actually used. A mis-coded value here silently drops the row from the pool, with nothing in the logs to say why.",
+     "x-role": "effect_type_reported"
+    },
+    "effect_favors": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Effect Favors",
+     "description": "Effect Favors — Which group/condition the sign favors (e.g. \"treatment\", \"control\", \"group1\"). — Which group/condition the sign favours, e.g. 'treatment', 'control', 'group1'.",
+     "x-role": "effect_favors"
+    },
+    "effect_direction_meaning": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Effect Direction Meaning",
+     "description": "Effect Direction Meaning — Interpretation of a positive sign (e.g. \"positive = treatment reduced misinformation beliefs\"). — What a positive sign means, e.g. 'positive = treatment reduced misinformation beliefs'.",
+     "x-role": "effect_direction_meaning"
+    },
+    "conversion_method": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Conversion Method",
+     "description": "Conversion Method — How yi/vi were obtained, e.g. \"reported d\", \"t+n to d\", \"d to vi formula\". — How yi and vi were obtained, e.g. 'reported d', 't+n to d', 'd to vi formula'. State any assumption and its size here when a value had to be estimated (an imputed SD, an F with df_num > 1, a p-value-only result), and only enter the effect when the leeway is small (<= 10%).",
+     "x-role": "conversion_method"
+    },
+    "conversion_inputs": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "title": "Conversion Inputs",
+     "description": "Conversion Inputs — Inputs used for conversion, e.g. {\"n1i\":181,\"n2i\":199,\"t_val\":9.2}. — The inputs used for the conversion, e.g. {\"n1i\": 181, \"n2i\": 199, \"t_val\": 9.2}.",
+     "x-role": "conversion_inputs"
+    },
+    "cell_descriptives": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "type": "object",
+      "properties": {
+       "group": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "timepoint": {
+        "type": [
+         "string",
+         "null"
+        ]
+       },
+       "n": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "mean": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "sd": {
+        "type": [
+         "number",
+         "null"
+        ]
+       }
+      },
+      "additionalProperties": true
+     },
+     "title": "Cell Descriptives",
+     "description": "Cell Descriptives — Array of objects, one per group-time cell, each {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}. — One entry per group-time cell: {\"group\": string, \"timepoint\": string, \"n\": number|null, \"mean\": number|null, \"sd\": number|null}.",
+     "x-role": "cell_descriptives"
+    },
+    "missing_metrics_reason": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Missing Metrics Reason",
+     "description": "Missing Metrics Reason — Short explanation when no full descriptives or fallback statistics are available; empty string otherwise. — Required when the row carries no usable effect: say concretely what is missing and name the paragraph or table you searched, e.g. 'only an omnibus F (df = 2, 3) is reported in the results paragraph; no pairwise statistics in Table 3'. Never use it for a label such as 'insufficient reporting'. Leave it empty when the row has a usable effect.",
+     "x-role": "missing_reason"
+    },
+    "source_location": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Source Location",
+     "description": "Source Location — Where the statistic is reported in the paper, e.g. \"Table 2, p. 7\", \"Fig. 1\", \"Sect. 3.2\"; empty string when truly absent. — Where the statistic is reported in the paper, e.g. 'Table 2, p. 7', 'Fig. 1', 'Sect. 3.2'. Empty string only when the source is truly absent.",
+     "x-role": "source_location"
+    },
+    "source_quote": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "title": "Source Quote",
+     "description": "Source Quote — Verbatim statistic from the paper, e.g. \"d = 0.31, 95% CI [0.12, 0.50]\"; must be findable in Text/<Key>.txt after whitespace normalisation. — The verbatim statistic from the paper, e.g. 'd = 0.31, 95% CI [0.12, 0.50]'. Copy it word for word from the paper or Text/<Key>.txt - do not paraphrase it; it must be findable in the text after whitespace normalisation. If the quote cannot be found, shorten it to a contiguous phrase and retry; if it crosses a page break or sits in an image-only table, quote the table caption or the sentence that introduces the table.",
+     "x-role": "source_quote"
+    },
+    "source_span": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "title": "Source span (PDF rectangle)",
+     "description": "Source span (PDF rectangle) — The page and the normalised rectangles of the passage the source quote was taken from. — The page and the normalised rectangles of the passage the source quote was taken from - the object printed by `python Scripts/mark_source.py \"<Study Key>\" \"<quote>\"`, added verbatim. Every DV needs one; if a DV is genuinely unmarkable (no extractable text), say why in missing_metrics_reason and Rationale_Notes and leave the best span you can (caption or heading). Check that the page and the rectangles are sensible before moving on.",
+     "x-role": "source_span"
+    }
+   },
+   "additionalProperties": true
+  }
+ }
+}

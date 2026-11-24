@@ -1,0 +1,71 @@
+# ---------------------------------------------------------------------------
+# BROWSER MODE: the exact change to the meta.home.mfendt.de site block on CT 110.
+#
+# The live Caddyfile is NOT in this repository (it holds the other hosts' secrets).
+# Insert the block below in place of the current
+#
+# 	handle @meta {
+# 		request_body {
+# 			max_size 250MB
+# 		}
+# 		reverse_proxy 192.168.178.12:8770
+# 	}
+#
+# and keep everything else of the block (@meta, @meta_public, abort) exactly as it
+# is.  Validate before reloading; Caddy refuses a bad config and keeps serving the
+# old one, but a validation step makes that explicit:
+#
+#   cp /etc/caddy/Caddyfile /root/Caddyfile.$(date -u +%Y%m%dT%H%M%SZ).bak
+#   caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   caddy reload  --config /etc/caddy/Caddyfile --adapter caddyfile
+#
+# (inside the alpine-caddy container: docker exec -it alpine-caddy sh -c \
+#  'caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && caddy reload ...')
+#
+# Rollback: restore the .bak file and reload again.
+#
+# One origin, two backends:
+#   /app, /app/*  -> 192.168.178.12:8780  the browser gateway (web container)
+#   everything else (/api/..., /paper/... on the sync API) -> :8770, unchanged
+#   /             -> 302 /app/           the app's own UI is the browser client now
+#
+# The LAN restriction (@meta_public + abort) covers both backends, unchanged.
+# Firewall on CT 112: 8780 from 192.168.178.10 only, like 8770.
+# ---------------------------------------------------------------------------
+
+# ---- replace the single handler with these three (inside the same site block, ---
+# ---- after `abort @meta_public`; the @meta / @meta_public matchers stay) --------
+
+	# the browser app: the gateway owns the session and proxies to a per-user worker
+	@meta_browser {
+		host meta.home.mfendt.de
+		path /app /app/*
+	}
+	handle @meta_browser {
+		request_body {
+			max_size 250MB
+		}
+		reverse_proxy 192.168.178.12:8780
+	}
+
+	# everything else: the sync server (desktop clients, unchanged)
+	handle @meta {
+		request_body {
+			max_size 250MB
+		}
+		reverse_proxy 192.168.178.12:8770
+	}
+
+	# a bare "/" is not the app any more: send the browser to the gateway
+	@meta_root {
+		host meta.home.mfendt.de
+		path /
+	}
+	redir @meta_root /app/ 302
+
+# ---------------------------------------------------------------------------
+# Why `path /app /app/*`: Caddy's path matcher is exact for /app and prefix for
+# /app/*, so both the bare path (the gateway redirects it to /app/) and every
+# route below it reach the gateway.  `redir` is ordered before `handle`, so a
+# request for "/" is answered before either backend is consulted.
+# ---------------------------------------------------------------------------

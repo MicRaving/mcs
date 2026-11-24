@@ -90,6 +90,7 @@ GATES = [(label, script, argv) for label, script, argv in (
     ("B_validate", os.path.join(SCRIPTS, "B_validate.py"), ["--dir", "Extraction"]),
     ("parity", os.path.join(SCRIPTS, "parity_check.py"), []),
     ("disagreements", os.path.join(SCRIPTS, "check_disagreement_resolution.py"), []),
+    ("scheme", os.path.join(SCRIPTS, "validate_scheme.py"), ["--no-corpus"]),
 ) if os.path.isfile(script)]
 if GATES:
     STEPS["gate"] = ([], [])  # sentinel; run_step() dispatches to GATES

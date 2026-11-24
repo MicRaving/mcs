@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, jsonify, request
 import csv
+import fnmatch
 import glob
 import os
 import re
@@ -35,18 +36,36 @@ from studio_state import S
 
 bp = Blueprint("coverage", __name__)
 
+
+def _dataset_paths(folder, pattern):
+    """Dataset paths matching *pattern*; manifest-aware in an online project.
+
+    The CSV products of a dataset are on demand (INTERFACES 4), so a glob over
+    the mirror would miss one that is not downloaded: the manifest lists it and
+    the caller's ``S.ensure_local`` fetches the file it reads.
+    """
+    if S.online and S.store is not None:
+        rel = S.relpath(folder)
+        if rel is not None:
+            return [os.path.join(folder, e["name"]) for e in S.listdir(rel)
+                    if not e.get("is_dir") and fnmatch.fnmatchcase(e["name"], pattern)]
+    return sorted(glob.glob(os.path.join(folder, pattern)))
+
 # --- slot vocabulary (mirrors Scripts/harmonization_coverage.py; interface §6 is frozen) ----
+# S10 (covariates) was retired 2026-11-19 (owner decision): its only coding
+# source (the `Covariates` field) was coded in 0 of 1,272 records, so the slot
+# was a permanent gap; the coverage matrix tracks ten essential slots.
 SLOT_ORDER = ["S1", "S2", "S3", "S4", "S5", "S6", "S6cell", "S7", "S8",
-              "S9", "S10", "S11"]
+              "S9", "S11"]
 SLOT_NAMES = {
     "S1": "id", "S2": "condition_col", "S3": "arm_roles", "S4": "dv_pairs",
     "S5": "dv_domain", "S6": "veracity", "S6cell": "veracity_cell",
     "S7": "timepoint", "S8": "dv_polarity", "S9": "exclusions",
-    "S10": "covariates", "S11": "provenance",
+    "S11": "provenance",
 }
 SLOT_WEIGHT = {
     "S1": 2.0, "S2": 5.0, "S3": 4.0, "S4": 2.0, "S5": 4.0, "S6": 5.0,
-    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S10": 1.0, "S11": 1.0,
+    "S6cell": 5.0, "S7": 1.0, "S8": 3.0, "S9": 2.0, "S11": 1.0,
 }
 
 _FILTERS = ("all", "blocks_sdt", "blocks_did", "blocks_exclusions_on",
@@ -269,6 +288,7 @@ def _audit_block():
     parity = next((c for c in checks if c["check"] == "parity"), {"ok": 0, "bad": 0, "n": 0})
     return {"checks": checks, "parity": parity, "findings": findings,
             "conflicts": _count_conflicts(),
+            "conflict_studies": _conflict_studies(),
             "needs_veracity": _count_needs_veracity()}
 
 
@@ -325,6 +345,27 @@ def invalidate_study(key):
     _DIRTY.add(key)
 
 
+def _conflict_studies(limit=8):
+    """Studies with the most conflict-stamped assignment rows (click-through)."""
+    out = []
+    for p in glob.glob(os.path.join(S.DATASETS or "", "*",
+                                    "* - variable_assignments.csv")):
+        key = os.path.basename(os.path.dirname(p))
+        try:
+            import pandas as pd
+            df = pd.read_csv(p, encoding="utf-8-sig", low_memory=False)
+            if "status" not in df.columns:
+                continue
+            n = int(df["status"].astype(str).str.strip().str.lower()
+                    .eq("conflict").sum())
+            if n:
+                out.append({"study_key": key, "n": n})
+        except Exception:  # noqa: BLE001
+            continue
+    out.sort(key=lambda d: (-d["n"], d["study_key"].lower()))
+    return out[:limit]
+
+
 def _count_needs_veracity():
     """Studies whose sidecar still carries a blank veracity (S6 missing)."""
     d = _derive()
@@ -368,12 +409,55 @@ def _study_record(rec, slot_counts, open_by_study, paper_keys):
     opens = list(open_by_study.get(key, []))
     out["open_slots"] = opens
     out["first_open_slot"] = opens[0] if opens else None
+    # redesign additions (additive -- old keys unchanged): the three pool
+    # pills with what still blocks each pool, and the open-gap count
+    out["open_count"] = len(opens)
+    out["pools"] = _pools_block(rec, opens)
     return out
+
+
+def _pools_block(rec, opens):
+    """The three pool pills for one study row (plain labels + what is missing).
+
+    Mirrors gapwalk_lib.pools_for (the workspace payload) so the list and the
+    workspace can never disagree about a study's pools.
+    """
+    from gapwalk_lib import pools_for
+    try:
+        return pools_for(rec, opens)
+    except Exception:  # noqa: BLE001  (never take the tab down)
+        return {"sdt": {"joins": None, "label": "Joins the signal-detection pool",
+                        "define": "", "missing": []},
+                "did": {"joins": None, "label": "Joins the pre-post pool",
+                        "define": "", "missing": []},
+                "excl": {"joins": None, "label": "Author exclusions apply",
+                         "define": "", "missing": []}}
 
 
 # ---------------------------------------------------------------------------
 # endpoints
 # ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
+# plain-language metadata for the redesigned tab (single source: gapwalk_lib)
+# --------------------------------------------------------------------------- #
+try:
+    from gapwalk_lib import SLOT_QUESTIONS as _SLOT_QUESTIONS
+except Exception:  # noqa: BLE001  (the tab degrades to bare codes)
+    _SLOT_QUESTIONS = {}
+
+
+def _slot_meta():
+    """slots[] entries with the plain question/label/hint (old keys kept)."""
+    out = []
+    for s in SLOT_ORDER:
+        q = _SLOT_QUESTIONS.get(s, {})
+        out.append({"code": s, "name": SLOT_NAMES[s], "weight": SLOT_WEIGHT[s],
+                    "question": q.get("question", ""),
+                    "short": q.get("short", SLOT_NAMES[s]),
+                    "hint": q.get("hint", "")})
+    return out
+
+
 @bp.get("/api/coverage")
 def api_coverage():
     d = _derive()
@@ -417,6 +501,17 @@ def api_coverage():
     funnel = {"true_false_cell": len(cell), "with_condition": len(cell & cond),
               "explicit_roles": len(cell & cond & roles),
               "harmonized": len(have), "papers": len(paper_keys)}
+    # redesign addition (additive): the three pool counts spelled out for the
+    # "N studies join a pool today" headline
+    n_ds = sum(1 for s in studies if s.get("has_dataset"))
+    funnel["pools"] = {
+        "sdt": sum(1 for s in studies if s.get("has_dataset") and s.get("blocks_sdt") != 1),
+        "did": sum(1 for s in studies if s.get("has_dataset") and s.get("blocks_did") != 1),
+        "exclusions_on": sum(1 for s in studies if s.get("blocks_exclusions_on") == 1),
+        "any": sum(1 for s in studies if s.get("has_dataset") and
+                   (s.get("blocks_sdt") != 1 or s.get("blocks_did") != 1)),
+        "datasets": n_ds,
+    }
 
     # filters
     flt = (request.args.get("filter") or "all").strip().lower()
@@ -477,8 +572,7 @@ def api_coverage():
 
     return jsonify({
         "generated_at": _iso(_mtime(_path("harmonization_coverage_summary.csv"))),
-        "slots": [{"code": s, "name": SLOT_NAMES[s], "weight": SLOT_WEIGHT[s]}
-                  for s in SLOT_ORDER],
+        "slots": _slot_meta(),
         "funnel": funnel,
         "counts": counts,
         "filter": flt,
@@ -487,7 +581,50 @@ def api_coverage():
         "audit": _audit_block(),
         "studies": studies,
         "filters": list(_FILTERS),
+        "sort_note": ("studies are ranked by the coverage pipeline's "
+                      "poolability-weighted missingness score; ascending = "
+                      "most pools already unblocked"),
     })
+
+
+@bp.get("/api/gapwalk/<path:key>")
+def api_gapwalk(key):
+    """The guided gap queue for one study (redesigned Harmonization tab).
+
+    Read-only: composes the coverage matrix's open gaps with paper quotes
+    from ``Text/<Key>.txt``, pre-fills from the coding tab and the
+    harmonizer's decoded guesses.  The save stays
+    ``POST /api/harmonizer``-owned: ``POST /api/assignments/<key>``.
+    """
+    from gapwalk_lib import build_gapwalk, safe_study_key
+    if not safe_study_key(key):
+        abort(404)
+    folder = os.path.join(S.DATASETS or "", key)
+    if not os.path.isdir(folder):
+        return jsonify({"key": key, "exists": False, "has_dataset": False,
+                        "queue": [], "answered": [], "checklist": [],
+                        "pools": {}, "counts": {"open": 0, "answered": 0},
+                        "paper": {}, "facts": [], "notes": "", "options": {},
+                        "profile": [], "wide_columns": [],
+                        "warning": "no dataset folder for this study"})
+    d = _derive()
+    if d["matrix"] is None:
+        return jsonify({"key": key, "exists": True, "has_dataset": True,
+                        "queue": [], "answered": [], "checklist": [],
+                        "pools": {}, "counts": {"open": 0, "answered": 0},
+                        "paper": {}, "facts": [], "notes": "", "options": {},
+                        "profile": [], "wide_columns": [],
+                        "warning": "harmonization_coverage.csv not found - run "
+                                   "python Scripts/harmonization_coverage.py"})
+    payload = build_gapwalk(key, d)
+    # leftover capability from the previous workspace: unmapped raw columns as
+    # optional extra cards (kind "raw"), kept out of the main gap queue
+    try:
+        payload["raw_targets"] = [t for t in _assignment_targets(key, d)
+                                  if t.get("kind") == "raw"]
+    except Exception:  # noqa: BLE001
+        payload["raw_targets"] = []
+    return jsonify(payload)
 
 
 @bp.get("/api/coverage/study/<path:key>")
@@ -531,6 +668,7 @@ def _assignment_targets(key, open_slots):
     # 2) unmapped raw columns from the study's variables.csv
     folder = os.path.join(S.DATASETS or "", key)
     var_path = os.path.join(folder, f"{key} - variables.csv")
+    var_path = S.ensure_local(var_path)
     # a column the sidecar already maps (as its raw or its uniform name) is not unmapped
     orig_seen = set()
     try:
@@ -567,7 +705,8 @@ def _assignment_targets(key, open_slots):
             pass
 
     # 3) raw headers not present in variables.csv
-    for p in sorted(glob.glob(os.path.join(folder, f"{key} - prepared*.csv"))):
+    for p in _dataset_paths(folder, glob.escape(key) + " - prepared*.csv"):
+        p = S.ensure_local(p)
         try:
             with open(p, encoding="utf-8-sig", newline="") as fh:
                 hdr = [str(c).strip().lstrip("\ufeff") for c in next(csv.reader(fh))]

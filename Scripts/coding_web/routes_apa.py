@@ -9,8 +9,8 @@ import json
 import math
 import os
 import re
-from agreement_lib import _LABEL_MAX_LEVELS, _agreement_index, _field_case_map, gwet_ac, reliability_rows
-from analysis_lib import SUSCEPTIBILITY, _APA_LAYER, _APA_SPEC, _apa_domain, _apa_metric, _apa_spec, _bayes_for, _bayes_rows, _figure_index, _figures_dir, _figure_path, _human_mod_label, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_single_figure, _pooled_for, _pool_rows, _sel_rows, _spec_rows_for, _study_moderators, _transient_figures_dir
+from agreement_lib import _LABEL_MAX_LEVELS, _agreement_index, _field_case_map, gwet_ac
+from analysis_lib import SUSCEPTIBILITY, _APA_LAYER, _APA_SPEC, _apa_domain, _apa_metric, _apa_spec, _bayes_for, _bayes_rows, _CONTRAST_NAMES, _figure_index, _figures_dir, _human_mod_label, _level_cap, _loo_summary, _mod_label, _moderator_catalog, _moderator_figures, _moderator_level_effects, _mods_for_row, _pooled_for, _pool_rows, _sel_rows, _spec_rows_for, _study_moderators
 from statslib import _bayes_meta, _bayes_pool, _dl_pool, _mat_inv, _resolve_bayes_priors, _study_level, _t_ppf, _t_sf, _two_level_components, _wls_cluster
 from studio_lib import _norm, _values, load_extraction
 from studio_state import S, paper_keys
@@ -78,6 +78,23 @@ def _ap_ci(lo, hi, d=2):
 
 _APA_PRISMA_CACHE = {"mtime": None, "data": None}
 
+# Bumped whenever the PRISMA counting/presentation itself changes, so a
+# long-running process never keeps serving a cached dict computed by older
+# code (the master's mtime alone cannot see a code change).  Reloading the
+# code still needs an app restart; this only guarantees the fresh code
+# re-counts instead of returning the stale shape.
+_PRISMA_COUNTS_VERSION = 3
+
+# The counts are a pure function of the master workbook, the full-text agreed
+# file and the coded corpus, and they cost ~100 s + a 340 MB pandas peak on the
+# real corpus (plan §6.3.2).  The in-memory cache only covers the life of one
+# process, so every browser-worker restart paid for the pass again.  The result
+# is therefore also kept in temp/prisma_counts.json, keyed by the exact input
+# stamps; a changed master/agreement file/Extraction record changes the key.
+_PRISMA_DISK_VERSION = 1
+_PRISMA_DISK_NAME = "prisma_counts.json"
+
+
 def _short_ft_reason(reason):
     """Shorten the long master-workbook full-text criterion labels for the diagram."""
     r = str(reason or "").strip()
@@ -100,6 +117,113 @@ def _short_ft_reason(reason):
 def _prisma_ft_group(reason):
     """Map a master-workbook full-text criterion to its diagram label."""
     return _short_ft_reason(reason)
+
+
+def _file_stamp(path):
+    """``[size, mtime_ns]`` of one input file, ``None`` when it is absent."""
+    try:
+        st = os.stat(path)
+    except (OSError, TypeError):
+        return None
+    return [st.st_size, st.st_mtime_ns]
+
+
+def _prisma_inputs():
+    """The files the PRISMA count is derived from.
+
+    The canonical counter (``prisma_report``) resolves its paths at import
+    time, and the track split reads ``S.ROOT``'s master explicitly; both are
+    inputs, so both are stamped.  Mirrors make them different files.
+    """
+    report_master = getattr(_PR_REPORT, "MASTER", None) if "_PR_REPORT" in globals() else None
+    report_agreed = (getattr(_PR_REPORT, "AGREED_FULLTEXT", None)
+                     if "_PR_REPORT" in globals() else None)
+    report_extraction = (getattr(_PR_REPORT, "EXTRACTION", None)
+                         if "_PR_REPORT" in globals() else None)
+    return {
+        "root": S.ROOT,
+        "masters": [report_master, os.path.join(S.ROOT, "master_dataset.xlsx")],
+        "agreed": [report_agreed,
+                   os.path.join(S.SCREENING or os.path.join(S.ROOT, "Screening"),
+                                "fulltext_agreed.json")],
+        "extraction": [report_extraction, S.EXTRACTION],
+    }
+
+
+def _prisma_cache_key():
+    """The identity of one PRISMA count: every input's stamp + the code version."""
+    inputs = _prisma_inputs()
+    masters = sorted({p for p in inputs["masters"] if p})
+    agreed = sorted({p for p in inputs["agreed"] if p})
+    folders = sorted({p for p in inputs["extraction"] if p})
+    extraction = []
+    for folder in folders:
+        listing = []
+        try:
+            with os.scandir(folder) as it:
+                for entry in it:
+                    if not entry.name.lower().endswith(".json"):
+                        continue
+                    try:
+                        st = entry.stat()
+                    except OSError:
+                        continue
+                    listing.append([entry.name, st.st_size, st.st_mtime_ns])
+        except OSError:
+            pass
+        extraction.append([folder, sorted(listing)])
+    return [inputs["root"], _PRISMA_COUNTS_VERSION, _PRISMA_DISK_VERSION,
+            [[p, _file_stamp(p)] for p in masters],
+            [[p, _file_stamp(p)] for p in agreed],
+            extraction]
+
+
+def _prisma_disk_path():
+    """The cache file, or ``None`` before the app has a temp folder."""
+    if not S.TEMP:
+        return None
+    return os.path.join(S.TEMP, _PRISMA_DISK_NAME)
+
+
+def _load_prisma_counts(key):
+    """The stored count for *key*, or ``None`` (a missing/broken cache is a miss)."""
+    path = _prisma_disk_path()
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            blob = json.load(fh)
+    except (OSError, ValueError, TypeError):
+        return None
+    if (isinstance(blob, dict) and blob.get("key") == key
+            and isinstance(blob.get("data"), dict)):
+        return blob["data"]
+    return None
+
+
+def _save_prisma_counts(key, data):
+    path = _prisma_disk_path()
+    if not path:
+        return
+    tmp = path + ".tmp"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"key": key, "data": data}, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError) as exc:  # noqa: BLE001
+        try:
+            from studio_state import log as _log
+
+            _log(f"prisma counts not cached: {exc!r}")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
+
 
 def _crit_label(reason):
     """Map a canonical abstract-exclusion reason to the review criterion label."""
@@ -124,35 +248,69 @@ def _prisma_counts():
     ``prisma_report.py``), so the app no longer maintains a second, divergent
     count (audit H6 / interface §4).  ``prisma.py`` exposes no database/other
     identification-track split, so the SAME canonical report set is re-bucketed
-    by ``Hit_Source`` here purely for the two-column diagram; the two tracks are
-    reconciled to the canonical totals before returning.
+    here purely for the two-column diagram; the two tracks are reconciled to
+    the canonical totals before returning.
 
-    Returns the flowing structure consumed by ``apa_export.prisma_png`` and the
-    APA Methods text (``total``, ``abstract_excluded``, ``fulltext_assessed``,
-    ``fulltext_excluded``, ``coded``, ``tracks``, ...).
+    Track classification (a *record* is a master row; a *report* is a
+    deduplicated master component): a row is a DATABASE record when it carries
+    the ``ebsco_export`` tag or, untagged, still names its database export
+    (``shortDBName`` / ``longDBName`` / ``src_file``) — later exports arrive
+    without the tag and must not be misfiled as "other sources".  OTHER-source
+    rows are itemised as: reference lists of prior meta-analyses (including
+    the untagged records carried over from an earlier corpus version, which
+    entered that way and are merged into that line), references of the
+    included works (hand-added Zotero records) and unpublished work (records
+    added during coding).
+
+    The diagram's populations, all labelled there:
+      * "Records identified"  — every master row (``identified_records``);
+      * "Records screened"     — deduplicated reports (``reports``);
+      * "Studies included in review" — reports whose screening verdict is
+        Include (``included_studies``); coded papers beyond the included set
+        are NOT a diagram population — the excluded ones appear only as the
+        flow's excluded branch ("coded but excluded at full text"), and
+        nothing else is reported on the diagram (the former "Also reported"
+        note panel was removed 2026-11-19: not in any PRISMA specification).
+    The pooled analysis draws on yet another subset (studies with at least one
+    poolable eligible contrast — the Analysis tab's "Contrasts (k)" card);
+    the APA text says so explicitly rather than letting the numbers contradict.
+
+    Returns the structure consumed by ``apa_export.prisma_png`` and the APA
+    Methods text (``total``, ``duplicates``, ``abstract_excluded``,
+    ``fulltext_assessed``, ``fulltext_excluded``, ``included``, ``coded``,
+    ``coded_excluded`` (coded papers carrying a full-text exclusion, with
+    ``coded_excluded_reasons`` / ``coded_excluded_detail`` for the box's
+    excluded branch and the report's reconciliation note),
+    ``tracks``, ...).
     """
     path = os.path.join(S.ROOT, "master_dataset.xlsx")
     if not os.path.isfile(path):
         return None
-    try:
-        mtime = int(os.path.getmtime(path))
-    except OSError:
-        mtime = 0
-    if _APA_PRISMA_CACHE["data"] is not None and _APA_PRISMA_CACHE["mtime"] == mtime:
+    cache_key = _prisma_cache_key()
+    if (_APA_PRISMA_CACHE["data"] is not None
+            and _APA_PRISMA_CACHE["mtime"] == cache_key):
         return _APA_PRISMA_CACHE["data"]
-    # Disk cache so a server restart does not pay the ~90 s canonical counter again.
-    cache_file = os.path.join(S.TEMP, "prisma_counts_cache.json")
+    stored = _load_prisma_counts(cache_key)
+    if stored is not None:
+        _APA_PRISMA_CACHE.update(mtime=cache_key, data=stored)
+        return stored
+    # ONE read of the workbook for both the canonical flow and the track split:
+    # the pandas parse costs ~36 s of the ~85 s cold count, and the route used
+    # to read it twice.  Reading S.ROOT's master (not the counter module's
+    # import-time path) is also what a browser worker needs: it only holds its
+    # own mirror.
+    master_df = None
     try:
-        with open(cache_file, encoding="utf-8") as fh:
-            blob = json.load(fh)
-        if (isinstance(blob, dict) and blob.get("mtime") == mtime
-                and isinstance(blob.get("data"), dict)):
-            _APA_PRISMA_CACHE.update(mtime=mtime, data=blob["data"])
-            return blob["data"]
-    except Exception:
-        pass
+        import prisma_report as _PR_MASTER
+    except Exception:  # noqa: BLE001
+        _PR_MASTER = None
+    if _PR_MASTER is not None:
+        try:
+            master_df = _PR_MASTER.load_master(path)
+        except Exception:  # noqa: BLE001 - fall back to the counter's own path
+            master_df = None
     try:
-        flow = _PRISMA.flow()
+        flow = _PRISMA.flow(master_df) if master_df is not None else _PRISMA.flow()
     except Exception:
         return None
     if not flow:
@@ -171,6 +329,13 @@ def _prisma_counts():
     extraction = flow.get("extraction") or {}
     coded = int(extraction.get("distinct_coded_papers") or 0)
     dup_reports = int(flow.get("duplicate_included_records") or 0)
+    # Coded papers carrying a full-text exclusion - the PRISMA box's excluded
+    # branch.  ONE source (prisma_report.coded_fulltext_excluded, the union of
+    # the coding's own criterion field and the agreed screening file), with
+    # the per-source counts and the master-verdict reconciliation figures.
+    coded_excl = int(flow.get("coded_fulltext_excluded") or 0)
+    coded_excl_reasons = dict(flow.get("coded_fulltext_excluded_by_criterion") or {})
+    coded_excl_detail = dict(flow.get("coded_fulltext_excluded_detail") or {})
 
     abstract_reasons = {_APA_CRIT[c]: 0 for c in ("C1", "C2", "C3", "C4")}
     for reason, n in (flow.get("abstract_excluded_by_reason") or {}).items():
@@ -183,22 +348,66 @@ def _prisma_counts():
     # (ordered by frequency) — never a collapsed/outdated bucket list.
     ft_labels = [lab for lab, _n in fulltext_reasons.most_common()]
 
-    # ---- presentational track split over the SAME canonical reports ---------
-    db = {"identified": 0, "abstract_excluded": 0, "abstract_reasons": collections.Counter(),
+    # ---- presentational track split over the SAME canonical rows/reports ----
+    # A *record* is one master row; a *report* is one deduplicated component.
+    # The identification boxes are counted in RECORDS (PRISMA 2020: "records
+    # identified", then "duplicate records removed"); the screening and
+    # assessment boxes are counted in REPORTS.
+    db = {"records": 0, "identified": 0, "abstract_excluded": 0,
+          "abstract_reasons": collections.Counter(),
           "include": 0, "exclude": 0, "ft_groups": collections.Counter()}
-    other = {"identified": 0, "abstract_excluded": 0, "abstract_reasons": collections.Counter(),
+    other = {"records": 0, "identified": 0, "abstract_excluded": 0,
+             "abstract_reasons": collections.Counter(), "sources": collections.Counter(),
              "include": 0, "exclude": 0, "ft_groups": collections.Counter()}
     try:
         import prisma_report as _PR
-        df = _PR.load_master(path)
+        df = master_df if master_df is not None else _PR.load_master(path)
         roots = _PR.report_ids(df)
         stages = _PR.report_stages(df, roots)
         members = collections.defaultdict(list)
         for i, r in enumerate(roots):
             members[r].append(i)
+
+        def _is_db_record(i):
+            hit = str(df.at[i, "Hit_Source"]).strip() if "Hit_Source" in df.columns else ""
+            if hit == "ebsco_export":
+                return True
+            if hit:
+                return False
+            # Untagged rows that still name their database export are database
+            # records (later EBSCO exports arrived without the Hit_Source tag).
+            for col in ("shortDBName", "longDBName", "src_file"):
+                if col in df.columns and str(df.at[i, col]).strip():
+                    return True
+            return False
+
+        # The other-methods box's source lines (owner decision 2026-11-19):
+        #   * records carried over from an earlier corpus version carry no
+        #     Hit_Source tag - they entered through reference lists, so they
+        #     are MERGED into that line and the label says so;
+        #   * hand-added Zotero records are references of the included works;
+        #   * records added during coding are unpublished work.
+        _REF_LISTS = ("Reference lists of prior meta-analyses and records "
+                      "carried over from an earlier corpus")
+
+        def _other_label(i):
+            hit = str(df.at[i, "Hit_Source"]).strip() if "Hit_Source" in df.columns else ""
+            if hit == "zotero_screening":
+                return "References of included works"
+            if hit == "coded_extraction":
+                return "Unpublished work"
+            # a tagged reference-list row and an untagged carried-over row: one line
+            return _REF_LISTS
+
+        for i in range(len(df)):
+            if _is_db_record(i):
+                db["records"] += 1
+            else:
+                other["records"] += 1
+                other["sources"][_other_label(i)] += 1
         for root, stage in stages.items():
             idxs = members[root]
-            is_db = any(str(df.at[i, "Hit_Source"]).strip() == "ebsco_export" for i in idxs)
+            is_db = any(_is_db_record(i) for i in idxs)
             T = db if is_db else other
             T["identified"] += 1
             if stage == "Include":
@@ -212,22 +421,23 @@ def _prisma_counts():
             else:
                 T["ft_groups"]["Fulltext irretrievable"] += 1
     except Exception:
-        # If the split cannot be computed, put every report on the database track
-        # (the totals below then match by construction).
+        # If the split cannot be computed, put every record/report on the
+        # database track (the totals below then match by construction).
+        db["records"], other["records"] = total, 0
+        other["sources"] = collections.Counter()
         db["identified"], db["abstract_excluded"], db["include"], db["exclude"] = (
             reports, abstract_excluded, reports_included, fulltext_excluded)
 
-    # Reconcile the presentational split with the canonical totals: any residual
-    # (rows without a resolvable Hit_Source) is assigned to the database track, so
-    # the diagram's boxes never contradict prisma.py.
-    for key, want in (("identified", reports), ("abstract_excluded", abstract_excluded),
+    # Reconcile the presentational split with the canonical totals: any
+    # residual is assigned to the database track, so the diagram's boxes never
+    # contradict prisma.py.
+    for key, want in (("records", total), ("identified", reports),
+                      ("abstract_excluded", abstract_excluded),
                       ("include", reports_included), ("exclude", fulltext_excluded)):
         got = db[key] + other[key]
         if got != want:
             db[key] += want - got
 
-    db_coded = min(coded, db["include"])
-    other_coded = max(0, coded - db_coded)
     # include every label actually seen in either track (canonical order, then extras)
     for _T in (db, other):
         for _lab in _T["ft_groups"]:
@@ -236,16 +446,14 @@ def _prisma_counts():
     db_excl = sum(db["ft_groups"].get(g, 0) for g in ft_labels)
     other_excl = sum(other["ft_groups"].get(g, 0) for g in ft_labels)
 
-    def _group_line(T, dup):
-        lines = {g: T["ft_groups"].get(g, 0) for g in ft_labels}
-        if dup:
-            lines[_APA_DUP] = dup
-        return lines
+    def _group_line(T):
+        return {g: T["ft_groups"].get(g, 0) for g in ft_labels}
 
-    db_groups = _group_line(db, max(0, db["include"] - db_coded))
-    other_groups = _group_line(other, max(0, other["include"] - other_coded))
+    db_groups = _group_line(db)
+    other_groups = _group_line(other)
     tracks = {
         "database": {
+            "records": db["records"],
             "identified": db["identified"], "screened": db["identified"],
             "abstract_excluded": db["abstract_excluded"],
             "abstract_reasons": {_APA_CRIT[c]: db["abstract_reasons"].get(_APA_CRIT[c], 0)
@@ -254,46 +462,51 @@ def _prisma_counts():
             "sought": max(0, db["identified"] - db["abstract_excluded"]),
             "assessed": db["include"] + db["exclude"],
             "excluded_groups": db_groups, "excluded_total": db_excl,
-            "included_reports": db["include"], "coded": db_coded,
-            "duplicates": max(0, db["include"] - db_coded),
+            "included_reports": db["include"],
         },
         "other": {
+            "records": other["records"],
             "identified": other["identified"],
-            "sources": ({"Other sources": other["identified"]} if other["identified"] else {}),
+            "sources": dict(other["sources"].most_common())
+                       if other["records"] else {},
             "sought": max(0, other["identified"] - other["abstract_excluded"]),
             "assessed": other["include"] + other["exclude"],
             "excluded_groups": other_groups, "excluded_total": other_excl,
-            "included_reports": other["include"], "coded": other_coded,
-            "duplicates": max(0, other["include"] - other_coded),
+            "included_reports": other["include"],
         },
     }
     data = {
         "total": total, "duplicates": duplicates, "screened": reports,
-        "sources": {k: v for k, v in (("Database searches", db["identified"]),
-                                      ("Other sources", other["identified"])) if v},
+        "sources": {k: v for k, v in (("Database searches", db["records"]),
+                                      ("Other sources", other["records"])) if v},
         "abstract_excluded": abstract_excluded,
         "abstract_reasons": {k: v for k, v in abstract_reasons.items() if v},
         "sought": sought, "not_retrieved": not_retrieved,
         "fulltext_assessed": fulltext_assessed, "fulltext_excluded": fulltext_excluded,
         "fulltext_reasons": dict(fulltext_reasons.most_common()),
         "reports_included": reports_included, "duplicate_reports": dup_reports,
-        "included": coded, "coded": coded,
+        # PRISMA's "studies included in review" = the screening-included
+        # reports.  The coded-papers count is a DIFFERENT population (studies
+        # excluded at full text are still coded by design) and is reported
+        # separately as "coded" — never as the included-studies box.
+        "included": reports_included, "coded": coded,
+        # the flow's excluded branch: coded papers that carry a full-text
+        # exclusion (union of the coding criterion field and the agreed
+        # screening file), with the criterion breakdown for the box.
+        "coded_excluded": coded_excl,
+        "coded_excluded_reasons": coded_excl_reasons,
+        "coded_excluded_detail": coded_excl_detail,
+        "included_records": int(flow.get("included_records") or 0),
         "tracks": tracks, "ft_groups": ft_labels,
         "canonical": {"identified_records": total, "reports": reports,
                       "abstract_excluded": abstract_excluded,
                       "fulltext_excluded": fulltext_excluded,
                       "included_studies": reports_included,
-                      "distinct_coded_papers": coded},
+                      "distinct_coded_papers": coded,
+                      "coded_fulltext_excluded": coded_excl},
     }
-    _APA_PRISMA_CACHE.update(mtime=mtime, data=data)
-    try:
-        os.makedirs(S.TEMP, exist_ok=True)
-        tmp = cache_file + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"mtime": mtime, "data": data}, fh)
-        os.replace(tmp, cache_file)
-    except OSError:
-        pass
+    _APA_PRISMA_CACHE.update(mtime=cache_key, data=data)
+    _save_prisma_counts(cache_key, data)
     return data
 
 def _prisma_figure():
@@ -316,6 +529,19 @@ def _excl_types_txt(counts, top=8):
     if extra > 0:
         txt += f"; {extra} further reason(s)"
     return txt
+
+
+def _coded_excl_txt(counts):
+    """The criterion breakdown of the coded-but-excluded branch (C1-C4)."""
+    r = counts.get("coded_excluded_reasons") or {}
+    if not r:
+        return "no criterion recorded"
+    return "; ".join(f"{k} (n = {v:,})" for k, v in r.items())
+
+
+def _ft_src(counts, key):
+    """One figure from the coded-but-excluded detail dict (reconciliation)."""
+    return (counts.get("coded_excluded_detail") or {}).get(key, 0)
 
 
 def _apa_descriptive_tables(keys, records):
@@ -541,6 +767,9 @@ def _model_note(fit):
             f"within-study τ² = {_ap_num(fit.get('tau_within'), 3)}")
     if fit.get("r2_tau") is not None:
         note += f"; R² among τ = {_ap_num(fit['r2_tau'], 2)}"
+    if fit.get("centered_at") is not None:
+        note += (f"; the continuous moderator was mean-centered "
+                 f"(center = {_ap_num(fit['centered_at'], 3)})")
     ref = fit.get("reference_level") or fit.get("reference_levels")
     if ref:
         if isinstance(ref, dict):
@@ -556,32 +785,86 @@ def _model_note(fit):
         note += "; rare levels are pooled into an explicit Other bucket"
     return note + "."
 
-def _apa_moderator(moderator, label, layer, spec, exclusions, scope, model, priors):
-    # H5 (audit): one moderator policy, shared with the Analysis tab —
-    # multi-valued cells use the study's FIRST value (disclosed), a categorical
-    # moderator beyond the disclosure cap gets an explicit "Other (n levels)"
-    # dummy (never a silent levels[1:9] truncation), and the reference level is
-    # the most common level (documented in the table note).
+def _apa_moderator_rows(moderator, kind, layer, spec, exclusions, scope):
+    """Rows for one moderator with the moderator value attached to each row.
+
+    Resolution mirrors the Analysis tab's moderator panel
+    (``/api/analysis/moderate``): contrast-level fields are read from the effect
+    row itself, every other field from the row's effective coding
+    (per-intervention override aware via ``_mods_for_row``), a multi-valued
+    cell takes the study's first value, and only rows that carry the moderator
+    are kept — so the exported table AND its figure describe the same rows the
+    tab describes.
+    """
     rows = _spec_rows_for(layer, spec, exclusions)
     if scope == "restricted":
         rows = [r for r in rows if r["dv_domain"] in SUSCEPTIBILITY]
     rows = _bayes_rows(rows)
-    mods = _study_moderators()
-    data = []
-    multi_studies = set()
+    kept, multi = [], set()
     for r in rows:
-        vals = [str(v).strip() for v in _values(mods.get(r["study_key"], {}).get(moderator))
-                if str(v).strip()]
-        if not vals:
+        rec = dict(r)
+        if moderator in _CONTRAST_NAMES:
+            rec[moderator] = _norm(r.get(moderator))
+        else:
+            vals = [str(v).strip() for v in _values(_mods_for_row(r).get(moderator))
+                    if str(v).strip()]
+            if not vals:
+                continue
+            if len(vals) > 1:
+                multi.add(r["study_key"])
+            rec[moderator] = _norm(vals[0])
+        if rec.get(moderator) in (None, ""):
             continue
-        if len(vals) > 1:
-            multi_studies.add(r["study_key"])
-        data.append((r, _norm(vals[0])))
+        if kind == "continuous":
+            try:
+                float(rec[moderator])
+            except (TypeError, ValueError):
+                continue
+        kept.append(rec)
+    return kept, multi
+
+
+def _apa_moderator(moderator, label, kind, layer, spec, exclusions, scope, model, priors):
+    """Two-level meta-regression for one moderator; returns (fit, rows).
+
+    The rows are returned so the caller can draw the per-moderator figure from
+    the very rows the model was fitted on.
+
+    H5 (audit): one moderator policy, shared with the Analysis tab —
+    multi-valued cells use the study's FIRST value (disclosed), a categorical
+    moderator beyond the disclosure cap gets an explicit "Other (n levels)"
+    dummy (never a silent levels[1:9] truncation), and the reference level is
+    the most common level (documented in the table note).  A continuous
+    moderator enters as a single mean-centered term exactly as the tab fits it
+    (a dummy per unique value cannot be fitted and used to drop the moderator
+    from the report silently).
+    """
+    data, multi_studies = _apa_moderator_rows(moderator, kind, layer, spec,
+                                              exclusions, scope)
     if len(data) < 6:
-        return None
-    counts = collections.Counter(v for _, v in data)
+        return None, data
+    y = [r["effect"] for r in data]
+    v = [r["var"] for r in data]
+    groups = [r["study_key"] for r in data]
+    if kind == "continuous":
+        xs = [float(r[moderator]) for r in data]
+        mu = sum(xs) / len(xs)
+        X = [[1.0, x - mu] for x in xs]
+        terms = ["Intercept", f"{label} (centered)"]
+        k_by_term = {"Intercept": len(data), terms[1]: len(data)}
+        fit = _apa_fit_design(y, v, groups, X, terms, model, priors, k_by_term=k_by_term)
+        if not fit:
+            return None, data
+        fit["title"] = f"Two-level meta-regression: {label}"
+        fit["centered_at"] = mu
+        if multi_studies:
+            fit["substitutions"] = [{
+                "moderator": moderator, "n_studies": len(multi_studies),
+                "note": "multi-valued studies assigned their first value"}]
+        return fit, data
+    counts = collections.Counter(r[moderator] for r in data)
     if len(counts) < 2:
-        return None
+        return None, data
     ranked = [lv for lv, _ in counts.most_common()]
     ref = ranked[0]                       # reference level = most common
     cap = _level_cap(moderator, len(ranked))
@@ -599,44 +882,23 @@ def _apa_moderator(moderator, label, layer, spec, exclusions, scope, model, prio
     lvl_label = {lv: _level_label(moderator, lv) for lv in shown}
     if rest:
         lvl_label["__other__"] = f"Other ({len(rest)} levels)"
-    y = [r["effect"] for r, _ in data]
-    v = [r["var"] for r, _ in data]
-    X = [[1.0] + [_vec(val, lv) for lv in base_levels] for _, val in data]
+    X = [[1.0] + [_vec(r[moderator], lv) for lv in base_levels] for r in data]
     terms = ["Intercept"] + [f"{label}: {lvl_label[lv]}" for lv in base_levels]
     k_by_term = {"Intercept": counts[ref]}
     for lv, term in zip(base_levels, terms[1:]):
         k_by_term[term] = sum(counts[x] for x in rest) if lv == "__other__" else counts[lv]
-    groups = [r["study_key"] for r, _ in data]
     fit = _apa_fit_design(y, v, groups, X, terms, model, priors, k_by_term=k_by_term)
     if not fit:
-        return None
+        return None, data
     fit["title"] = f"Two-level meta-regression: {label}"
     fit["reference_level"] = _level_label(moderator, ref)
-    # One picture for this moderator (per-level pooled forest), so the exported
-    # report carries a figure for EVERY moderator that was included -- not a
-    # fallback to the DV-type forest.
-    try:
-        _entries = []
-        for lv in ranked:
-            g = [r for r, val in data if val == lv]
-            if not len(g):
-                continue
-            dl = _dl_pool([r["effect"] for r in g], [r["var"] for r in g])
-            _entries.append({"label": _level_label(moderator, lv), "estimate": dl["est"],
-                             "lo": dl["lo"], "hi": dl["hi"]})
-        _fname = _moderator_single_figure(moderator, "categorical", _entries,
-                                          [r for r, _ in data])
-        if _fname:
-            fit["figure"] = os.path.join(_transient_figures_dir(), _fname)
-    except Exception:
-        pass
     if multi_studies:
         fit["substitutions"] = [{
             "moderator": moderator, "n_studies": len(multi_studies),
             "note": "multi-valued studies assigned their first value"}]
     if rest:
         fit["other_bucket"] = f"Other ({len(rest)} levels)"
-    return fit
+    return fit, data
 
 def _apa_combined_moderators(names, interactions, layer, spec, exclusions, scope, model, priors):
     """One combined model with all selected moderators and their interactions."""
@@ -758,17 +1020,39 @@ def _apa_reliability():
         data = _agreement_index()
     except Exception:
         return {"available": False, "note": "Agreement backend unavailable."}
+    fetch = data.get("rater_fetch") or {}
+    missing = list(fetch.get("missing") or [])
     raters = data.get("rater_names") or []
     if len(raters) < 2:
-        return {"available": False,
-                "note": (f"Only {len(raters)} rater(s) available "
-                         f"({', '.join(raters) or 'none'}), so Gwet's AC could not be computed; "
-                         "at least two coders (or coder files) are required.")}
-    rows, overall, _summary = reliability_rows(data)
-    per = [{"Field": r["label"], "AC1": r["ac1"], "k (items)": r["n_multi"]}
-           for r in rows if r.get("ac1") is not None]
-    return {"available": bool(per), "overall_ac1": overall.get("ac1"),
-            "n_fields": len(per), "n_items": overall.get("n_items_total", 0), "rows": per}
+        note = (f"Only {len(raters)} rater(s) available "
+                f"({', '.join(raters) or 'none'}), so Gwet's AC could not be computed; "
+                "at least two coders (or coder files) are required.")
+        if missing:
+            note += (" Not available offline: " + ", ".join(os.path.basename(p) for p in missing[:5])
+                     + (f" and {len(missing) - 5} more" if len(missing) > 5 else "") + ".")
+        return {"available": False, "note": note, "not_available_offline": missing}
+    per, wsum, acc = [], 0.0, 0.0
+    for f in data["fields"]:
+        cmap = _field_case_map(data["raters"], f["name"])
+        case_ratings, observed = [], set()
+        for key, cases in cmap.items():
+            for case, vals in cases.items():
+                observed.update(vals.values())
+                case_ratings.append(list(vals.values()))
+        n_multi = sum(1 for v in case_ratings if len(v) >= 2)
+        if not n_multi:
+            continue
+        cats = sorted(observed) if f["multi"] else list(f["levels"]) + sorted(
+            v for v in observed if v not in f["levels"])
+        res = gwet_ac(case_ratings, cats) if 2 <= len(cats) < _LABEL_MAX_LEVELS else None
+        if res and res["coeff"] is not None:
+            per.append({"Field": f["label"], "AC1": res["coeff"], "k (items)": res["n2"]})
+            acc += res["coeff"] * res["n2"]
+            wsum += res["n2"]
+    overall = (acc / wsum) if wsum else None
+    return {"available": bool(per), "overall_ac1": overall,
+            "n_fields": len(per), "n_items": wsum, "rows": per,
+            "not_available_offline": missing}
 
 def _apa_context(payload):
     layer = (payload.get("layer") or "meta").strip()
@@ -814,7 +1098,13 @@ def _apa_context(payload):
         records = records_all
     analyses_set_note = (f"Study characteristics describe the analysis set for "
                          f"'{spec_label}' ({excl_label}); "
-                         f"{len({r.get('_key') for r in records})} studies.")
+                         f"{len({r.get('_key') for r in records})} studies. "
+                         f"These are the studies that contribute at least one poolable "
+                         f"eligible contrast to the pooled analysis — a subset of the "
+                         f"{counts.get('included', 0):,} screening-included studies reported "
+                         f"by the PRISMA flow (the coded corpus of "
+                         f"{counts.get('coded', 0):,} papers is larger still, because "
+                         f"studies excluded at full text are fully coded too).")
 
     # ---------------- Method ----------------
     methods = []
@@ -835,7 +1125,23 @@ def _apa_context(payload):
         f"{counts.get('fulltext_assessed', 0):,} reports were assessed for eligibility, of which "
         f"{counts.get('fulltext_excluded', 0):,} were excluded under the review criteria "
         f"({_excl_types_txt(counts)}). "
-        f"{counts.get('coded', 0):,} studies were included in the synthesis."]})
+        f"{counts.get('included', 0):,} studies were included in the review. "
+        f"{counts.get('coded', 0):,} papers carry a full coding — studies that failed a "
+        f"criterion are still fully coded (for the coding-reliability routes), so the coded "
+        f"corpus is larger than the included set. Of the coded papers, "
+        f"{counts.get('coded_excluded', 0):,} are excluded at full text and are listed as the "
+        f"flow diagram's excluded branch ({_coded_excl_txt(counts)}; a paper can fail several "
+        f"criteria, so the breakdown counts papers per criterion). That branch is the union of "
+        f"the coding's own exclusion field ({_ft_src(counts, 'from_extraction_field'):,} coded "
+        f"papers) and the agreed screening list ({_ft_src(counts, 'from_agreed_file'):,} coded "
+        f"papers; {'present' if _ft_src(counts, 'agreed_file_present') else 'absent in this checkout'}). The master workbook separately "
+        f"records {counts.get('fulltext_excluded', 0):,} full-text-excluded reports; "
+        f"{_ft_src(counts, 'in_master_excluded_reports'):,} of the marked papers sit on a "
+        f"master report excluded at full text, so the coding marker and the screening verdicts "
+        f"agree there and diverge for the rest (a screening-layer reconciliation, reported here "
+        f"rather than forced). The pooled analyses "
+        f"draw on the studies that contribute at least one poolable eligible contrast (see the "
+        f"study-characteristics note."]})
     methods.append({"heading": "Data extraction and effect-size computation", "paragraphs": [
         "Each eligible study was coded for sample, design, intervention type, control type, and "
         "outcome characteristics. Reported effects were converted to a common standardised metric; "
@@ -916,12 +1222,18 @@ def _apa_context(payload):
     src = counts.get("sources") or {}
     src_txt = ", ".join(f"{n:,} from {k.lower()}" for k, n in src.items())
     sel_txt = (f"{counts.get('total', 0):,} records were identified ({src_txt or 'no sources recorded'}). "
-               f"{counts.get('abstract_excluded', 0):,} database records were excluded during "
+               f"{counts.get('duplicates', 0):,} duplicate records were removed before screening, "
+               f"leaving {counts.get('screened', 0):,} reports; "
+               f"{counts.get('abstract_excluded', 0):,} reports were excluded during "
                f"title/abstract screening; records identified via other sources went straight to "
                f"full-text screening. {counts.get('fulltext_assessed', 0):,} reports were assessed for "
                f"eligibility; {counts.get('fulltext_excluded', 0):,} were excluded for the named "
-               f"criteria ({_excl_types_txt(counts)}), and {counts.get('coded', 0):,} studies were "
-               f"included in the synthesis.")
+               f"criteria ({_excl_types_txt(counts)}), and {counts.get('included', 0):,} studies were "
+               f"included in the review ({counts.get('coded', 0):,} papers are coded in total — "
+               f"studies excluded at full text are still coded — so the coded corpus is larger "
+               f"than the included set; of the coded papers, {counts.get('coded_excluded', 0):,} "
+               f"are excluded at full text and form the diagram's excluded branch, "
+               f"{_coded_excl_txt(counts)}).")
     prisma_sec = {"heading": "Study selection", "paragraphs": [sel_txt], "tables": []}
     if fig:
         prisma_sec["figures"] = [{"title": "PRISMA 2020 flow diagram", "path": fig}]
@@ -1121,20 +1433,54 @@ def _apa_context(payload):
             sub_tables.append({"title": "Author exclusions: applied vs ignored",
                                "columns": ["Specification", "k (applied)", "Estimate (applied)",
                                            "Estimate (ignored)", "Change"], "rows": t})
-    label_of = {m["name"]: m.get("label", m["name"])
-                for m in _moderator_catalog()["moderators"]}
+    _cat = _moderator_catalog()
+    kind_of = _cat["kinds"]
+    label_of = {m["name"]: m.get("label", m["name"]) for m in _cat["moderators"]}
     mod_para = []
     mod_figures = []
+    # Bookkeeping for the export's own verification: which selected moderators
+    # produced a subgroup table, which produced a figure, and which were
+    # skipped (no fitted model, or no estimated levels to draw).
+    mod_audit = {"fitted": [], "figure": [], "skipped_no_fit": {},
+                 "skipped_empty_figure": []}
     for name in moderator_names:
         label = label_of.get(name, name)
-        fit = _apa_moderator(name, label, layer, spec, exclusions, scope, model, priors)
-        if fit:
-            cols = (["Term", "k", "Post. mean", "95% CrI", "BF₁₀", "p"] if model == "bayes"
-                    else ["Term", "k", "Estimate", "SE", "95% CI", "p"])
-            sub_tables.append({"title": fit["title"], "columns": cols, "rows": fit["rows"],
-                               "note": _model_note(fit)})
-            if fit.get("figure") and os.path.isfile(fit["figure"]):
-                mod_figures.append({"title": f"Moderator: {label}", "path": fit["figure"]})
+        kind = kind_of.get(name, "categorical")
+        try:
+            fit, kept = _apa_moderator(name, label, kind, layer, spec, exclusions,
+                                       scope, model, priors)
+        except Exception:
+            fit, kept = None, []
+        if not fit:
+            mod_audit["skipped_no_fit"][name] = (
+                "too few contrasts carry this moderator" if len(kept) < 6 else
+                "the two-level design could not be fitted "
+                "(fewer studies than moderator levels)")
+            continue
+        cols = (["Term", "k", "Post. mean", "95% CrI", "BF₁₀", "p"] if model == "bayes"
+                else ["Term", "k", "Estimate", "SE", "95% CI", "p"])
+        sub_tables.append({"title": fit["title"], "columns": cols, "rows": fit["rows"],
+                           "note": _model_note(fit)})
+        mod_audit["fitted"].append(name)
+        # One figure per moderator, drawn by the SAME shared machinery the
+        # Analysis tab's moderator panel uses (per-level pooled forest for
+        # categorical/binary moderators, bubble plot for continuous ones), on
+        # the rows the table was fitted on — so the figure's levels are the
+        # model's disclosed levels, never a silent uncapped enumeration and
+        # never a DV-type forest fallback.  A moderator whose levels have no
+        # finite estimates is skipped rather than emitted as an empty figure,
+        # and a figure error must not take the export down.
+        try:
+            _le = _moderator_level_effects(kept, [name], kind_of, model)
+            _fgs = _moderator_figures(kept, [name], kind_of, _le)
+            _p = os.path.join(_figures_dir(), _fgs[0]["file"]) if _fgs else None
+            if _p and os.path.isfile(_p):
+                mod_figures.append({"title": f"Moderator: {label}", "path": _p})
+                mod_audit["figure"].append(name)
+            else:
+                mod_audit["skipped_empty_figure"].append(name)
+        except Exception:
+            mod_audit["skipped_empty_figure"].append(name)
     if moderator_names:
         comb = _apa_combined_moderators(moderator_names, apa_interactions,
                                         layer, spec, exclusions, scope, model, priors)
@@ -1215,19 +1561,24 @@ def _apa_context(payload):
             forest = [f for f in figs if f.get("ext") == ".png" and f.get("kind") == "forest"
                       and f.get("layer") == layer]
         section = {"heading": "Figures", "paragraphs": [], "tables": [], "figures": []}
+        n_forest = 0
         for f in forest[:1]:
             p = os.path.join(_figures_dir(), f["stem"] + ".png")
             if os.path.isfile(p):
                 section["figures"].append({"title": _human_mod_label(f.get("stem")), "path": p})
+                n_forest += 1
         # One figure for EACH moderator that was included (never a DV-type fallback).
         section["figures"] += mod_figures
         if section["figures"]:
-            _nmod = len(mod_figures)
+            _bits = []
+            if n_forest:
+                _bits.append("the specification forest")
+            if mod_figures:
+                _bits.append(f"one figure per moderator ({len(mod_figures)})")
             section["paragraphs"] = [
-                f"Forest and moderator figures for the {_APA_LAYER.get(layer, layer)} layer "
-                f"({_APA_SPEC.get(spec, spec)}) are reproduced below"
-                + (f"; one figure per moderator ({_nmod}), plus the specification forest."
-                   if _nmod else ".")]
+                f"Figures for the {_APA_LAYER.get(layer, layer)} layer "
+                f"({_APA_SPEC.get(spec, spec)}) are reproduced below: "
+                + " and ".join(_bits) + "."]
             results.append(section)
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1240,6 +1591,7 @@ def _apa_context(payload):
         "_table_no": 1, "_figure_no": 1,
         "prisma": counts,
         "layer": layer, "spec": spec, "exclusions": exclusions, "model": model,
+        "_moderator_audit": mod_audit,
     }
     return ctx
 
@@ -1249,6 +1601,49 @@ def api_analysis_prisma_png():
     if not path or not os.path.isfile(path):
         abort(404)
     return send_file(path, mimetype="image/png", download_name="prisma.png", max_age=0)
+
+@bp.get("/api/analysis/prisma/counts")
+def api_analysis_prisma_counts():
+    """The PRISMA flow numbers behind the diagram, each labelled.
+
+    The UI shows these next to the figure so the populations can never be
+    confused: records identified (all master rows), deduplicated reports,
+    screening-included studies (the PRISMA "studies included" box), the
+    coded-but-excluded-at-full-text branch (coded papers carrying a
+    full-text exclusion, with the criterion breakdown), and the coded-papers
+    count (a different, larger corpus by design).  Cached with the diagram
+    (same master stamp + counts version).
+    """
+    counts = _prisma_counts()
+    if not counts:
+        return jsonify({"available": False,
+                        "error": "master_dataset.xlsx not found or unreadable"})
+    tracks = counts.get("tracks") or {}
+    db = tracks.get("database") or {}
+    oth = tracks.get("other") or {}
+    return jsonify({
+        "available": True,
+        "master": "master_dataset.xlsx",
+        "records_identified": counts.get("total", 0),
+        "database_records": db.get("records", 0),
+        "other_records": oth.get("records", 0),
+        "other_sources": oth.get("sources") or {},
+        "duplicates_removed": counts.get("duplicates", 0),
+        "reports": counts.get("screened", 0),
+        "abstract_excluded": counts.get("abstract_excluded", 0),
+        "fulltext_assessed": counts.get("fulltext_assessed", 0),
+        "fulltext_excluded": counts.get("fulltext_excluded", 0),
+        "included_studies": counts.get("included", 0),
+        # the excluded branch of the flow: coded papers carrying a full-text
+        # exclusion (union of the coding criterion field and the agreed
+        # screening file), with the C1-C4 breakdown for the caption.
+        "coded_excluded_at_fulltext": counts.get("coded_excluded", 0),
+        "coded_excluded_by_criterion": counts.get("coded_excluded_reasons") or {},
+        "coded_excluded_detail": counts.get("coded_excluded_detail") or {},
+        "included_records": counts.get("included_records", 0),
+        "duplicate_included_records": counts.get("duplicate_reports", 0),
+        "coded_papers": counts.get("coded", 0),
+    })
 
 @bp.post("/api/analysis/apa")
 def api_analysis_apa():

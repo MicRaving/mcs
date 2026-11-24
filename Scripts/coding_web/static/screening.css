@@ -3,11 +3,12 @@
    Three-pane shell mirroring the Coding tab: abstract list |
    inclusion criteria form | abstract / AI-reference viewer.
 
-   Inclusion is driven by the Tab key (see screening.js): criteria whose
-   keywords appear nowhere in the title/abstract are pre-selected "Unsure"
-   when the abstract loads, and Tab accepts the focused criterion and
-   advances; past the last criterion it saves the record and loads the next
-   abstract in place.
+   Inclusion is driven by the Tab key (see screening.js): a criterion whose
+   auto-approval rule matches the title/abstract is pre-filled with the
+   criterion's first pass value (and the card says which rule matched), a
+   criterion with rules but no match is pre-selected "Unsure", and Tab
+   accepts the focused criterion and advances; past the last criterion it
+   saves the record and loads the next abstract in place.
    ============================================================ */
 
 /* author display rules beat [hidden]; state it explicitly for the view */
@@ -16,6 +17,30 @@
 .workspace.screening {
   grid-template-columns: minmax(220px, var(--w-left, 300px)) minmax(0, 1.15fr) minmax(0, 1fr);
   grid-template-areas: "left mid right";
+}
+
+/* The screening view has its own three columns, so it also needs its own
+   narrowing: the abstract list first moves above the form, then the abstract
+   pane drops below it.  Without this the fixed first column squeezed the list
+   to a scrollbar on a small window. */
+@media (max-width: 1340px) {
+  .workspace.screening {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "left left" "mid right";
+  }
+  .workspace.screening .pane.left { flex-direction: row; align-items: stretch; }
+  .workspace.screening .pane.left .side-search { flex: 0 1 300px; min-width: 0; }
+  .workspace.screening .pane.left .paper-list { flex: 1 1 0; min-width: 0; max-height: 212px; }
+}
+
+@media (max-width: 1024px) {
+  .workspace.screening {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(240px, 1fr) minmax(200px, 38vh);
+    grid-template-areas: "left" "mid" "right";
+  }
+  .workspace.screening .pane.left .side-search { flex: 0 1 260px; }
 }
 
 /* the shared top bar is coding-specific; screening has its own controls */
@@ -39,11 +64,7 @@ body.view-screening #merge-btn { display: inline-flex !important; }
 .s-badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
 .s-badge.inc { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: var(--ok-soft); }
 .s-badge.exc { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
-.s-badge.unsure { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); background: var(--warn-soft); }
 .s-badge.human { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-soft); }
-.s-badge.human.inc { color: var(--ok); }
-.s-badge.human.exc { color: var(--danger); }
-.s-badge.human.unsure { color: var(--warn); }
 .s-badge.ai { color: var(--muted); }
 
 /* ------------------------------------------------------------ criteria form */
@@ -91,23 +112,11 @@ body.view-screening #merge-btn { display: inline-flex !important; }
 .crit-auto b { font-weight: 700; }
 .screen-crit.auto .crit-tag { box-shadow: 0 0 0 2px var(--accent-soft); }
 
-.screen-opt {
-  display: inline-flex; align-items: center; gap: 5px; margin-left: 10px;
-  font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap;
-}
-.screen-opt input { margin: 0; }
-.screen-warn {
-  margin-bottom: 10px; padding: 8px 10px; font-size: 11.5px; border-radius: var(--r);
-  color: var(--warn); background: var(--warn-soft);
-  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
-}
-
 .screen-keys { margin-top: 14px; font-size: 11px; color: var(--muted); }
 .screen-keys .kbd { margin: 0 1px; }
 
 /* ------------------------------------------------------------ right viewer */
-#screen-viewer { padding: 14px 16px 28px; overflow: auto; transition: opacity .12s; }
-#screen-viewer.loading { opacity: .45; cursor: progress; }
+#screen-viewer { padding: 14px 16px 28px; overflow: auto; }
 .screen-abstract { font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
 .screen-abstract .screen-abs-label {
   display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;

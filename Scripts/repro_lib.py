@@ -71,6 +71,7 @@ os.makedirs(TMP, exist_ok=True)
 tempfile.tempdir = TMP
 
 sys.path.insert(0, os.path.join(B, "Scripts"))
+import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 try:
     import domain_restriction as DR  # noqa: E402  (shared controlled vocabulary)
 except Exception:  # pragma: no cover - fall back to raw labels
@@ -392,7 +393,7 @@ def get_context(folder, key):
     ck = (os.path.abspath(folder), key)
     if ck in _CTX_CACHE:
         return _CTX_CACHE[ck]
-    harm = os.path.join(folder, key + " - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
     side = os.path.join(folder, key + " - harmonized_variables.csv")
     notes = []
     meta, meta_full = {}, {}
@@ -1240,7 +1241,7 @@ def reproduce(key):
     _print_header(key)
 
     # ---------------- no participant data ----------------
-    harm = os.path.join(folder, key + " - harmonized.csv")
+    harm = CSVIO.resolve(os.path.join(folder, key + " - harmonized.csv"))
     if not os.path.isfile(harm):
         print("EXCLUSION CRITERIA")
         print("  - no participant data: no `" + key + " - harmonized.csv` present\n")
