@@ -53,8 +53,13 @@ def _open(share, base, **kw):
 
 
 def _project_gets(fake) -> dict:
+    """Project files the server delivered, ``{path: times}``.
+
+    Counted for a plain ``GET`` **and** for every file inside a folder archive,
+    so a test means the same thing whichever path delivered the bytes.
+    """
     with fake.state.lock:
-        return {p: n for p, n in fake.state.gets.items() if not p.startswith(".studio")}
+        return {p: n for p, n in fake.state.served.items() if not p.startswith(".studio")}
 
 
 def _core_paths(info_paths) -> set:
@@ -116,8 +121,11 @@ def test_first_round_lists_before_downloading_and_resolves_hashes(share):
     st.close()
 
 
-def test_downloads_run_in_parallel_but_never_more_than_four(share):
+def test_downloads_run_in_parallel_and_stay_inside_the_bound(share):
     st, _pid = _open(share, share["tmp"] / "c1")
+    # the per-file path is the fallback (no archive support, small sets): here
+    # it is measured on its own, without archive batches
+    st.client.bulk_enabled = False
     fake = share["fake"]
     fake.state.latency = (0.01, 0.02)
     active = {"now": 0, "max": 0}
@@ -148,7 +156,9 @@ def test_downloads_run_in_parallel_but_never_more_than_four(share):
 
     st.syncer.download_many = timed_many
     st.sync_now()
-    assert 1 < active["max"] <= 4, active
+    from online.webdav import MAX_PARALLEL_REQUESTS
+    assert 1 < active["max"] <= MAX_PARALLEL_REQUESTS, active
+    assert dav.parallel_limit <= MAX_PARALLEL_REQUESTS
     n = len(_core_paths(_listed(share)))
     # one at a time would need at least n x the mean latency (15 ms)
     assert took["s"] < n * 0.015, (took, n)
@@ -160,6 +170,7 @@ def test_a_killed_first_sync_resumes_without_downloading_again(share, monkeypatc
     head was - only the files on disk and the index journal survive."""
     base = share["tmp"] / "c1"
     st, _pid = _open(share, base)
+    st.client.bulk_enabled = False          # the per-file crash path (the fallback)
     info = share["info"]
     core = sorted(_core_paths(_listed(share)))
     stop_after = len(core) // 2
@@ -211,6 +222,7 @@ def test_a_crash_in_a_continuation_round_adopts_the_files_on_disk(share, monkeyp
     next state save.  The restart must adopt those files - no GET, no push."""
     base = share["tmp"] / "c1"
     st, _pid = _open(share, base)
+    st.client.bulk_enabled = False          # the per-file crash path (the fallback)
     st.syncer.round_budget = 0.0                 # round 1: list, park everything
     st.sync_now()
     assert st.mirror.state["seq"] > 0 and st.mirror.state["stale"]
@@ -369,6 +381,7 @@ def test_progress_is_reported_while_the_core_tier_downloads(share):
 
 def test_a_budgeted_round_parks_the_rest_and_the_next_round_continues(share):
     st, _pid = _open(share, share["tmp"] / "c1")
+    st.client.bulk_enabled = False          # measure the per-file budget mechanism
     share["fake"].state.latency = (0.01, 0.01)
     st.syncer.round_budget = 0.05
     st.sync_now()

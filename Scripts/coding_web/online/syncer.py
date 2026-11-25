@@ -80,6 +80,8 @@ BACKOFF_MAX = 300.0
 PUSH_BATCH = 200
 #: seconds between two state saves while a batch downloads
 SAVE_EVERY = 3.0
+#: folder archives in flight at once (one archive is extracted serially)
+ARCHIVE_WORKERS = 4
 
 
 def _iso(ts: float | None) -> str | None:
@@ -231,6 +233,7 @@ class Syncer:
         with self.mirror.lock:
             sizes = {j[0]: int((self.mirror.remote.get(j[0]) or {}).get("size") or 0) for j in jobs}
         t0 = time.monotonic()
+        n_jobs = len(jobs)
         if track:
             with self._progress_lock:
                 prev = self.progress if self._more_pending and self.progress.get("phase") != "idle" else None
@@ -245,10 +248,50 @@ class Syncer:
                                  "current": None, "failed": 0}
             self._more_pending = False
         written: list[str] = []
+
+        def _advance(rel: str, size: int) -> None:
+            """One file's worth of progress (the archive path reports too)."""
+            if not track:
+                return
+            with self._progress_lock:
+                p = self.progress
+                p["files_done"] += 1
+                p["bytes_done"] += sizes.get(rel, 0) or size
+                p["current"] = rel
+                secs = max(1e-3, time.time() - float(p["started"] or time.time()))
+                p["rate_bps"] = p["bytes_done"] / secs
+                left_files = p["files_total"] - p["files_done"]
+                per_file = secs / max(1, p["files_done"])
+                left_bytes = max(0, p["bytes_total"] - p["bytes_done"])
+                eta = max(left_files * per_file * 0.5,
+                          left_bytes / p["rate_bps"] if p["rate_bps"] > 0 else 0)
+                p["eta_s"] = round(eta, 1) if left_files else 0.0
+
+        # The first sync of a large share is dominated by round trips, not
+        # bytes: a Nextcloud that answers a collection GET with an archive
+        # (>= 31) delivers a batch of files in one request.  Whatever the
+        # archive does not deliver falls through to the per-file path below.
+        jobs, bulk_aborted = self._bulk_download(jobs, written, _advance, progress=progress,
+                                                 total=max(n_jobs, 1), budget=budget, t0=t0)
+        if bulk_aborted:
+            for rel, _h, _f in jobs:
+                self.mirror.add_stale(rel)       # paused: the next round continues
+            self.mirror.save()
+            if track:
+                with self._progress_lock:
+                    self.progress["phase"] = "paused" if self._stop.is_set() else "downloading"
+                self._more_pending = True
+            return written, True
         offline: BaseException | None = None
         first_error: BaseException | None = None
         stopped = False
         last_save = time.monotonic()
+        if not jobs:
+            if track:
+                with self._progress_lock:
+                    self.progress = dict(self.progress, phase="idle", current=None, eta_s=0.0)
+            self.mirror.save()
+            return written, False
         workers = max(1, min(self.parallel, len(jobs)))
         it = iter(jobs)
         pending: dict = {}
@@ -266,7 +309,7 @@ class Syncer:
             pending[ex.submit(self._download_into, job[0], job[1], job[2])] = job
             return True
 
-        done_n = 0
+        done_n = len(written)
         ex = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="online-dl")
         try:
             for _ in range(workers):
@@ -291,23 +334,10 @@ class Syncer:
                             with self._progress_lock:
                                 self.progress["failed"] += 1
                     done_n += 1
-                    if track:
-                        with self._progress_lock:
-                            p = self.progress
-                            p["files_done"] += 1
-                            p["bytes_done"] += sizes.get(rel, 0)
-                            p["current"] = rel
-                            secs = max(1e-3, time.time() - float(p["started"] or time.time()))
-                            p["rate_bps"] = p["bytes_done"] / secs
-                            left_files = p["files_total"] - p["files_done"]
-                            per_file = secs / max(1, p["files_done"])
-                            left_bytes = max(0, p["bytes_total"] - p["bytes_done"])
-                            eta = max(left_files * per_file * 0.5,
-                                      left_bytes / p["rate_bps"] if p["rate_bps"] > 0 else 0)
-                            p["eta_s"] = round(eta, 1) if left_files else 0.0
+                    _advance(rel, 0)
                     if progress is not None:
                         try:
-                            progress(done_n, len(jobs), rel)
+                            progress(done_n, max(n_jobs, done_n), rel)
                         except Exception:              # noqa: BLE001
                             pass
                 if time.monotonic() - last_save >= self.SAVE_EVERY:
@@ -336,6 +366,147 @@ class Syncer:
         if first_error is not None:
             raise first_error
         return written, interrupted
+
+    # -- bulk archive downloads ------------------------------------------------------
+    #
+    # A Nextcloud (>= 31) answers ``GET`` on a collection with an archive, so a
+    # batch of missing files costs one request instead of one per file.  This is
+    # an optimisation only: whatever the archive does not deliver is downloaded
+    # by the per-file path below, which records heads exactly the same way.
+
+    def _bulk_download(self, jobs, written: list[str], advance, *, progress=None, total=0,
+                       budget, t0) -> tuple[list, bool]:
+        """Deliver what the share can send as archives; returns ``(jobs left, aborted)``.
+
+        Up to :data:`ARCHIVE_WORKERS` archives are in flight at once (the
+        WebDAV gate caps requests and honours 429 ``Retry-After``): one
+        archive is extracted serially on its own thread, so a single stream
+        would leave the share's latency and the disk idle.  The state is saved
+        every :data:`SAVE_EVERY` seconds, exactly like the per-file path.
+        """
+        batches_of = getattr(self.client, "bulk_batches", None)
+        fetch = getattr(self.client, "bulk_fetch", None)
+        if batches_of is None or fetch is None:
+            return jobs, False
+        try:
+            batches = batches_of([(j[0], j[1]) for j in jobs])
+        except Exception:                       # noqa: BLE001 - never break a round
+            return jobs, False
+        batches = [b for b in (batches or []) if b]
+        if not batches:
+            return jobs, False
+        by_rel = {j[0]: j for j in jobs}
+        done: set[str] = set()
+        stopped = False
+        failed = False
+        workers = max(1, min(ARCHIVE_WORKERS, self.parallel, len(batches)))
+        it = iter(batches)
+        pending: dict = {}
+        last_save = time.monotonic()
+
+        def over_budget() -> bool:
+            return self._stop.is_set() or (budget is not None and time.monotonic() - t0 > budget)
+
+        def run_batch(batch):
+            force = {rel: bool(by_rel[rel][2]) for rel, _t in batch if rel in by_rel}
+            before: dict[str, str] = {}
+            with self.mirror.lock:
+                for rel, _t in batch:
+                    before[rel] = self.mirror.local_state(rel)
+
+            def install(rel, tmp, digest, size, token, _before=before, _force=force):
+                return self._install_bulk(rel, tmp, digest, token, _before.get(rel),
+                                          _force.get(rel, False))
+
+            return fetch(batch, self.mirror.tmp_dir, install, should_stop=over_budget,
+                         reject=self._reject_bulk)
+
+        def submit(ex) -> bool:
+            if failed or stopped or over_budget():
+                return False
+            batch = next(it, None)
+            if batch is None:
+                return False
+            pending[ex.submit(run_batch, batch)] = batch
+            return True
+
+        ex = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="online-arc")
+        try:
+            for _ in range(workers):
+                if not submit(ex):
+                    break
+            while pending:
+                finished, _ = wait(list(pending), timeout=0.5, return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    pending.pop(fut)
+                    try:
+                        got = fut.result()
+                    except Exception:           # noqa: BLE001 - fall back per file
+                        failed = True
+                        continue
+                    if not got:
+                        # the share said it could, but not one member arrived:
+                        # stop trying and let the per-file path deliver it
+                        failed = True
+                        continue
+                    for rel, (_digest, size) in got.items():
+                        done.add(rel)
+                        if rel not in written:
+                            written.append(rel)
+                        advance(rel, size)
+                        if progress is not None:
+                            try:
+                                progress(len(written), max(total, len(written)), rel)
+                            except Exception:   # noqa: BLE001 - a callback never breaks a pull
+                                pass
+                if over_budget():
+                    stopped = True
+                    break
+                if time.monotonic() - last_save >= self.SAVE_EVERY:
+                    self.mirror.save()
+                    last_save = time.monotonic()
+                while len(pending) < workers and submit(ex):
+                    pass
+        finally:
+            ex.shutdown(wait=True)
+            self.mirror.save()                  # heads of every finished batch, at once
+        stopped = stopped or (over_budget() and len(done) < len(jobs))
+        return [j for j in jobs if j[0] not in done], bool(stopped)
+
+    def _reject_bulk(self, rel: str, token: str | None) -> None:
+        """An archive member the server flagged as unreadable: undo the install.
+
+        The server zero-pads such a member in a tar, so its bytes must not
+        become the head; the path is parked and the per-file path fetches it
+        (a single GET either delivers the real bytes or fails loudly).
+        """
+        with self.mirror.lock:
+            self.mirror.remove_file(rel)        # unlink + drop the head
+            if token:
+                r = self.mirror.remote.get(rel)
+                if r is not None:
+                    r["hash"] = token           # the version token, as before
+            self.mirror.add_stale(rel)
+
+    def _install_bulk(self, rel: str, tmp_path: str, digest: str, token: str | None,
+                      before: str | None, force: bool = False) -> bool:
+        """Install one archive member under the same rules as a single GET."""
+        with self.mirror.lock:
+            if not force:
+                now = self.mirror.local_state(rel)
+                if now == "modified" and before != "modified" and self.permissions.can_write(rel):
+                    self.mirror.add_stale(rel)      # the user edited it meanwhile
+                    return False
+            self.mirror.install_file(rel, tmp_path, digest)
+            self.mirror.discard_stale(rel)
+            r = self.mirror.remote.get(rel)
+            if r is not None and token and r.get("hash") == token:
+                # the archive resolved the version token to its content hash
+                # (what a single GET does through ``resolve_hash``)
+                r["hash"] = digest
+            if self.cache.tier(rel) in ("lru", "supplement", "pinned"):
+                self.cache.touch(rel)
+        return True
 
     # -- identity -------------------------------------------------------------------
 

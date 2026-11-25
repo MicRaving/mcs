@@ -70,17 +70,18 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import zipfile
 
 from online_shared import merge as merge_mod
 from online_shared import protocol
 
+from . import ncarchive
 from .errors import (
     BadRequestError,
     ConflictError,
     ForbiddenError,
     LockedError,
     NotFoundError,
-    OfflineError,
     OnlineError,
     ServerError,
 )
@@ -110,6 +111,30 @@ TOKEN_PREFIX = "nc1-"
 MAX_SPOOL_BYTES = 64 * 1024 * 1024      # keep merged/uploaded JSON+CSV in memory-spooled files
 MAX_BASE_BYTES = 16 * 1024 * 1024       # a locally kept merge base
 
+# -- bulk archive downloads (Nextcloud >= 31 folder-archive WebDAV extension) --
+#
+# One GET on a collection with ``Accept: application/x-tar`` (or zip) and a
+# ``files`` filter carries many files at once.  The first sync of the owner's
+# share was 6.9k small core files at ~5 files/s: 20-25 minutes of request
+# latency, most of it round trips, not bytes.  These constants are the policy
+# (format sniffing and safe extraction live in :mod:`.ncarchive`).
+ARCHIVE_ACCEPT = ncarchive.ACCEPT
+#: a probe archive must stay tiny: it fetches one small file, filtered
+ARCHIVE_PROBE_MAX = 4 * 1024 * 1024
+#: a negative capability result is retried after this long (a server upgrade)
+ARCHIVE_NEGATIVE_TTL = 24 * 3600.0
+#: an archive GET streams many files: one timeout per batch, not per file
+ARCHIVE_TIMEOUT = 600.0
+#: below this many missing files per round a plain GET is cheaper than a probe
+BULK_MIN_FILES = 8
+BULK_MAX_FILES = 128
+#: the ``files`` query stays inside Apache's 8 KB request line (also nginx's
+#: 8 KB header buffer); one request carries up to 128 paths or 5 KB of names
+BULK_MAX_CHARS = 5000
+BULK_MAX_BYTES = 192 * 1024 * 1024
+#: one file bigger than this is streamed on its own (no batch to wait behind)
+BULK_MAX_ENTRY_BYTES = 128 * 1024 * 1024
+
 
 # ---------------------------------------------------------------------------
 # paths / identity helpers
@@ -134,6 +159,28 @@ def _sha_bytes(data: bytes) -> str:
 
 def _sha_file(path: str) -> str:
     return protocol.sha256_file(path)
+
+
+def _copy_hashed(src, dest_path: str) -> tuple[str, int]:
+    """Stream *src* into *dest_path*; returns ``(sha256, bytes)``.
+
+    The archive reader hands one member at a time; hashing while writing means
+    the bytes are hashed exactly once and nothing is buffered in memory.
+    """
+    h = hashlib.sha256()
+    n = 0
+    d = os.path.dirname(dest_path) or "."
+    os.makedirs(d, exist_ok=True)
+    with open(dest_path, "wb") as out:
+        while True:
+            chunk = src.read(1024 * 1024)
+            if not chunk:
+                break
+            h.update(chunk)
+            n += len(chunk)
+            out.write(chunk)
+        out.flush()
+    return h.hexdigest(), n
 
 
 def _is_content_hash(digest: str | None) -> bool:
@@ -300,8 +347,18 @@ class NextcloudClient:
         #: the last full listing ``{rel: Prop}`` and the root ETag it was taken at
         self._listing: dict | None = None
         self._listing_dirty = False
+        #: set by ``bulk_batches``: the format the last probe chose
+        self._bulk_format: str | None = None
+        #: the small file the capability probe already downloaded: (rel, bytes)
+        self._probe_seed: tuple[str, bytes] | None = None
+        #: a share with a broken archive implementation can be switched off
+        self.bulk_enabled = True
+        self.last_archive_error: str | None = None
         self.stats = {"propfind_infinity": 0, "propfind_root": 0, "listing_reused": 0,
-                      "downloads": 0, "download_bytes": 0, "index_saves": 0}
+                      "downloads": 0, "download_bytes": 0, "index_saves": 0,
+                      "archive_probes": 0, "archive_requests": 0, "archive_files": 0,
+                      "archive_bytes": 0, "archive_mismatch": 0, "archive_missing": 0,
+                      "archive_fallbacks": 0}
         if self.folder:
             self._projects[self.project_id] = {"root": self.folder, "name": self._folder_name()}
 
@@ -392,6 +449,7 @@ class NextcloudClient:
                                "top_etags": data.get("top_etags"),
                                "listed_at": float(data.get("listed_at") or 0.0),
                                "etag_propagates": data.get("etag_propagates"),
+                               "archive": data.get("archive"),
                                "files": {str(k): dict(v) for k, v in data["files"].items()
                                          if isinstance(v, dict)}}
             else:
@@ -461,6 +519,7 @@ class NextcloudClient:
                        "top_etags": self._index.get("top_etags"),
                        "listed_at": self._index.get("listed_at") or 0.0,
                        "etag_propagates": self._index.get("etag_propagates"),
+                       "archive": self._index.get("archive"),
                        "files": self._index.get("files") or {}}
             _atomic_write(path, json.dumps(payload, ensure_ascii=False,
                                            separators=(",", ":")).encode("utf-8"))
@@ -1042,6 +1101,422 @@ class NextcloudClient:
                 except OSError:
                     pass
         return real
+
+    # -- bulk: one archive GET for a batch of files -----------------------------------
+    #
+    # Nextcloud >= 31 returns a collection as an archive (see :mod:`.ncarchive`).
+    # The first sync of the owner's share was 6.9k core files at ~5 files/s -
+    # ~20-25 minutes of round-trip latency for 359 MB.  One filtered archive
+    # per 64 files turns that into ~110 requests, and the extraction writes
+    # only the paths the manifest says are core and missing; everything else
+    # (on-demand PDFs, AI route codings, raw data) is skipped inside the stream.
+    #
+    # A share without the extension (older Nextcloud, WsgiDAV, plain WebDAV)
+    # answers a collection GET with an HTML page; the probe sees that, caches
+    # "no archive support" in the mirror's index and the per-file path runs.
+
+    def archive_formats(self) -> list[str]:
+        """``["tar"]`` / ``["zip"]`` / ``[]`` for this share (cached in the index).
+
+        Positive results are kept for the life of the mirror (a server does not
+        lose the feature); a negative result is retried after
+        :data:`ARCHIVE_NEGATIVE_TTL`, so a Nextcloud upgrade is picked up
+        without a reconnect.
+        """
+        if not self.bulk_enabled:
+            return []
+        with self._guard:
+            cached = self._index.get("archive")
+        if isinstance(cached, dict) and self._archive_cache_valid(cached):
+            return [f for f in (cached.get("formats") or []) if f in ("tar", "zip")]
+        result = self._probe_archive()
+        if result is None:                       # unreachable: do not cache anything
+            return []
+        formats, seeded = result
+        if seeded is not None:
+            self._probe_seed = seeded
+        with self._guard:
+            self._index["archive"] = {"formats": formats, "probed_at": time.time(),
+                                      "probe": seeded[0] if seeded is not None else None}
+            self._save_index()
+        return formats
+
+    @staticmethod
+    def _archive_cache_valid(cached: dict) -> bool:
+        formats = cached.get("formats")
+        if formats:
+            return True
+        try:
+            at = float(cached.get("probed_at") or 0.0)
+        except (TypeError, ValueError):
+            return False
+        return (time.time() - at) < ARCHIVE_NEGATIVE_TTL
+
+    def _pick_probe_file(self) -> str | None:
+        """The smallest core file <= 64 KiB (the capability probe's subject).
+
+        The probe archives exactly that one file, so the probe costs a few KB
+        of body - and :meth:`bulk_fetch` installs those bytes instead of
+        fetching that file a second time.
+        """
+        core: tuple[int, str] | None = None
+        any_file: tuple[int, str] | None = None
+        for rel, entry in self._index_files().items():
+            size = int(entry.get("size") or 0)
+            if not (0 < size <= 65536):
+                continue
+            if _classify(rel).kind == "excluded":
+                continue
+            cand = (size, rel)
+            if protocol.is_core(rel):
+                if core is None or cand < core:
+                    core = cand
+            if any_file is None or cand < any_file:
+                any_file = cand
+        pick = core or any_file
+        return pick[1] if pick else None
+
+    def _probe_archive(self):
+        """One small filtered archive GET -> ``(formats, seed)`` or None.
+
+        ``None`` means "could not tell" (network trouble): nothing is cached so
+        the next round tries again.  ``([], None)`` is a definite "no support".
+        The first request accepts both formats (Nextcloud prefers tar); a
+        server that refuses that and only speaks zip gets one retry, so a
+        supported share costs exactly one request.
+        """
+        rel = self._pick_probe_file()
+        if rel is None:
+            return None                          # nothing small enough to probe with
+        for fmt, accept in (("tar", ARCHIVE_ACCEPT), ("zip", ncarchive.ZIP)):
+            sink = ncarchive.HeadSink(ARCHIVE_PROBE_MAX)
+            self.stats["archive_probes"] += 1
+            try:
+                self.dav.get("", stream_to=sink, timeout=self.timeout,
+                             headers={"Accept": accept},
+                             query={"files": json.dumps([rel])})
+            except ncarchive.ArchiveUnsupported:
+                continue
+            except ncarchive.HeadSink.TooBig:
+                # an archive, but the server ignored the ``files`` filter: bulk
+                # would transfer the whole share, so this client does not use it
+                return [], None
+            except (OnlineError, OSError, ValueError):
+                return None
+            data = bytes(sink.data)
+            kind = ncarchive.sniff(sink.content_type, data[:512])
+            if kind is None:
+                continue
+            seed: bytes | None = ncarchive.read_member(data, kind, rel)
+            if seed is None or len(seed) != int((self._index_files().get(rel) or {}).get("size") or 0):
+                seed = None
+            return [kind], (rel, seed) if seed is not None else None
+        return [], None
+
+    def bulk_batches(self, jobs) -> list[list[tuple[str, str]]]:
+        """Split ``[(rel, token)]`` into archive batches; ``[]`` = use single GETs.
+
+        Batches stay inside the ``files`` query budget (count, URL length,
+        bytes), and one big file is left to the per-file path so a batch never
+        waits behind it.  Below :data:`BULK_MIN_FILES` the probe cost more than
+        the requests it saves.
+        """
+        jobs = list(jobs)
+        if not self.bulk_enabled or len(jobs) < BULK_MIN_FILES:
+            return []
+        formats = self.archive_formats()
+        if not formats:
+            return []
+        self._bulk_format = formats[0]
+        if self._probe_seed is not None and self._probe_seed[0] not in {rel for rel, _t in jobs}:
+            self._probe_seed = None          # the probe's file is not being downloaded
+        files = self._index_files()
+        batches: list[list[tuple[str, str]]] = []
+        batch: list[tuple[str, str]] = []
+        chars = 0
+        total = 0
+
+        def flush() -> None:
+            nonlocal batch, chars, total
+            if len(batch) >= 2:                  # one file is a plain GET
+                batches.append(batch)
+            batch, chars, total = [], 0, 0
+
+        for rel, token in jobs:
+            size = int((files.get(rel) or {}).get("size") or 0)
+            if size > BULK_MAX_ENTRY_BYTES:
+                continue
+            cost = len(rel) + 4
+            if batch and (len(batch) >= BULK_MAX_FILES or chars + cost > BULK_MAX_CHARS
+                          or total + size > BULK_MAX_BYTES):
+                flush()
+            batch.append((rel, token))
+            chars += cost
+            total += size
+        flush()
+        return batches
+
+    def bulk_fetch(self, batch, dest_dir, install, should_stop=None, reject=None) -> dict:
+        """Download *batch* as one archive; returns ``{rel: (digest, size)}``.
+
+        *install(rel, tmp_path, digest, size, token)* must move the verified
+        file into the mirror (it may return ``False`` to refuse it);
+        *reject(rel, token)* is called for a file the server itself flagged as
+        unreadable in ``missing_files.json`` (its bytes arrive zero-padded), so
+        the caller drops it and the per-file path fetches it.  For every
+        installed file this records exactly what a single ``GET`` records: the
+        content hash in the index (journal first), the token resolution, the
+        statistics and the merge base.  Nothing is ever raised for an archive
+        problem - the caller falls back to per-file GETs for whatever did not
+        arrive.
+        """
+        wanted: dict[str, str] = {rel: token for rel, token in batch}
+        files = self._index_files()
+        sizes = {rel: int((files.get(rel) or {}).get("size") or 0) for rel in wanted}
+        rels = [rel for rel, _t in batch]
+        done: dict[str, tuple[str, int]] = {}
+        # the capability probe's own small file: install the bytes it fetched
+        seed = None
+        with self._guard:
+            if self._probe_seed is not None and self._probe_seed[0] in wanted:
+                seed, self._probe_seed = self._probe_seed, None
+        if seed is not None:
+            srel, data = seed
+            expected = sizes.get(srel) or 0
+            if expected in (0, len(data)):
+                tmp = self._archive_tmp(dest_dir, srel)
+                try:
+                    with open(tmp, "wb") as fh:
+                        fh.write(data)
+                    digest = _sha_bytes(data)
+                    self._keep_bulk_base(srel, digest, tmp)
+                    if install(srel, tmp, digest, len(data), wanted[srel]) is not False:
+                        done[srel] = (digest, len(data))
+                        self._record_bulk(srel, wanted[srel], digest, len(data))
+                        wanted.pop(srel, None)
+                        rels = [r for r in rels if r != srel]
+                    else:
+                        self._unlink(tmp)
+                except OSError:
+                    self._unlink(tmp)
+        if not rels:
+            return done
+        fmt = self._bulk_format or "tar"
+        if fmt == "zip":
+            self._bulk_zip(rels, wanted, sizes, dest_dir, install, done, should_stop, reject)
+        else:
+            self._bulk_tar(rels, wanted, sizes, dest_dir, install, done, should_stop, reject)
+        return done
+
+    # -- the two formats ------------------------------------------------------------
+
+    def _bulk_tar(self, rels, wanted, sizes, dest_dir, install, done, should_stop,
+                  reject=None) -> None:
+        rf, wf = os.pipe()
+        sink = ncarchive.PipeSink(wf)
+        state: dict = {}
+        missing: dict = {}
+
+        def produce():
+            try:
+                self.dav.get("", stream_to=sink, timeout=ARCHIVE_TIMEOUT,
+                             headers={"Accept": ncarchive.TAR},
+                             query={"files": json.dumps(rels)})
+            except BaseException as exc:          # noqa: BLE001 - reported below
+                state["error"] = exc
+            finally:
+                sink.close()                      # EOF for the extractor, always
+
+        worker = threading.Thread(target=produce, name="nc-archive", daemon=True)
+        worker.start()
+        self.stats["archive_requests"] += 1
+        reader = os.fdopen(rf, "rb")
+        try:
+            ncarchive.extract_tar(reader, set(wanted), self._archive_consumer(
+                wanted, sizes, dest_dir, install, done), should_stop=should_stop,
+                on_missing=missing.update)
+        except ncarchive.ArchiveAborted:
+            state["aborted"] = True
+        except ncarchive.ArchiveBroken as exc:
+            state["broken"] = str(exc)
+            self.stats["archive_fallbacks"] += 1
+        except Exception as exc:                  # noqa: BLE001 - consumer/disk trouble
+            state["failed"] = exc
+            self.stats["archive_fallbacks"] += 1
+        finally:
+            try:
+                reader.close()
+            except OSError:
+                pass
+            worker.join(timeout=30)
+        self._drop_missing(missing, done, wanted, reject)
+        error = state.get("error")
+        if isinstance(error, ncarchive.ArchiveUnsupported):
+            self._archive_unsupported("tar")
+        elif error is not None and not state.get("aborted"):
+            # the response never started (network/auth) or broke: the caller's
+            # per-file path reports the real error
+            self.stats["archive_fallbacks"] += 1
+
+    def _bulk_zip(self, rels, wanted, sizes, dest_dir, install, done, should_stop,
+                  reject=None) -> None:
+        fd, path = tempfile.mkstemp(prefix="nc-arc-", suffix=".zip", dir=dest_dir)
+        os.close(fd)
+        self.stats["archive_requests"] += 1
+        missing: dict = {}
+        try:
+            resp = self.dav.get("", dest=path, timeout=ARCHIVE_TIMEOUT,
+                                headers={"Accept": ncarchive.ZIP},
+                                query={"files": json.dumps(rels)})
+            if ncarchive.archive_kind(resp.headers.get("content-type")) != "zip":
+                self._archive_unsupported("zip")
+                return
+            with zipfile.ZipFile(path) as zf:
+                ncarchive.extract_zip(zf, set(wanted), self._archive_consumer(
+                    wanted, sizes, dest_dir, install, done), should_stop=should_stop,
+                    on_missing=missing.update)
+            self._drop_missing(missing, done, wanted, reject)
+        except ncarchive.ArchiveAborted:
+            pass
+        except (zipfile.BadZipFile, OSError) as exc:
+            self.stats["archive_fallbacks"] += 1
+            self.last_archive_error = f"{type(exc).__name__}: {exc}"
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def _drop_missing(self, missing, done, wanted, reject) -> None:
+        """Un-install a file the server itself flagged as unreadable.
+
+        A tar zero-pads such a member, so its bytes would look valid; the
+        server names it in ``missing_files.json`` instead.  The file (and its
+        index entry) is removed, the version token is restored and the caller's
+        per-file path fetches it for real - exactly what a single GET would do.
+        """
+        if not missing:
+            return
+        for name in missing:
+            rel = ncarchive.member_rel(name, set(wanted))
+            if rel is None or rel not in done:
+                continue
+            token = wanted.get(rel)
+            done.pop(rel, None)
+            self.stats["archive_missing"] += 1
+            self._forget_bulk(rel)
+            if reject is not None:
+                try:
+                    reject(rel, token)
+                except Exception:             # noqa: BLE001 - never break the fallback
+                    pass
+
+    def _forget_bulk(self, rel: str) -> None:
+        """Undo :meth:`_record_bulk` (the bytes must not be trusted)."""
+        with self._guard:
+            entry = self._index_files().get(rel)
+            if entry is None:
+                return
+            token = entry.get("token")
+            if token:
+                new = dict(entry)
+                new["hash"] = token
+                new.pop("token", None)
+                self._set_entry(rel, new)
+                self._resolved.pop(token, None)
+
+    def _archive_consumer(self, wanted, sizes, dest_dir, install, done):
+        """Stream one member to a temp file, verify, hand it to *install*."""
+
+        def consume(rel: str, src, size: int) -> None:
+            token = wanted.get(rel)
+            if token is None:
+                return
+            expected = sizes.get(rel) or 0
+            if expected and int(size) != expected:
+                # changed between the listing and the archive: the per-file GET
+                # records the new etag, so this one is simply not used
+                self.stats["archive_mismatch"] += 1
+                return
+            tmp = self._archive_tmp(dest_dir, rel)
+            digest, n = _copy_hashed(src, tmp)
+            try:
+                if expected and n != expected:
+                    self.stats["archive_mismatch"] += 1
+                    self._unlink(tmp)
+                    return
+                self._keep_bulk_base(rel, digest, tmp)
+                if install(rel, tmp, digest, n, token) is False:
+                    self._unlink(tmp)
+                    return
+            except BaseException:
+                self._unlink(tmp)
+                raise
+            done[rel] = (digest, n)
+            self._record_bulk(rel, token, digest, n)
+
+        return consume
+
+    # -- bookkeeping (identical to what a single GET records) ------------------------
+
+    def _archive_tmp(self, dest_dir: str, rel: str) -> str:
+        os.makedirs(dest_dir, exist_ok=True)
+        name = "arc-" + hashlib.sha1(rel.encode("utf-8")).hexdigest()[:20]
+        return os.path.join(dest_dir, f"{name}-{os.getpid()}-{threading.get_ident()}")
+
+    @staticmethod
+    def _unlink(path: str) -> None:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    def _keep_bulk_base(self, rel: str, digest: str, src_path: str) -> None:
+        """The merge base of a shared file, exactly as :meth:`_download` keeps it."""
+        if not _is_content_hash(digest):
+            return
+        try:
+            size = os.path.getsize(src_path)
+        except OSError:
+            return
+        if size > MAX_BASE_BYTES or not self._base_dir:
+            return
+        if protocol.classify(rel).kind not in ("shared", "owned"):
+            return
+        target = self._base_path(digest)
+        if os.path.exists(target):
+            return
+        try:
+            with open(src_path, "rb") as fh:
+                _atomic_write(target, fh.read())
+        except OSError:
+            pass
+
+    def _record_bulk(self, rel: str, token: str, digest: str, size: int) -> None:
+        """Record a file an archive delivered (journal first, like a GET)."""
+        with self._guard:
+            entry = self._index_files().get(rel)
+            if entry is not None and entry.get("hash") == token:
+                new = dict(entry)
+                new["hash"] = digest
+                new["size"] = int(size)
+                new["token"] = token            # survives a restart
+                self._set_entry(rel, new)
+            self._resolved[token] = digest
+        with self._guard:
+            self.stats["downloads"] += 1
+            self.stats["download_bytes"] += int(size)
+            self.stats["archive_files"] += 1
+            self.stats["archive_bytes"] += int(size)
+
+    def _archive_unsupported(self, fmt: str) -> None:
+        """This share does not really answer collection GETs with an archive."""
+        self.stats["archive_fallbacks"] += 1
+        with self._guard:
+            self._index["archive"] = {"formats": [], "probed_at": time.time(), "probe": None}
+            self._save_index()
+        self._probe_seed = None
+        self._bulk_format = None
 
     def get_blob_bytes(self, pid: str, digest: str) -> bytes:
         data = self._version_bytes(digest)

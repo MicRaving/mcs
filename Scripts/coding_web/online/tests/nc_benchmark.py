@@ -156,6 +156,8 @@ def _store(base: str):
 
 def _connect(store, url: str):
     projects = store.connect_nextcloud(url, USER, PASSWORD, "", webdav_root=url)
+    if os.environ.get("NC_BENCH_NO_BULK") == "1":
+        store.client.bulk_enabled = False       # the pre-archive path, for comparison
     return projects[0]["id"]
 
 
@@ -250,6 +252,7 @@ def first_open(url: str, fake, base: str, info: dict, *, core_timeout: float) ->
     proj, studio = _downloads(fake)
     out["project_gets"] = proj
     out["studio_gets"] = studio
+    out["archive_requests"] = len(fake.state.archive_requests)
     out["requests"] = _requests(fake)
     out["progress_samples"] = samples[:: max(1, len(samples) // 12)] + samples[-1:]
     return out, store
@@ -376,7 +379,11 @@ def main(argv=None) -> int:
     ap.add_argument("--kill-after", type=float, default=0.0,
                     help="kill the child after this many seconds at the latest (0 = no limit)")
     ap.add_argument("--skip-interrupt", action="store_true")
+    ap.add_argument("--no-bulk", action="store_true",
+                    help="disable folder archives (the pre-0.5 per-file path, for comparison)")
     args = ap.parse_args(argv)
+    if args.no_bulk:
+        os.environ["NC_BENCH_NO_BULK"] = "1"
     if args.child:
         _child(*args.child)
         return 0

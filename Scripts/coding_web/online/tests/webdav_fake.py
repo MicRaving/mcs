@@ -15,6 +15,10 @@ Semantics implemented (all the backend relies on):
 ``PROPFIND`` depth 0/1/∞      207 multistatus, ``getetag``/``getcontentlength``/
                               ``getlastmodified``/``resourcetype``
 ``GET`` with ``Range``        bytes=start-end -> 206 + Content-Range
+``GET`` on a collection       Nextcloud's folder-archive extension (tar or zip,
+                              ``files`` filter) when ``archive="tar"|"zip"``;
+                              a plain HTML page otherwise - exactly what an
+                              older Nextcloud answers
 ``PUT``                       201 create / 204 replace; ``If-None-Match: *``
                               and ``If-Match`` are checked + written **atomically**
 ``DELETE``                    ``If-Match`` honoured
@@ -26,18 +30,29 @@ Optional knobs (the spike needs them against a real server; the tests use the
 first two): ``refuse_infinity`` -> 403 like a locked-down university share,
 ``rate_limit_every`` -> every Nth request answers 429 + ``Retry-After``.
 
-The server also records ``stats`` (method and per-path counters), so a test can
-assert "only the changed file was downloaded".
+Archive knobs: ``archive`` (``"tar"``, ``"zip"`` or ``False`` = no support),
+``archive_abort_after`` (bytes: truncate the archive there, like a dropped
+connection), ``archive_extra`` (``[(name, bytes)]``: members the server would
+never produce - the traversal tests use it).
+
+The server also records ``stats`` (method and per-path counters) and
+``served`` (``{project path: times its bytes were sent}``, counted for a plain
+GET **and** for every file inside an archive), so a test can assert "only the
+changed file was downloaded" whichever path delivered it.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
+import json
 import os
 import shutil
+import tarfile
 import threading
 import urllib.parse
 import xml.sax.saxutils as saxutils
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DAV_ERROR = (b'<?xml version="1.0" encoding="utf-8"?>'
@@ -82,7 +97,8 @@ class FakeState:
     def __init__(self, root: str, *, refuse_infinity: bool = False,
                  rate_limit_every: int = 0, username_required: bool = False,
                  latency: tuple | None = None, fast_etags: bool = False,
-                 bandwidth: float | None = None):
+                 bandwidth: float | None = None, archive: str | bool = "tar",
+                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None):
         self.root = os.path.abspath(root)
         #: bytes/s per GET response (None: unlimited)
         self.bandwidth = float(bandwidth) if bandwidth else None
@@ -92,6 +108,14 @@ class FakeState:
         #: content, and folder ETags cached per write generation: a 25k-file
         #: share answers a PROPFIND without reading 25k files (benchmark)
         self.fast_etags = bool(fast_etags)
+        #: folder-archive support: "tar" | "zip" | False (older Nextcloud)
+        self.archive = archive
+        #: truncate an archive response after this many bytes (0 = never)
+        self.archive_abort_after = int(archive_abort_after or 0)
+        #: extra archive members a well-behaved server would never send
+        self.archive_extra = list(archive_extra or [])
+        #: members a real server could not read: listed in ``missing_files.json``
+        self.archive_missing = list(archive_missing or [])
         self.gen = 0
         self._etag_cache: dict = {}
         self.refuse_infinity = bool(refuse_infinity)
@@ -101,6 +125,8 @@ class FakeState:
         self.count = 0
         self.methods: dict[str, int] = {}
         self.gets: dict[str, int] = {}
+        self.served: dict[str, int] = {}        # project path -> bytes deliveries
+        self.archive_requests: list[dict] = []
         self.requests: list[tuple[str, str, str]] = []      # (user, method, path)
         self.throttled = 0
         os.makedirs(self.root, exist_ok=True)
@@ -321,10 +347,13 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):                                       # noqa: N802
         if self._begin() is None:
             return
+        split = urllib.parse.urlsplit(self.path)
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self.state.full(urllib.parse.unquote(split.path))
         except PermissionError:
             return self._send(403, b"outside the share")
+        if os.path.isdir(full):
+            return self._archive(full, split.query)
         if not os.path.isfile(full):
             return self._send(404, b"not found")
         with open(full, "rb") as fh:
@@ -344,10 +373,164 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(206, chunk, headers)
             except (TypeError, ValueError):
                 pass
+        with self.state.lock:
+            rel = self.state.rel(full)
+            self.state.served[rel] = self.state.served.get(rel, 0) + 1
         if self.state.bandwidth:
             import time as _time
             _time.sleep(len(data) / self.state.bandwidth)
         self._send(200, data, headers)
+
+    # -- Nextcloud's folder-archive extension ---------------------------------
+    #
+    # ``GET`` on a collection with ``Accept: application/x-tar`` (or zip) and a
+    # ``files`` filter.  Without one of those the answer is the WebDAV HTML
+    # page, which is what an older Nextcloud and most other servers send - the
+    # client's capability probe reads the content type.
+
+    def _archive_wanted(self, query: str) -> tuple[set, list | None]:
+        params = urllib.parse.parse_qs(query)
+        accept = params.get("accept", [""])[0] or (self.headers.get("Accept") or "")
+        tokens = {t.strip().lower() for t in accept.split(",") if t.strip()}
+        accepts: set = set()
+        if tokens & {"application/x-tar", "tar"}:
+            accepts.add("tar")
+        if tokens & {"application/zip", "zip"}:
+            accepts.add("zip")
+        names = None
+        raw = params.get("files", [None])[0]
+        if raw:
+            try:
+                names = json.loads(raw)
+            except ValueError:
+                names = [raw]
+            if not isinstance(names, list):
+                names = [names]
+        else:
+            headers = self.headers.get_all("X-NC-Files") or []
+            headers = [h for raw_h in headers for h in str(raw_h).split(",") if h.strip()]
+            if headers:
+                names = headers
+        return accepts, names
+
+    def _archive(self, full: str, query: str) -> None:
+        accepts, names = self._archive_wanted(query)
+        support = self.state.archive
+        # Nextcloud prefers tar whenever the client accepts it
+        kind = None
+        if support is not False:
+            usable = ("tar", "zip") if support is True else (str(support),)
+            for candidate in ("tar", "zip"):
+                if candidate in usable and candidate in accepts:
+                    kind = candidate
+                    break
+        if kind is None:
+            # an old Nextcloud answers the collection with an HTML page
+            body = (b"This is the WebDAV interface. It can only be accessed by "
+                    b"WebDAV clients such as the Nextcloud desktop sync client.")
+            return self._send(200, body, {"Content-Type": "text/html; charset=utf-8"})
+        with self.state.lock:
+            self.state.archive_requests.append({"path": self.state.rel(full),
+                                                "kind": kind, "files": len(names or [])})
+        folder = self.state.rel(full)
+        base = os.path.basename(full)
+        entries: list[tuple[str, str]] = []       # (archive name, file on disk)
+
+        def add_tree(arc_root: str, path: str) -> None:
+            if os.path.isdir(path):
+                for root, dirs, files in os.walk(path):
+                    dirs.sort()
+                    inner = os.path.relpath(root, path).replace("\\", "/")
+                    for f in sorted(files):
+                        entries.append((arc_root + ("/" + inner if inner != "." else "")
+                                        + "/" + f, os.path.join(root, f)))
+            elif os.path.isfile(path):
+                entries.append((arc_root, path))
+
+        if names:
+            for name in names:
+                if not isinstance(name, str):
+                    continue
+                target = os.path.abspath(os.path.join(full, *name.replace("\\", "/").split("/")))
+                if not (target == full or target.startswith(full + os.sep)) or not os.path.exists(target):
+                    continue                     # the real server errors; the test wants the rest
+                add_tree(name.strip("/"), target)
+        else:
+            # a full folder download names the folder itself as the root
+            for root, dirs, files in os.walk(full):
+                dirs.sort()
+                for f in sorted(files):
+                    path = os.path.join(root, f)
+                    rel = self.state.rel(path)
+                    tail = rel[len(folder) + 1:] if folder else rel
+                    entries.append((base + "/" + tail, path))
+        buf = io.BytesIO()
+        served = [self.state.rel(path) for _arc, path in entries]
+        bad = {str(n) for n in self.state.archive_missing}
+        missing_doc = {n: "simulated storage read error" for n in bad}
+
+        def file_bytes(arc: str, path: str) -> bytes | None:
+            """The member's content; zeros for a file the server cannot read."""
+            if arc in bad:
+                return b"\x00" * os.path.getsize(path)
+            return None
+
+        if kind == "tar":
+            with tarfile.open(fileobj=buf, mode="w") as tf:
+                for arc, path in entries:
+                    zeros = file_bytes(arc, path)
+                    if zeros is None:
+                        tf.add(path, arcname=arc, recursive=False)
+                    else:
+                        info = tarfile.TarInfo(arc)
+                        info.size = len(zeros)
+                        tf.addfile(info, io.BytesIO(zeros))
+                for arc, data in self.state.archive_extra:
+                    info = tarfile.TarInfo(arc)
+                    info.size = len(data)
+                    tf.addfile(info, io.BytesIO(data))
+                if missing_doc:
+                    data = json.dumps(missing_doc).encode()
+                    info = tarfile.TarInfo("missing_files.json")
+                    info.size = len(data)
+                    tf.addfile(info, io.BytesIO(data))
+            ct = "application/x-tar"
+        else:
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for arc, path in entries:
+                    zeros = file_bytes(arc, path)
+                    if zeros is None:
+                        zf.write(path, arc)
+                    else:
+                        zf.writestr(arc, zeros)
+                for arc, data in self.state.archive_extra:
+                    zf.writestr(arc, data)
+                if missing_doc:
+                    zf.writestr("missing_files.json", json.dumps(missing_doc))
+            ct = "application/zip"
+        with self.state.lock:
+            for rel in served:
+                self.state.served[rel] = self.state.served.get(rel, 0) + 1
+        body = buf.getvalue()
+        if self.state.bandwidth:
+            import time as _time
+            _time.sleep(len(body) / self.state.bandwidth)
+        headers = {"Content-Type": ct,
+                   "Content-Disposition": f'attachment; filename="{base}.{kind}"'}
+        truncate = self.state.archive_abort_after
+        if truncate and len(body) > truncate:
+            # a connection that dies mid-archive: Content-Length promises more
+            # than the client will receive
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.end_headers()
+            self.wfile.write(body[:truncate])
+            self.wfile.flush()
+            self.close_connection = True
+            return
+        self._send(200, body, headers)
 
     def do_HEAD(self):                                      # noqa: N802
         if self._begin() is None:
@@ -452,11 +635,14 @@ class WebDAVFake:
     def __init__(self, root: str, *, refuse_infinity: bool = False,
                  rate_limit_every: int = 0, username_required: bool = False,
                  latency: tuple | None = None, fast_etags: bool = False,
-                 bandwidth: float | None = None):
+                 bandwidth: float | None = None, archive: str | bool = "tar",
+                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None):
         self.state = FakeState(root, refuse_infinity=refuse_infinity,
                                rate_limit_every=rate_limit_every,
                                username_required=username_required,
-                               latency=latency, fast_etags=fast_etags, bandwidth=bandwidth)
+                               latency=latency, fast_etags=fast_etags, bandwidth=bandwidth,
+                               archive=archive, archive_abort_after=archive_abort_after,
+                               archive_extra=archive_extra, archive_missing=archive_missing)
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self._httpd.daemon_threads = True
         self._httpd.state = self.state                     # type: ignore[attr-defined]
@@ -497,5 +683,7 @@ class WebDAVFake:
             self.state.count = 0
             self.state.methods.clear()
             self.state.gets.clear()
+            self.state.served.clear()
+            self.state.archive_requests.clear()
             self.state.requests.clear()
             self.state.throttled = 0
