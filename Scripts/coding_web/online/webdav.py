@@ -192,8 +192,12 @@ class WebDAV:
         if username is not None and password is not None:
             raw = f"{username}:{password}".encode("utf-8")
             self._auth = "Basic " + base64.b64encode(raw).decode("ascii")
-        self._sem = threading.BoundedSemaphore(max(1, int(max_parallel)))
+        self.max_parallel = max(1, int(max_parallel))
+        self._sem = threading.BoundedSemaphore(self.max_parallel)
         self._lock = threading.Lock()
+        self._pool: dict[tuple, list] = {}
+        self._pool_max = self.max_parallel + 2
+        self._closed = False
         self._counts: dict[str, int] = {}
         self.throttled: list[dict] = []          # [{status, wait, method, path}]
         # test seams (the role FakeTransport plays for the studio server)
@@ -278,29 +282,101 @@ class WebDAV:
             return resp
         raise ServerError(f"too many redirects for {path!r}", 310, "too_many_redirects")
 
-    def _send_once(self, scheme, host, port, method, target, headers, body, stream_to, timeout):
+    # -- keep-alive connections --------------------------------------------------
+    #
+    # A fresh TCP (+ TLS) connection per request made every request on a real
+    # share cost a handshake: the owner's first sync spent ~0.4 s per file
+    # (46 min for 6.9k core files, 2026-11-25).  Connections are now pooled per
+    # (scheme, host, port) and reused; a reused connection that the server
+    # closed while idle is retried once on a fresh one.
+
+    def _take_conn(self, scheme, host, port, timeout):
+        key = (scheme, host, port)
+        with self._lock:
+            pool = self._pool.get(key)
+            if pool:
+                return pool.pop(), True
         cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
         kwargs = {"timeout": timeout or self.timeout}
         if scheme == "https" and self.ssl_context is not None:
             kwargs["context"] = self.ssl_context
-        conn = cls(host, port, **kwargs)
+        return cls(host, port, **kwargs), False
+
+    def _give_conn(self, key, conn) -> None:
+        with self._lock:
+            pool = self._pool.setdefault(key, [])
+            if len(pool) < self._pool_max and not self._closed:
+                pool.append(conn)
+                return
         try:
-            conn.request(method, target, body=body, headers=dict(headers))
-            raw = conn.getresponse()
-            hdrs = {k.lower(): v for k, v in raw.getheaders()}
-            if stream_to is not None and 200 <= raw.status < 300:
-                shutil.copyfileobj(raw, stream_to, _CHUNK)
-                data = b""
-            else:
-                data = raw.read()
-            return WebDAVResponse(raw.status, hdrs, data)
-        except (http.client.HTTPException, OSError, TimeoutError, ConnectionError) as exc:
-            raise OfflineError(f"nextcloud unreachable: {type(exc).__name__}: {exc}") from exc
-        finally:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def close(self) -> None:
+        """Close every pooled connection (the client stays usable)."""
+        with self._lock:
+            pools, self._pool = self._pool, {}
+        for conns in pools.values():
+            for conn in conns:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    _STALE = (http.client.RemoteDisconnected, http.client.BadStatusLine,
+              ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+
+    def _send_once(self, scheme, host, port, method, target, headers, body, stream_to, timeout):
+        key = (scheme, host, port)
+        for attempt in (0, 1):
+            conn, reused = self._take_conn(scheme, host, port, timeout)
+            if timeout and conn.timeout != timeout:
+                conn.timeout = timeout
+                if conn.sock is not None:
+                    try:
+                        conn.sock.settimeout(timeout)
+                    except OSError:
+                        pass
+            keep = False
+            started = False
             try:
-                conn.close()
-            except Exception:  # noqa: BLE001
-                pass
+                conn.request(method, target, body=body, headers=dict(headers))
+                raw = conn.getresponse()
+                hdrs = {k.lower(): v for k, v in raw.getheaders()}
+                if stream_to is not None and 200 <= raw.status < 300:
+                    started = True
+                    shutil.copyfileobj(raw, stream_to, _CHUNK)
+                    data = b""
+                else:
+                    data = raw.read()
+                keep = not raw.will_close
+                return WebDAVResponse(raw.status, hdrs, data)
+            except self._STALE as exc:
+                if reused and attempt == 0 and not started:
+                    # the server closed the idle connection: one fresh retry
+                    if hasattr(body, "seek"):
+                        try:
+                            body.seek(0)
+                        except (OSError, ValueError):
+                            pass
+                    try:
+                        conn.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue
+                raise OfflineError(f"nextcloud unreachable: {type(exc).__name__}: {exc}") from exc
+            except (http.client.HTTPException, OSError, TimeoutError, ConnectionError) as exc:
+                raise OfflineError(f"nextcloud unreachable: {type(exc).__name__}: {exc}") from exc
+            finally:
+                if keep:
+                    self._give_conn(key, conn)
+                else:
+                    try:
+                        conn.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+        raise OfflineError("nextcloud unreachable: the connection was closed twice")
 
     def _retry_after(self, resp: WebDAVResponse, attempt: int) -> float:
         raw = (resp.headers.get("retry-after") or "").strip()

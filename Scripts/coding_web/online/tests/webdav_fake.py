@@ -80,8 +80,20 @@ class _Precondition(Exception):
 
 class FakeState:
     def __init__(self, root: str, *, refuse_infinity: bool = False,
-                 rate_limit_every: int = 0, username_required: bool = False):
+                 rate_limit_every: int = 0, username_required: bool = False,
+                 latency: tuple | None = None, fast_etags: bool = False,
+                 bandwidth: float | None = None):
         self.root = os.path.abspath(root)
+        #: bytes/s per GET response (None: unlimited)
+        self.bandwidth = float(bandwidth) if bandwidth else None
+        #: ``(lo, hi)`` seconds slept per request (a realistic remote share)
+        self.latency = tuple(latency) if latency else None
+        #: Apache/Nextcloud-like ETags from (inode, mtime, size) instead of the
+        #: content, and folder ETags cached per write generation: a 25k-file
+        #: share answers a PROPFIND without reading 25k files (benchmark)
+        self.fast_etags = bool(fast_etags)
+        self.gen = 0
+        self._etag_cache: dict = {}
         self.refuse_infinity = bool(refuse_infinity)
         self.rate_limit_every = int(rate_limit_every or 0)
         self.username_required = bool(username_required)
@@ -104,6 +116,51 @@ class FakeState:
     def rel(self, path: str) -> str:
         r = os.path.relpath(path, self.root).replace("\\", "/")
         return "" if r == "." else r
+
+    def bump(self) -> None:
+        """A write happened (the fake's own, or a test writing to the disk)."""
+        with self.lock:
+            self.gen += 1
+
+    def etag(self, path: str) -> str | None:
+        if not self.fast_etags:
+            return _etag_of(path)
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        import stat as _stat
+        if _stat.S_ISDIR(st.st_mode):
+            return self._dir_etag(path)
+        return self._file_etag(self.rel(path), st)
+
+    @staticmethod
+    def _file_etag(rel: str, st) -> str:
+        return '"' + hashlib.md5(f"{rel}-{st.st_mtime_ns}-{st.st_size}".encode()).hexdigest() + '"'
+
+    def _dir_etag(self, path: str) -> str:
+        key = ("d", path, self.gen)
+        hit = self._etag_cache.get(key)
+        if hit is not None:
+            return hit
+        h = hashlib.md5()
+        try:
+            with os.scandir(path) as it:
+                entries = sorted(it, key=lambda e: e.name)
+        except OSError:
+            entries = []
+        for e in entries:
+            h.update(e.name.encode("utf-8", "replace"))
+            try:
+                if e.is_dir():
+                    h.update(self._dir_etag(e.path).encode())
+                else:
+                    h.update(self._file_etag(self.rel(e.path), e.stat()).encode())
+            except OSError:
+                continue
+        val = '"' + h.hexdigest() + '"'
+        self._etag_cache[key] = val
+        return val
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -130,6 +187,18 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _begin(self) -> str | None:
         """Record the request; returns an early response code when throttling."""
+        # read the body first, always: on a kept-alive connection an unread
+        # PROPFIND body would be parsed as the next request line
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except (TypeError, ValueError):
+            length = 0
+        self._req_body = self.rfile.read(length) if length else b""
+        latency = self.state.latency
+        if latency:
+            import random
+            import time as _time
+            _time.sleep(random.uniform(*latency))
         user = self._user()
         path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
         target = path.strip("/")
@@ -162,11 +231,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _body(self) -> bytes:
-        try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except (TypeError, ValueError):
-            length = 0
-        return self.rfile.read(length) if length else b""
+        return getattr(self, "_req_body", b"")
 
     # -- conditionals -------------------------------------------------------
     def _check(self, full: str) -> None:
@@ -174,7 +239,7 @@ class _Handler(BaseHTTPRequestHandler):
         inm = self.headers.get("If-None-Match")
         im = self.headers.get("If-Match")
         exists = os.path.exists(full)
-        current = _normalise_etag(_etag_of(full) or "")
+        current = _normalise_etag(self.state.etag(full) or "")
         if inm is not None:
             if inm.strip() == "*":
                 if exists:
@@ -205,33 +270,38 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(404, b"not found")
         if depth == "infinity" and self.state.refuse_infinity:
             return self._send(403, DAV_ERROR, {"Content-Type": "application/xml; charset=utf-8"})
-        rows = [full]
+        import email.utils
+        # (path, is_dir, stat) - scandir's cached stat keeps a 25k-entry
+        # listing fast on Windows (a stat per entry cost ~1 ms there)
+        rows = [(full, os.path.isdir(full), os.stat(full))]
         if depth in ("1", "infinity"):
             queue = [full]
             while queue:
                 folder = queue.pop(0)
                 try:
-                    names = sorted(os.listdir(folder))
+                    with os.scandir(folder) as it:
+                        entries = sorted(it, key=lambda e: e.name)
                 except OSError:
                     continue
-                for name in names:
-                    child = os.path.join(folder, name)
-                    rows.append(child)
-                    if os.path.isdir(child):
-                        if depth == "infinity":
-                            queue.append(child)
+                for e in entries:
+                    try:
+                        is_dir = e.is_dir()
+                        st = e.stat()
+                    except OSError:
+                        continue
+                    rows.append((e.path, is_dir, st))
+                    if is_dir and depth == "infinity":
+                        queue.append(e.path)
         parts = []
-        for path in rows:
+        for path, is_dir, st in rows:
             rel = self.state.rel(path)
             href = "/" + urllib.parse.quote(rel) if rel else "/"
-            is_dir = os.path.isdir(path)
-            etag = _etag_of(path) or ""
-            try:
-                size = 0 if is_dir else os.path.getsize(path)
-                mtime = os.path.getmtime(path)
-            except OSError:
-                size, mtime = 0, 0
-            import email.utils
+            if self.state.fast_etags and not is_dir:
+                etag = self.state._file_etag(rel, st)
+            else:
+                etag = self.state.etag(path) or ""
+            size = 0 if is_dir else st.st_size
+            mtime = st.st_mtime
             parts.append(
                 "<D:response><D:href>{href}</D:href><D:propstat><D:prop>"
                 "<D:resourcetype>{rt}</D:resourcetype>"
@@ -260,7 +330,7 @@ class _Handler(BaseHTTPRequestHandler):
         with open(full, "rb") as fh:
             data = fh.read()
         headers = {"Content-Type": "application/octet-stream",
-                   "ETag": _etag_of(full) or '""',
+                   "ETag": self.state.etag(full) or '""',
                    "Accept-Ranges": "bytes"}
         rng = (self.headers.get("Range") or "").strip()
         if rng.startswith("bytes=") and "-" in rng:
@@ -274,6 +344,9 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._send(206, chunk, headers)
             except (TypeError, ValueError):
                 pass
+        if self.state.bandwidth:
+            import time as _time
+            _time.sleep(len(data) / self.state.bandwidth)
         self._send(200, data, headers)
 
     def do_HEAD(self):                                      # noqa: N802
@@ -285,7 +358,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(403, b"outside the share")
         if not os.path.exists(full):
             return self._send(404, b"not found")
-        self._send(200, b"", {"ETag": _etag_of(full) or '""'})
+        self._send(200, b"", {"ETag": self.state.etag(full) or '""'})
 
     def do_PUT(self):                                       # noqa: N802
         if self._begin() is None:
@@ -310,7 +383,8 @@ class _Handler(BaseHTTPRequestHandler):
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp, full)
-        self._send(201 if created else 204, b"", {"ETag": _etag_of(full) or '""'})
+            self.state.gen += 1
+        self._send(201 if created else 204, b"", {"ETag": self.state.etag(full) or '""'})
 
     def do_DELETE(self):                                    # noqa: N802
         if self._begin() is None:
@@ -326,6 +400,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self._check(full)
             except _Precondition:
                 return self._send(412, b"precondition failed")
+            self.state.gen += 1
             if os.path.isdir(full):
                 shutil.rmtree(full, ignore_errors=True)
             else:
@@ -350,6 +425,7 @@ class _Handler(BaseHTTPRequestHandler):
             os.mkdir(full)
         except OSError:
             return self._send(409, b"cannot create")
+        self.state.bump()
         self._send(201, b"")
 
     def do_MOVE(self):                                      # noqa: N802
@@ -366,6 +442,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(412, b"destination exists")
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         os.replace(src, dest)
+        self.state.bump()
         self._send(201, b"")
 
 
@@ -373,10 +450,13 @@ class WebDAVFake:
     """A WebDAV share served from *root* on 127.0.0.1 (random port)."""
 
     def __init__(self, root: str, *, refuse_infinity: bool = False,
-                 rate_limit_every: int = 0, username_required: bool = False):
+                 rate_limit_every: int = 0, username_required: bool = False,
+                 latency: tuple | None = None, fast_etags: bool = False,
+                 bandwidth: float | None = None):
         self.state = FakeState(root, refuse_infinity=refuse_infinity,
                                rate_limit_every=rate_limit_every,
-                               username_required=username_required)
+                               username_required=username_required,
+                               latency=latency, fast_etags=fast_etags, bandwidth=bandwidth)
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self._httpd.daemon_threads = True
         self._httpd.state = self.state                     # type: ignore[attr-defined]
