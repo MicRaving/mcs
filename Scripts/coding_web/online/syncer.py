@@ -43,9 +43,11 @@ Crash safety - the invariants every step keeps:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 from online_shared import merge as merge_mod
 from online_shared import protocol
@@ -76,6 +78,8 @@ def protocol_is_hash(value: str) -> bool:
 BACKOFF_MIN = 5.0
 BACKOFF_MAX = 300.0
 PUSH_BATCH = 200
+#: seconds between two state saves while a batch downloads
+SAVE_EVERY = 3.0
 
 
 def _iso(ts: float | None) -> str | None:
@@ -85,6 +89,8 @@ def _iso(ts: float | None) -> str | None:
 
 
 class Syncer:
+    SAVE_EVERY = SAVE_EVERY
+
     def __init__(self, mirror: Mirror, client, permissions: Permissions | None = None, *,
                  outbox: Outbox | None = None, conflicts: ConflictStore | None = None,
                  cache: Cache | None = None, debounce: float = protocol.PUSH_DEBOUNCE_SECS,
@@ -118,7 +124,197 @@ class Syncer:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self.on_change = None            # optional callback(paths) after files were written
+        #: optional callback() after the *listing* changed (paths appeared or left),
+        #: before any download: the app refreshes its key list / paper list
+        self.on_listing = None
+        #: bumped whenever the set of remote paths (or their versions) changes
+        self.files_rev = 0
+        #: parallel downloads per round (WebDAV/the server client caps requests too)
+        self.parallel = 4
+        try:
+            self.parallel = max(1, int(getattr(getattr(client, "dav", None), "max_parallel", 0) or 4))
+        except Exception:                   # a test double without the attribute
+            pass
+        #: a background round downloads for at most this long, then parks the
+        #: rest as ``stale`` and lets a push/the next round run (kicked at once)
+        self.round_budget = 20.0
+        #: study keys whose files jump the download queue (the open paper)
+        self.priority_keys: list[str] = []
+        self._more_pending = False
+        self._progress_lock = threading.Lock()
+        self.progress = self._idle_progress()
         self._recover()
+
+    # -- download progress -----------------------------------------------------------
+
+    @staticmethod
+    def _idle_progress() -> dict:
+        return {"phase": "idle", "files_done": 0, "files_total": 0, "bytes_done": 0,
+                "bytes_total": 0, "started": None, "rate_bps": 0.0, "eta_s": None,
+                "current": None, "failed": 0}
+
+    def download_progress(self) -> dict:
+        with self._progress_lock:
+            return dict(self.progress)
+
+    def _resolve(self, digest):
+        fn = getattr(self.client, "resolve_hash", None)
+        if fn is None or not digest:
+            return digest
+        try:
+            return fn(digest) or digest
+        except Exception:                     # a resolver may never break a round
+            return digest
+
+    def _notify_listing(self) -> None:
+        cb = self.on_listing
+        if cb is not None:
+            try:
+                cb()
+            except Exception:                 # a UI callback must never break the sync
+                pass
+
+    @staticmethod
+    def _priority(rel: str) -> int:
+        top = rel.split("/", 1)[0]
+        if "/" not in rel or top in ("Project", "Screening", "Fulltext"):
+            return 0
+        return {"Codings": 1, "Extraction": 2, "Text": 3, "Reproduction": 4,
+                "Datasets": 5}.get(top, 6)
+
+    def download_many(self, jobs, progress=None, budget: float | None = None,
+                      track: bool = True) -> tuple[list[str], bool]:
+        """Run downloads ``[(rel, hash, force)]`` in parallel; returns ``(written, interrupted)``.
+
+        At most :attr:`parallel` downloads run at once (the WebDAV client also
+        caps requests in flight and honours 429 ``Retry-After``).  The state is
+        saved every :data:`SAVE_EVERY` seconds, so a crash or a closed window
+        keeps every finished file; :meth:`stop` and *budget* (seconds) end the
+        batch early - the paths not reached are parked as ``stale`` and the
+        next round continues with them (``interrupted`` is then True).
+        ``OfflineError`` parks the rest and is re-raised; the first other
+        failure is re-raised after the batch (the round reports it), a path
+        the server no longer has is parked.
+        """
+        jobs = list(dict.fromkeys(jobs))
+        if not jobs:
+            return [], False
+        prio = set(self.priority_keys or ())
+
+        def _key(job):
+            rel = job[0]
+            fc = self.mirror.classify(rel)
+            return (0 if (prio and fc.key in prio) else 1, self._priority(rel), rel)
+
+        jobs.sort(key=_key)
+        with self.mirror.lock:
+            sizes = {j[0]: int((self.mirror.remote.get(j[0]) or {}).get("size") or 0) for j in jobs}
+        t0 = time.monotonic()
+        if track:
+            with self._progress_lock:
+                prev = self.progress if self._more_pending and self.progress.get("phase") != "idle" else None
+                base_files = int(prev["files_done"]) if prev else 0
+                base_bytes = int(prev["bytes_done"]) if prev else 0
+                started = prev["started"] if prev else time.time()
+                self.progress = {"phase": "downloading", "files_done": base_files,
+                                 "files_total": base_files + len(jobs),
+                                 "bytes_done": base_bytes,
+                                 "bytes_total": base_bytes + sum(sizes.values()),
+                                 "started": started, "rate_bps": 0.0, "eta_s": None,
+                                 "current": None, "failed": 0}
+            self._more_pending = False
+        written: list[str] = []
+        offline: BaseException | None = None
+        first_error: BaseException | None = None
+        stopped = False
+        last_save = time.monotonic()
+        workers = max(1, min(self.parallel, len(jobs)))
+        it = iter(jobs)
+        pending: dict = {}
+
+        def _submit(ex) -> bool:
+            nonlocal stopped
+            if offline is not None:
+                return False
+            if self._stop.is_set() or (budget is not None and time.monotonic() - t0 > budget):
+                stopped = True
+                return False
+            job = next(it, None)
+            if job is None:
+                return False
+            pending[ex.submit(self._download_into, job[0], job[1], job[2])] = job
+            return True
+
+        done_n = 0
+        ex = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="online-dl")
+        try:
+            for _ in range(workers):
+                if not _submit(ex):
+                    break
+            while pending:
+                finished, _ = wait(list(pending), timeout=0.5, return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    rel, _h, _f = pending.pop(fut)
+                    try:
+                        if fut.result():
+                            written.append(rel)
+                    except OfflineError as exc:
+                        offline = offline or exc
+                        self.mirror.add_stale(rel)
+                    except (NotFoundError, FileNotFoundError):
+                        self.mirror.add_stale(rel)     # gone meanwhile: the next listing decides
+                    except Exception as exc:           # noqa: BLE001 - reported after the batch
+                        first_error = first_error or exc
+                        self.mirror.add_stale(rel)
+                        if track:
+                            with self._progress_lock:
+                                self.progress["failed"] += 1
+                    done_n += 1
+                    if track:
+                        with self._progress_lock:
+                            p = self.progress
+                            p["files_done"] += 1
+                            p["bytes_done"] += sizes.get(rel, 0)
+                            p["current"] = rel
+                            secs = max(1e-3, time.time() - float(p["started"] or time.time()))
+                            p["rate_bps"] = p["bytes_done"] / secs
+                            left_files = p["files_total"] - p["files_done"]
+                            per_file = secs / max(1, p["files_done"])
+                            left_bytes = max(0, p["bytes_total"] - p["bytes_done"])
+                            eta = max(left_files * per_file * 0.5,
+                                      left_bytes / p["rate_bps"] if p["rate_bps"] > 0 else 0)
+                            p["eta_s"] = round(eta, 1) if left_files else 0.0
+                    if progress is not None:
+                        try:
+                            progress(done_n, len(jobs), rel)
+                        except Exception:              # noqa: BLE001
+                            pass
+                if time.monotonic() - last_save >= self.SAVE_EVERY:
+                    self.mirror.save()
+                    last_save = time.monotonic()
+                while len(pending) < workers and _submit(ex):
+                    pass
+        finally:
+            ex.shutdown(wait=True)
+            # the paths never started stay queued for the next round
+            rest = list(it)
+            for rel, _h, _f in rest:
+                self.mirror.add_stale(rel)
+            self.mirror.save()
+            if track:
+                with self._progress_lock:
+                    if rest or stopped:
+                        self.progress["phase"] = "paused" if self._stop.is_set() else "downloading"
+                    else:
+                        self.progress = dict(self.progress, phase="idle", current=None, eta_s=0.0)
+        interrupted = bool(rest) or stopped
+        if interrupted and track:
+            self._more_pending = True
+        if offline is not None:
+            raise offline
+        if first_error is not None:
+            raise first_error
+        return written, interrupted
 
     # -- identity -------------------------------------------------------------------
 
@@ -192,6 +388,8 @@ class Syncer:
             "local_only": local_only,
             "last_error": self.last_error,
             "next_retry_in": max(0.0, self.next_retry - self.clock()) if self.next_retry else None,
+            "download": self.download_progress(),
+            "files_rev": self.files_rev,
         }
 
     # -- one round ---------------------------------------------------------------------------
@@ -215,13 +413,13 @@ class Syncer:
                 if not self._initial_pull_done or self.outbox.unconfirmed():
                     # start-up, or an earlier push whose outcome is unknown:
                     # learn what the server already has before pushing again
-                    self.pull()
+                    self.pull(budget=self._budget())
                     self._initial_pull_done = True
                 # queued "Finish paper" marks go first: they change the caller's
                 # visibility_epoch, which the pull below then sees
                 self.last_round["done_sent"] = len(self.flush_done())
                 self.last_round["pushed"] = len(self.push(force=force) or [])
-                pulled = self.pull()
+                pulled = self.pull(budget=self._budget())
                 self.last_round["pulled"] = len((pulled or {}).get("written") or [])
             except OfflineError as exc:
                 self.mode = "offline"
@@ -249,6 +447,10 @@ class Syncer:
             self.last_sync = self.clock()
             self.last_round["ok"] = True
             return True
+
+    def _budget(self) -> float | None:
+        """The download budget of one round (``None``: unbounded)."""
+        return self.round_budget
 
     # -- scan / enqueue --------------------------------------------------------------------------
 
@@ -511,12 +713,17 @@ class Syncer:
 
     # -- pull ----------------------------------------------------------------------------------------
 
-    def pull(self, progress=None) -> dict:
+    def pull(self, progress=None, budget: float | None = None) -> dict:
         """Bring the mirror in line with the manifest.
 
         *progress* (optional) is called ``progress(done, total, path)`` for
         every candidate the round examines, so a batched on-demand fetch
         (:meth:`OnlineStore.ensure_many`) can report how far it is.
+
+        The listing is applied (and saved) before anything is downloaded; the
+        downloads then run in parallel (:meth:`download_many`).  *budget*
+        (seconds) bounds them: what is left is parked as ``stale`` and the
+        next round - started at once by the background loop - continues.
         """
         with self.mirror.lock:
             since = int(self.mirror.state.get("seq") or 0)
@@ -537,18 +744,35 @@ class Syncer:
         retired: list[str] = []
         with self.mirror.lock:
             listed = set()
+            remote_changed = False
             for f in files:
                 rel = protocol.normalize_path(f["path"])
                 listed.add(rel)
                 if f.get("deleted") or not f.get("hash"):
-                    self.mirror.remote.pop(rel, None)
+                    if self.mirror.remote.pop(rel, None) is not None:
+                        remote_changed = True
                 else:
-                    self.mirror.remote[rel] = {k: f.get(k) for k in ("hash", "size", "kind", "key", "tag", "seq")}
+                    row = {k: f.get(k) for k in ("hash", "size", "kind", "key", "tag", "seq")}
+                    old = self.mirror.remote.get(rel)
+                    if old is not None and old.get("hash") != row["hash"] \
+                            and self._resolve(row["hash"]) == old.get("hash"):
+                        row["hash"] = old["hash"]   # a token we already resolved by downloading
+                    if old != row:
+                        remote_changed = True
+                    self.mirror.remote[rel] = row
             if full:
                 for rel in [p for p in self.mirror.remote if p not in listed]:
                     self.mirror.remote.pop(rel, None)          # no longer readable
                     retired.append(rel)
             candidates = list(dict.fromkeys(list(listed) + list(self.mirror.state.get("stale") or [])))
+            if remote_changed or retired:
+                self.files_rev += 1
+        if remote_changed or retired:
+            # the listing is what the paper list and every listing read: save it
+            # (and tell the app) *before* the downloads, so a first open shows
+            # the whole project at once and a crash keeps it
+            self.mirror.save()
+            self._notify_listing()
         # A path we may no longer read (blinding: another tag's files, the master
         # workbook, settlements, Results/ agreement products) must leave the
         # mirror too, exactly like a server deletion - a blinded coder must not
@@ -559,14 +783,24 @@ class Syncer:
             for path in self._retire(rel):
                 touched.append(path)
         self._process_restores()
+        jobs: list[tuple[str, str, bool]] = []
+        n_cand = len(candidates)
         for _i, rel in enumerate(candidates):
-            if self._reconcile(rel):
+            if self._reconcile(rel, defer=jobs):
                 touched.append(rel)
-            if progress is not None:
+            if progress is not None and (not jobs or jobs[-1][0] != rel):
                 try:
-                    progress(_i + 1, len(candidates), rel)
+                    progress(_i + 1, n_cand, rel)
                 except Exception:        # a progress callback may never break a pull
                     pass
+        if jobs:
+            done, interrupted = self.download_many(jobs, progress=progress, budget=budget)
+            touched.extend(done)
+            if interrupted:
+                # parked: the paths not reached are ``stale`` and the next round
+                # (kicked at once) continues; seq still advances because every
+                # path of the window is handled (written or parked)
+                self._more_pending = True
         with self.mirror.lock:
             self.mirror.state["seq"] = max(int(man.get("seq") or 0), since if not full else 0)
             self.mirror.state["visibility_epoch"] = man.get("visibility_epoch")
@@ -622,9 +856,8 @@ class Syncer:
                 r = self.mirror.remote.get(rel)
             if r is not None and self._local_blob(r.get("hash")) is not None:
                 return True
-        with self.mirror.lock:
-            if rel in (self.mirror.state.get("stale") or []):
-                return True                 # an explicit request (preload / analysis)
+        if self.mirror.is_stale(rel):
+            return True                     # an explicit request (preload / analysis)
         if os.path.exists(self.mirror.abspath(rel)):
             return True                                     # cached copy: keep it current
         tier = self.cache.tier(rel)
@@ -632,8 +865,13 @@ class Syncer:
             return not rel.startswith("Supplements/") or bool(self.mirror.state["cache"].get("supplements"))
         return False
 
-    def _reconcile(self, rel: str) -> bool:
-        """Bring one path in line with the server; True when the file was written."""
+    def _reconcile(self, rel: str, defer: list | None = None) -> bool:
+        """Bring one path in line with the server; True when the file was written.
+
+        With *defer* (a list) a needed download is appended to it as
+        ``(rel, hash, force)`` instead of being run here, so :meth:`pull` can
+        run the downloads in parallel (:meth:`download_many`).
+        """
         fc = self.mirror.classify(rel)
         if fc.kind == "excluded":
             self.mirror.discard_stale(rel)
@@ -701,6 +939,9 @@ class Syncer:
             self.mirror.add_stale(rel)
             return False
         # absent, clean-but-outdated, or an unwritable local edit (local-only): overwrite
+        if defer is not None:
+            defer.append((rel, server_hash, not writable))
+            return False
         return self._download_into(rel, server_hash, force=not writable)
 
     def _download_into(self, rel: str, digest: str, force: bool = False) -> bool:
@@ -732,12 +973,22 @@ class Syncer:
                     if self.cache.tier(rel) in ("lru", "supplement", "pinned"):
                         self.cache.touch(rel)
                     return True
-        tmp = os.path.join(self.mirror.tmp_dir, f"dl-{digest[:16]}-{threading.get_ident()}")
+        tmp = os.path.join(self.mirror.tmp_dir,
+                           f"dl-{hashlib.sha1(str(digest).encode()).hexdigest()[:16]}-{threading.get_ident()}")
         try:
             self.client.get_blob(self.pid, digest, tmp)
         except OfflineError:
             self.mirror.add_stale(rel)
             raise
+        real = self._resolve(digest)
+        if real != digest:
+            # a version token (Nextcloud): the download learnt the content hash,
+            # which is what the head must carry (the base of the next merge)
+            with self.mirror.lock:
+                r = self.mirror.remote.get(rel)
+                if r is not None and r.get("hash") == digest:
+                    r["hash"] = real
+            digest = real
         with self.mirror.lock:
             if not force:
                 now = self.mirror.local_state(rel)
@@ -917,5 +1168,7 @@ class Syncer:
                 ok = False
             if self._stop.is_set():
                 break
+            if ok and self._more_pending:
+                continue                      # a parked backlog: next round at once
             self._wake.wait(self._next_wait(ok))
             self._wake.clear()

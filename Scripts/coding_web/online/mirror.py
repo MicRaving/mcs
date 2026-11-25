@@ -140,7 +140,10 @@ def atomic_write_bytes(path: str, data: bytes, tmp_dir: str | None = None, fsync
 
 
 def atomic_write_json(path: str, obj, fsync: bool = True) -> None:
-    atomic_write_bytes(path, json.dumps(obj, ensure_ascii=False, indent=1, sort_keys=True).encode("utf-8"),
+    # compact: ``indent`` forces json's pure-Python encoder, which made one save
+    # of a 25k-file state cost seconds (the C encoder: ~0.1 s)
+    atomic_write_bytes(path, json.dumps(obj, ensure_ascii=False, sort_keys=True,
+                                        separators=(",", ":")).encode("utf-8"),
                        fsync=fsync)
 
 
@@ -334,17 +337,42 @@ class Mirror:
             self.heads.pop(rel, None)
             self.state["local_only"].pop(rel, None)
 
+    def _stale_set(self) -> set:
+        """A set view of ``state["stale"]`` (the list stays the persisted form).
+
+        The first sync of a large project parks thousands of paths there; a
+        list membership test per path made that quadratic.
+        """
+        lst = self.state["stale"]
+        cache = getattr(self, "_stale_cache", None)
+        if cache is None or cache[0] is not lst or cache[1] != len(lst):
+            cache = (lst, len(lst), set(lst))
+            self._stale_cache = cache
+        return cache[2]
+
+    def is_stale(self, rel: str) -> bool:
+        with self.lock:
+            return rel in self._stale_set()
+
     def add_stale(self, rel: str) -> None:
         with self.lock:
-            if rel not in self.state["stale"]:
+            s = self._stale_set()
+            if rel not in s:
                 self.state["stale"].append(rel)
+                s.add(rel)
+                self._stale_cache = (self.state["stale"], len(self.state["stale"]), s)
 
     def discard_stale(self, rel: str) -> None:
         with self.lock:
+            s = self._stale_set()
+            if rel not in s:
+                return
             try:
                 self.state["stale"].remove(rel)
             except ValueError:
                 pass
+            s.discard(rel)
+            self._stale_cache = (self.state["stale"], len(self.state["stale"]), s)
 
     def local_state(self, rel: str) -> str:
         """``absent`` | ``clean`` (matches the head) | ``modified`` | ``untracked``.

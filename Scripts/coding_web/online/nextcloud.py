@@ -115,6 +115,19 @@ MAX_BASE_BYTES = 16 * 1024 * 1024       # a locally kept merge base
 # paths / identity helpers
 # ---------------------------------------------------------------------------
 
+_FC_CACHE: dict = {}
+
+
+def _classify(rel: str):
+    """``protocol.classify`` with a cache: a listing classifies 25k paths per round."""
+    fc = _FC_CACHE.get(rel)
+    if fc is None:
+        fc = protocol.classify(rel)
+        if len(_FC_CACHE) < 400_000:
+            _FC_CACHE[rel] = fc
+    return fc
+
+
 def _sha_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -255,6 +268,8 @@ class NextcloudClient:
         self._password = app_password or ""
         self.token = self._password            # the store saves this in the keyring
         self.server_url = origin_of(url)
+        #: the Nextcloud URL as the user typed it (a saved connection keeps it)
+        self.url = (url or "").strip().rstrip("/")
         self.folder = (folder or "").strip("/")
         self.root_url = (webdav_root_url or webdav_root(url, self.username, self.folder)).rstrip("/")
         self.project_id = project_id_for(self.root_url)
@@ -275,6 +290,18 @@ class NextcloudClient:
         self._spool: dict[str, str] = {}
         self._spool_dir = ""
         self._base_dir = ""
+        self._index_path = ""
+        self._journal_path = ""
+        self._journal_lines = 0
+        #: version token / content hash -> path (O(1) ``get_blob`` lookups)
+        self._by_hash: dict[str, str] = {}
+        #: token -> content hash learnt by a download (see :meth:`resolve_hash`)
+        self._resolved: dict[str, str] = {}
+        #: the last full listing ``{rel: Prop}`` and the root ETag it was taken at
+        self._listing: dict | None = None
+        self._listing_dirty = False
+        self.stats = {"propfind_infinity": 0, "propfind_root": 0, "listing_reused": 0,
+                      "downloads": 0, "download_bytes": 0, "index_saves": 0}
         if self.folder:
             self._projects[self.project_id] = {"root": self.folder, "name": self._folder_name()}
 
@@ -296,13 +323,32 @@ class NextcloudClient:
         self._mirror = mirror
         studio = mirror.studio
         self._index_path = os.path.join(studio, "nextcloud_index.json")
+        self._journal_path = os.path.join(studio, "nextcloud_index.journal")
         self._base_dir = os.path.join(studio, "nc-base")
         self._spool_dir = os.path.join(studio, "nc-spool")
         os.makedirs(self._base_dir, exist_ok=True)
         os.makedirs(self._spool_dir, exist_ok=True)
+        # The spool only ever held this session's bytes (the in-memory map
+        # ``_spool`` is gone after a restart; queued versions live in the
+        # outbox's ``pending/``).  Releases <= 0.4.1 never cleaned it, so a
+        # mirror carried a second full copy of the core tier (342 MB on the
+        # owner's share).
+        self._clean_spool()
         self._index_loaded = False
-        self._index = {"version": 1, "seq": 0, "files": {}}
+        self._index = {"version": 2, "seq": 0, "files": {}}
         self._load_index()
+
+    def _clean_spool(self) -> None:
+        try:
+            names = os.listdir(self._spool_dir)
+        except OSError:
+            return
+        for name in names:
+            try:
+                os.unlink(os.path.join(self._spool_dir, name))
+            except OSError:
+                pass
+        self._spool.clear()
 
     def set_offline(self, offline: bool = True) -> None:
         """Test/output seam: pretend the network is down (no request leaves)."""
@@ -311,15 +357,29 @@ class NextcloudClient:
     def close(self) -> None:
         with self._guard:
             self._save_index()
+        try:
+            self.dav.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     # -- index (the client's own view of the folder) --------------------------------
+    #
+    # ``nextcloud_index.json`` is the compacted snapshot; every change made
+    # between two snapshots (a download that learnt a content hash, a push) is
+    # appended to ``nextcloud_index.journal`` first.  A crash, a closed window or
+    # a killed process therefore loses nothing a download already paid for: the
+    # next start replays the journal and adopts the files that are on disk.
+    # (<= 0.4.1 wrote the 6.5 MB index once, at the very end of the first
+    # listing, which downloaded every core file - interrupted, it started over.)
+
+    JOURNAL_COMPACT_LINES = 5000
 
     def _load_index(self) -> None:
         with self._guard:
             if self._index_loaded:
                 return
             self._index_loaded = True
-            path = getattr(self, "_index_path", "")
+            path = self._index_path
             data = None
             if path and os.path.exists(path):
                 try:
@@ -328,20 +388,106 @@ class NextcloudClient:
                 except (OSError, ValueError, UnicodeDecodeError):
                     data = None
             if isinstance(data, dict) and isinstance(data.get("files"), dict):
-                self._index = {"version": 1, "seq": int(data.get("seq") or 0),
+                self._index = {"version": 2, "seq": int(data.get("seq") or 0),
+                               "top_etags": data.get("top_etags"),
+                               "listed_at": float(data.get("listed_at") or 0.0),
+                               "etag_propagates": data.get("etag_propagates"),
                                "files": {str(k): dict(v) for k, v in data["files"].items()
                                          if isinstance(v, dict)}}
             else:
-                self._index = {"version": 1, "seq": 0, "files": {}}
+                self._index = {"version": 2, "seq": 0, "files": {}}
+            self._replay_journal()
+            self._by_hash = {}
+            for rel, entry in self._index["files"].items():
+                if entry.get("hash"):
+                    self._by_hash[entry["hash"]] = rel
+
+    def _replay_journal(self) -> None:
+        path = self._journal_path
+        if not path or not os.path.exists(path):
+            return
+        files = self._index["files"]
+        n = 0
+        try:
+            with open(path, "rb") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line.decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        continue                    # a torn last line: ignore it
+                    n += 1
+                    rel = rec.get("p")
+                    if not rel:
+                        continue
+                    if rec.get("d"):
+                        files.pop(rel, None)
+                    elif isinstance(rec.get("e"), dict):
+                        files[rel] = dict(rec["e"])
+                    seq = rec.get("s")
+                    if seq is not None and int(seq) > int(self._index.get("seq") or 0):
+                        self._index["seq"] = int(seq)
+        except OSError:
+            return
+        self._journal_lines = n
+
+    def _journal(self, rel: str, entry: dict | None) -> None:
+        """Append one index change (call under ``self._guard``)."""
+        if not self._journal_path:
+            return
+        rec = {"p": rel, "s": int(self._index.get("seq") or 0)}
+        if entry is None:
+            rec["d"] = 1
+        else:
+            rec["e"] = entry
+        try:
+            with open(self._journal_path, "ab") as fh:
+                fh.write((json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8"))
+        except OSError:
+            return
+        self._journal_lines += 1
+        if self._journal_lines >= self.JOURNAL_COMPACT_LINES:
+            self._save_index()
 
     def _save_index(self) -> None:
-        path = getattr(self, "_index_path", "")
+        """Write the compacted snapshot and drop the journal (atomic)."""
+        path = self._index_path
         if not path:
             return
         with self._guard:
-            payload = {"version": 1, "seq": int(self._index.get("seq") or 0),
+            payload = {"version": 2, "seq": int(self._index.get("seq") or 0),
+                       "top_etags": self._index.get("top_etags"),
+                       "listed_at": self._index.get("listed_at") or 0.0,
+                       "etag_propagates": self._index.get("etag_propagates"),
                        "files": self._index.get("files") or {}}
-            _atomic_write(path, _json_bytes(payload))
+            _atomic_write(path, json.dumps(payload, ensure_ascii=False,
+                                           separators=(",", ":")).encode("utf-8"))
+            self.stats["index_saves"] += 1
+            if self._journal_path:
+                try:
+                    os.unlink(self._journal_path)
+                except OSError:
+                    pass
+            self._journal_lines = 0
+
+    def _set_entry(self, rel: str, entry: dict, journal: bool = True) -> None:
+        """Record *entry* for *rel* (call under ``self._guard``)."""
+        files = self._index_files()
+        old = files.get(rel)
+        if old and old.get("hash") and self._by_hash.get(old["hash"]) == rel:
+            self._by_hash.pop(old["hash"], None)
+        files[rel] = entry
+        if entry.get("hash"):
+            self._by_hash[entry["hash"]] = rel
+        if journal:
+            self._journal(rel, entry)
+
+    def _pop_entry(self, rel: str, journal: bool = True) -> None:
+        files = self._index_files()
+        old = files.pop(rel, None)
+        if old and old.get("hash") and self._by_hash.get(old["hash"]) == rel:
+            self._by_hash.pop(old["hash"], None)
+        if journal and old is not None:
+            self._journal(rel, None)
 
     def _index_files(self) -> dict:
         self._load_index()
@@ -422,10 +568,29 @@ class NextcloudClient:
         return None
 
     def _path_for_token(self, digest: str) -> str | None:
-        for rel, entry in self._index_files().items():
-            if entry.get("hash") == digest:
+        with self._guard:
+            self._load_index()
+            rel = self._by_hash.get(digest)
+            if rel is not None and (self._index["files"].get(rel) or {}).get("hash") == digest:
                 return rel
+            for rel, entry in self._index["files"].items():     # a stale map: slow path
+                if entry.get("hash") == digest:
+                    self._by_hash[digest] = rel
+                    return rel
         return None
+
+    def resolve_hash(self, digest: str | None) -> str | None:
+        """The content hash a download learnt for the version token *digest*.
+
+        A file that has never been downloaded is identified by ``nc1-<etag>``
+        (WebDAV exposes no content hash); :meth:`get_blob` hashes the bytes it
+        streams and records the result, so the engine installs the file under
+        its real hash (the base of a later three-way merge).
+        """
+        if not digest:
+            return digest
+        with self._guard:
+            return self._resolved.get(digest, digest)
 
     # -- auth / identity --------------------------------------------------------------
 
@@ -563,28 +728,149 @@ class NextcloudClient:
 
     # -- manifest (freshness by ETag) -----------------------------------------------------
 
-    def list_remote(self) -> dict[str, object]:
+    #: A full ``PROPFIND Depth: infinity`` is repeated at least this often even
+    #: when the folder ETags say nothing changed (a safety net).
+    FULL_LIST_EVERY = 600.0
+
+    def list_remote(self, *, allow_cached: bool = True) -> dict[str, object]:
         """``{rel: Prop}`` of every non-excluded file in the folder.
 
         One ``PROPFIND Depth: infinity``; servers that refuse it (university
         shares often do) are walked with ``Depth: 1`` per folder instead.
+
+        A Nextcloud propagates a change to the ETag of every parent folder.
+        Once that is *verified* for this share (:meth:`_probe_propagation`), a
+        round lists the top level only (``Depth: 1``, ~20 entries) and
+        re-lists just the top-level folders whose ETag moved; the others are
+        reused from the last listing.  The root's own ETag cannot be used: the
+        presence heartbeats under ``.studio/`` change it every 15 s.  A full
+        listing still runs every :data:`FULL_LIST_EVERY` seconds.
         """
+        now = time.time()
+        if allow_cached and self._index.get("etag_propagates") is True:
+            cached = self._cached_listing()
+            listed_at = float(self._index.get("listed_at") or 0.0)
+            tops = self._index.get("top_etags")
+            if cached is not None and isinstance(tops, dict) and now - listed_at < self.FULL_LIST_EVERY:
+                return self._incremental_listing(cached, tops)
         try:
             rows = self.dav.propfind("", depth="infinity")
+            self.stats["propfind_infinity"] += 1
         except DepthInfinityRefused:
             rows = self._walk_depth1()
         out: dict[str, object] = {}
+        tops: dict[str, str | None] = {}
         for prop in rows:
-            if prop.is_dir or not prop.path:
+            if not prop.path:
                 continue
-            if protocol.classify(prop.path).kind == "excluded":
+            if prop.is_dir:
+                if "/" not in prop.path and _classify(prop.path + "/").kind != "excluded":
+                    tops[prop.path] = prop.etag
+                continue
+            if _classify(prop.path).kind == "excluded":
                 continue
             out[prop.path] = prop
+        with self._guard:
+            self._listing = out
+            self._index["top_etags"] = tops if all(tops.values()) else None
+            self._index["listed_at"] = now
+            self._listing_dirty = True
         return out
 
-    def _walk_depth1(self) -> list:
+    def _incremental_listing(self, cached: dict, tops: dict) -> dict:
+        """Re-list only the top-level folders whose ETag changed."""
+        level = self.dav.propfind("", depth="1")
+        self.stats["propfind_root"] += 1
+        new_tops: dict[str, str | None] = {}
+        out: dict[str, object] = {}
+        relist: list[str] = []
+        for prop in level:
+            if not prop.path or "/" in prop.path:
+                continue
+            if prop.is_dir:
+                if _classify(prop.path + "/").kind == "excluded":
+                    continue
+                new_tops[prop.path] = prop.etag
+                if not prop.etag or tops.get(prop.path) != prop.etag:
+                    relist.append(prop.path)
+                continue
+            if _classify(prop.path).kind != "excluded":
+                out[prop.path] = prop               # a root-level file: listed right here
+        for rel, prop in cached.items():
+            top = rel.split("/", 1)[0]
+            if "/" in rel and top in new_tops and top not in relist:
+                out[rel] = prop                     # unchanged folder: reuse
+        for top in relist:
+            try:
+                rows = self.dav.propfind(top, depth="infinity")
+                self.stats["propfind_infinity"] += 1
+            except DepthInfinityRefused:
+                rows = self._walk_depth1(top)
+            except NotFoundError:
+                rows = []
+            for prop in rows:
+                if prop.is_dir or not prop.path or not prop.path.startswith(top + "/"):
+                    continue
+                if _classify(prop.path).kind == "excluded":
+                    continue
+                out[prop.path] = prop
+        if not relist and len(out) == len(cached):
+            self.stats["listing_reused"] += 1
+        with self._guard:
+            self._listing = out
+            if relist or new_tops != tops:
+                self._index["top_etags"] = new_tops if all(new_tops.values()) else None
+                self._listing_dirty = True
+        return out
+
+    def _cached_listing(self) -> dict | None:
+        """The last listing, rebuilt from the index after a restart."""
+        with self._guard:
+            if self._listing is not None:
+                return self._listing
+            if not isinstance(self._index.get("top_etags"), dict):
+                return None
+            from .webdav import Prop
+            self._listing = {rel: Prop(path=rel, etag=e.get("etag"), size=int(e.get("size") or 0),
+                                       last_modified=e.get("lm"))
+                             for rel, e in self._index["files"].items()}
+            return self._listing
+
+    PROBE_DIR = STUDIO
+
+    def _probe_etag(self) -> str | None:
+        try:
+            return self.dav.stat(self.PROBE_DIR).etag
+        except OnlineError:
+            return None
+
+    def _probe_propagation(self, before: str | None) -> None:
+        """After one of our own writes under ``.studio/presence/``: did the
+        ETag of ``.studio/`` (two levels up) move?
+
+        ``True`` makes the incremental listing trustworthy on this share; a
+        share whose collections carry no ETag, or one that does not propagate
+        it, is always listed in full.
+        """
+        if self._index.get("etag_propagates") is not None:
+            return
+        after = self._probe_etag()
+        with self._guard:
+            if not after:
+                self._index["etag_propagates"] = False      # collections carry no ETag
+            elif not before:
+                return                                      # .studio/ was just created
+            elif after != before:
+                self._index["etag_propagates"] = True
+            else:
+                # unchanged: maybe not propagated yet; three misses = no
+                self._probe_misses = getattr(self, "_probe_misses", 0) + 1
+                if self._probe_misses >= 3:
+                    self._index["etag_propagates"] = False
+
+    def _walk_depth1(self, start: str = "") -> list:
         rows: list = []
-        queue = [""]
+        queue = [start]
         while queue:
             folder = queue.pop(0)
             try:
@@ -595,44 +881,55 @@ class NextcloudClient:
                 if prop.path == folder or not prop.path:
                     continue
                 if prop.is_dir:
-                    if protocol.classify(prop.path + "/").kind != "excluded":
+                    if _classify(prop.path + "/").kind != "excluded":
                         queue.append(prop.path)
                     continue
                 rows.append(prop)
         return rows
 
     def manifest(self, pid: str, since: int = 0) -> dict:
+        """The folder as a manifest - **without downloading anything**.
+
+        A path whose ETag is unchanged keeps what the index knows (its content
+        hash once it was downloaded); a new or changed path is reported under
+        its version token ``nc1-<etag>`` and hashed when the engine downloads
+        it (:meth:`get_blob`).  <= 0.4.1 downloaded every core file *inside*
+        this call, one request at a time, before the engine saw a single path:
+        the owner's first open listed nothing for 46 minutes.
+        """
         self._use(pid)
         since = int(since or 0)
         listing = self.list_remote()
-        seq = 0
         out: list[dict] = []
         with self._guard:
             files = self._index_files()
             seq = int(self._index.get("seq") or 0)
+            changed = False
             for rel, prop in listing.items():
                 entry = files.get(rel)
-                if entry and self._unchanged(entry, prop):
-                    pass
-                else:
-                    entry = self._refresh_entry(rel, prop, entry)
-                    if entry.get("seq") is None:
-                        seq += 1
-                        entry["seq"] = seq
-                    files[rel] = entry
+                if not (entry and self._unchanged(entry, prop)):
+                    entry = self._listed_entry(prop, entry)
+                    seq += 1
+                    entry["seq"] = seq
+                    self._set_entry(rel, entry, journal=False)
+                    changed = True
                 if since == 0 or int(entry.get("seq") or 0) > since:
-                    fc = protocol.classify(rel)
+                    fc = _classify(rel)
                     out.append({"path": rel, "hash": entry["hash"], "size": entry.get("size") or 0,
                                 "kind": fc.kind, "key": fc.key, "tag": fc.tag,
                                 "deleted": False, "seq": entry.get("seq")})
             for rel in [p for p in files if p not in listing]:
-                files.pop(rel)
+                self._pop_entry(rel, journal=False)
                 seq += 1
+                changed = True
                 # also on a full pull: a deletion must propagate, otherwise a
                 # stale local copy would be pushed back as a new file
                 out.append({"path": rel, "hash": None, "size": 0, "deleted": True, "seq": seq})
             self._index["seq"] = seq
-            self._save_index()
+            if changed or self._journal_lines or self._listing_dirty \
+                    or not os.path.exists(self._index_path or "."):
+                self._save_index()
+            self._listing_dirty = False
         return {"seq": seq, "visibility_epoch": BACKEND, "files": out}
 
     @staticmethod
@@ -643,25 +940,20 @@ class NextcloudClient:
                 and int(entry.get("size") or 0) == int(prop.size or 0)
                 and entry.get("lm") == prop.last_modified)
 
-    def _refresh_entry(self, rel: str, prop, old: dict | None) -> dict:
-        """Recompute one path's version token after the server reported a change."""
-        fc = protocol.classify(rel)
-        etag = prop.etag
-        if protocol.is_core(rel, fc):
-            data = self.dav.get(rel)          # the only way to learn the content hash
-            digest = _sha_bytes(data or b"")
-            self._spool_bytes(digest, data or b"", rel)
-            self._keep_base(digest, data or b"")
-            if old and old.get("hash") == digest:
-                return {"hash": digest, "size": len(data or b""), "etag": etag,
-                        "lm": prop.last_modified, "seq": old.get("seq")}
-            return {"hash": digest, "size": len(data or b""), "etag": etag,
-                    "lm": prop.last_modified, "seq": None}
-        # Large / on-demand classes: never downloaded to learn a hash.  The
-        # server's ETag is the version token until somebody calls ensure_local.
-        token = TOKEN_PREFIX + (etag or f"{prop.size}-{prop.last_modified or 0}")
-        return {"hash": token, "size": prop.size, "etag": etag,
-                "lm": prop.last_modified, "seq": old.get("seq") if old and old.get("hash") == token else None}
+    @staticmethod
+    def _token_for(prop) -> str:
+        return TOKEN_PREFIX + (prop.etag or f"{prop.size}-{prop.last_modified or 0}")
+
+    def _listed_entry(self, prop, old: dict | None) -> dict:
+        """A new/changed path as the listing reports it: its version token.
+
+        Nothing is downloaded here.  The token stands in for the content hash
+        until :meth:`get_blob` streams the bytes (core files: in the
+        background, right after the listing; on-demand files: when a view
+        opens them).
+        """
+        return {"hash": self._token_for(prop), "size": int(prop.size or 0), "etag": prop.etag,
+                "lm": prop.last_modified, "seq": None}
 
     # -- blobs: the engine uploads before it pushes, downloads after ---------------------
 
@@ -685,16 +977,66 @@ class NextcloudClient:
             rel = self._path_for_token(digest)
             if rel is None:
                 raise NotFoundError(f"no version {str(digest)[:16]} on the share", 404, "not_found")
-            d = os.path.dirname(dest_path) or "."
-            os.makedirs(d, exist_ok=True)
-            self.dav.get(rel, dest=dest_path)
-            if _is_content_hash(digest) and _sha_file(dest_path) != digest:
-                raise ServerError(f"version {str(digest)[:12]} arrived corrupted", 200, "bad_blob")
+            self._download(rel, digest, dest_path)
             return dest_path
         _atomic_write(dest_path, data)
         if _is_content_hash(digest) and _sha_bytes(data) != digest:
             raise ServerError(f"version {str(digest)[:12]} arrived corrupted", 200, "bad_blob")
         return dest_path
+
+    def _download(self, rel: str, digest: str, dest_path: str) -> str:
+        """Stream *rel* to *dest_path*, hashing it on the way; returns the hash.
+
+        For a version token the content hash is recorded in the index (journal
+        first, so it survives a crash) and :meth:`resolve_hash` maps the token
+        to it.  A content hash is verified.
+        """
+        d = os.path.dirname(dest_path) or "."
+        os.makedirs(d, exist_ok=True)
+        h = hashlib.sha256()
+        size = 0
+        fsync = bool(getattr(self._mirror, "fsync", True))
+        with open(dest_path, "wb") as fh:
+            class _Tee:
+                def write(self_inner, chunk):          # noqa: N805
+                    nonlocal size
+                    h.update(chunk)
+                    size += len(chunk)
+                    return fh.write(chunk)
+            resp = self.dav.request("GET", rel, stream_to=_Tee())
+            fh.flush()
+            if fsync:
+                os.fsync(fh.fileno())
+        real = h.hexdigest()
+        if _is_content_hash(digest):
+            if real != digest:
+                raise ServerError(f"version {str(digest)[:12]} arrived corrupted", 200, "bad_blob")
+        else:
+            with self._guard:
+                entry = self._index_files().get(rel)
+                if entry is not None and entry.get("hash") == digest:
+                    new = dict(entry)
+                    new["hash"] = real
+                    new["size"] = size
+                    got = resp.etag
+                    if got and got != entry.get("etag"):
+                        new["etag"] = got           # changed since the listing: what we hold now
+                        new["lm"] = None
+                        if self._listing is not None and rel in self._listing:
+                            self._listing[rel].etag = got
+                    self._set_entry(rel, new)
+                self._resolved[digest] = real
+        self.stats["downloads"] += 1
+        self.stats["download_bytes"] += size
+        if size <= MAX_BASE_BYTES and protocol.classify(rel).kind in ("shared", "owned"):
+            base = self._base_path(real)
+            if base and not os.path.exists(base):
+                try:
+                    with open(dest_path, "rb") as src:
+                        _atomic_write(base, src.read())
+                except OSError:
+                    pass
+        return real
 
     def get_blob_bytes(self, pid: str, digest: str) -> bytes:
         data = self._version_bytes(digest)
@@ -713,7 +1055,8 @@ class NextcloudClient:
     def push(self, pid: str, client_id: str, entries: list[dict]) -> dict:
         self._use(pid)
         results = [self._push_entry(e, client_id) for e in entries]
-        self._save_index()
+        # every index change of the push is in the journal already: no 6.5 MB
+        # snapshot per push (the next listing or the journal limit compacts)
         return {"seq": self._now_seq(), "results": results}
 
     def _push_entry(self, e: dict, client_id: str) -> dict:
@@ -871,13 +1214,13 @@ class NextcloudClient:
     def _record_write(self, path: str, digest: str, etag: str | None, size: int) -> None:
         with self._guard:
             seq = self._bump_seq()
-            self._index_files()[path] = {"hash": digest, "size": int(size or 0),
-                                         "etag": etag, "lm": None, "seq": seq}
+            self._set_entry(path, {"hash": digest, "size": int(size or 0),
+                                   "etag": etag, "lm": None, "seq": seq})
 
     def _drop_index(self, path: str) -> None:
         with self._guard:
-            self._index_files().pop(path, None)
             self._bump_seq()
+            self._pop_entry(path)
 
     # -- conflicts (local records only; nothing to list on the share) --------------------
 
@@ -1009,11 +1352,20 @@ class NextcloudClient:
         row = {"client_id": client_id, "user": self.username,
                "display_name": self.display_name, "key": key, "tab": tab,
                "app_version": app_version or self.app_version, "ts": now, "ts_iso": _iso(now)}
+        probe = self._index.get("etag_propagates") is None
+        before = None
+        if probe:
+            before = self._probe_etag()
         try:
             self.dav.makedirs(PRESENCE_DIR)
             self.dav.put(path, _json_bytes(row), content_type="application/json")
         except NotFoundError:
             pass
+        else:
+            if probe:
+                # our own heartbeat tells whether this share propagates folder
+                # ETags (what makes the cheap freshness check safe)
+                self._probe_propagation(before)
         out: list[dict] = []
         try:
             entries = self.dav.propfind(PRESENCE_DIR, depth="1")

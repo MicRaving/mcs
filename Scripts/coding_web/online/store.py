@@ -61,6 +61,9 @@ class OnlineStore:
         self.projects_cache: list[dict] = []
         self.mirror: Mirror | None = None
         self.syncer: Syncer | None = None
+        #: callback() when the project's listing changed (installed on every
+        #: syncer :meth:`open` creates; the app refreshes its paper keys)
+        self.on_listing = None
 
     # -- connection ------------------------------------------------------------------
 
@@ -162,6 +165,93 @@ class OnlineStore:
             pass
         return True
 
+    def resume_connection(self, kind: str, server: str, username: str, *, project_id: str | None = None,
+                          url: str | None = None, folder: str = "", webdav_root: str | None = None,
+                          secret: str | None = None) -> dict:
+        """Reconnect a saved connection with its stored secret (no dialog).
+
+        *kind* ``"server"``: the token from the keyring (else the mirror's
+        token file) is reused; ``"nextcloud"``: the app password.  The secret
+        is validated once; an unreachable server is fine (the mirror opens
+        offline), a refused one raises ``AuthError`` - the caller then shows
+        the connect dialog prefilled, password empty.  ``NotConnectedError``
+        when no secret is stored at all.
+
+        Returns ``{kind, server, username, project_id, offline}``.
+        """
+        kind = "nextcloud" if str(kind or "").lower() in ("nextcloud", "webdav", "nc") else "server"
+        server = (server or "").rstrip("/")
+        fallback = (os.path.join(mirror_dir(server, project_id, self.base_dir), ".studio")
+                    if project_id else None)
+        if secret is None:
+            secret = keyring_store.load_token(server, username, fallback, use_keyring=self.use_keyring)
+        if not secret:
+            raise NotConnectedError("no stored credentials for this connection")
+        offline = False
+        if kind == "nextcloud":
+            from .nextcloud import NextcloudClient
+            from .webdav import is_loopback
+
+            client = NextcloudClient(url or server, username, secret, folder,
+                                     webdav_root_url=webdav_root, timeout=self.timeout,
+                                     allow_insecure_http=is_loopback(url or server),
+                                     app_version=self.app_version)
+            try:
+                client.login(username, secret)
+            except OfflineError:
+                offline = True
+            user = {"id": username, "username": username, "display_name": username}
+            projects = [{"id": client.project_id, "name": client._folder_name(), "role": ""}]
+            server = client.server_url
+        else:
+            client = self._new_client(server, secret)
+            user, projects = None, []
+            try:
+                me = client.me()
+                user, projects = me.get("user"), list(me.get("projects") or [])
+            except OfflineError:
+                offline = True
+        with self.lock:
+            self.client, self.server, self.username = client, server, username
+            self.user = user
+            self.projects_cache = projects
+        return {"kind": kind, "server": server, "username": username,
+                "project_id": project_id or (projects[0]["id"] if kind == "nextcloud" else None),
+                "offline": offline}
+
+    def forget_secret(self, server: str, username: str, project_id: str | None = None) -> None:
+        """Remove the stored token / app password of one connection."""
+        server = (server or "").rstrip("/")
+        fallback = (os.path.join(mirror_dir(server, project_id, self.base_dir), ".studio")
+                    if project_id else None)
+        keyring_store.delete_token(server, username, fallback, use_keyring=self.use_keyring)
+
+    def connection_info(self) -> dict:
+        """What a saved connection needs to reconnect later (never the secret)."""
+        with self.lock:
+            client, mirror = self.client, self.mirror
+            server, username = self.server, self.username
+        info = {"kind": getattr(client, "backend", "server") if client is not None else None,
+                "server": server, "username": username}
+        if info["kind"] == "nextcloud":
+            info["folder"] = getattr(client, "folder", "") or ""
+            info["url"] = getattr(client, "url", None) or server
+            root = getattr(client, "root_url", "")
+            default = None
+            try:
+                from .nextcloud import webdav_root as _root
+                default = _root(info["url"], username or "", info["folder"]).rstrip("/")
+            except Exception:
+                pass
+            info["webdav_root"] = root if root and root != default else None
+        else:
+            info["url"] = server
+        if mirror is not None:
+            with mirror.lock:
+                info["project_id"] = mirror.state.get("project_id")
+                info["project_name"] = mirror.state.get("project_name")
+        return info
+
     def projects(self) -> list[dict]:
         client = self._require_client()
         try:
@@ -232,6 +322,7 @@ class OnlineStore:
                                      use_keyring=self.use_keyring)
         syncer = Syncer(mirror, client, debounce=self.debounce, interval=self.interval, clock=self.clock,
                         local_blobs=self.local_blobs)
+        syncer.on_listing = self.on_listing
         with self.lock:
             self.mirror, self.syncer = mirror, syncer
         try:
@@ -260,6 +351,12 @@ class OnlineStore:
                 pass
         if mirror:
             mirror.save()
+        closer = getattr(client, "close", None)
+        if mirror and closer is not None:
+            try:
+                closer()                     # Nextcloud: compact the index, drop connections
+            except Exception:
+                pass
 
     @property
     def root(self) -> str | None:
@@ -358,7 +455,7 @@ class OnlineStore:
             pending = set(needed)
             with mirror.lock:
                 for rel in needed:
-                    mirror.add_stale(rel)
+                    mirror.add_stale(rel)     # survives a crash: the next round fetches it
                 mirror.save()
 
             def _report(done_n, total_n, rel):
@@ -371,13 +468,23 @@ class OnlineStore:
                     except Exception:        # a progress callback may never break a fetch
                         pass
 
+            # Parallel downloads of exactly these paths, without the sync lock:
+            # a whole-corpus view must not wait behind a long background round
+            # (the first sync of a large project).  ``_download_into`` is atomic
+            # per file, so a path the background round fetches too is harmless.
+            jobs: list = []
             try:
-                with syncer.sync_lock:        # one round, never interleaved with a tick
-                    syncer.pull(progress=_report)
+                for rel in needed:
+                    # the engine's own rules decide (an unpushed edit, a local
+                    # modification of a writable file are never overwritten)
+                    syncer._reconcile(rel, defer=jobs)
+                syncer.download_many(jobs, progress=_report, track=False)
             except OfflineError:
                 out["offline"] = True
             except OnlineError:
                 pass                          # a refused batch: the loop below reports it
+            except NotConnectedError:
+                pass
         for rel in rels:
             full = mirror.abspath(rel)
             if os.path.exists(full):
@@ -390,6 +497,53 @@ class OnlineStore:
                 out["missing"].append(rel)
         if needed:
             mirror.save()
+        return out
+
+    def ensure_key(self, key: str) -> int:
+        """Make the **core** files of study *key* local now; returns how many were fetched.
+
+        While the first sync of a large project is still downloading the core
+        tier in the background, the paper the user opens must not wait for its
+        turn: its files jump the queue (``priority_keys``) and the missing ones
+        are fetched right here.  A no-op once they are local.
+        """
+        _c, mirror, syncer = self._require()
+        if not key:
+            return 0
+        if key not in syncer.priority_keys:
+            syncer.priority_keys = ([key] + [k for k in syncer.priority_keys if k != key])[:8]
+        paths = self._key_paths().get(key) or ()
+        jobs: list = []
+        for rel in paths:
+            if os.path.exists(mirror.abspath(rel)):
+                continue
+            syncer._reconcile(rel, defer=jobs)
+        if not jobs:
+            return 0
+        try:
+            written, _ = syncer.download_many(jobs, track=False)
+        except OnlineError:
+            return 0
+        return len(written)
+
+    def _key_paths(self) -> dict:
+        """``{key: [core paths]}`` from the manifest (cached per listing revision)."""
+        _c, mirror, syncer = self._require()
+        stamp = (id(mirror), syncer.files_rev, len(mirror.remote))
+        cached = getattr(self, "_key_paths_cache", None)
+        if cached and cached[0] == stamp:
+            return cached[1]
+        out: dict[str, list[str]] = {}
+        with mirror.lock:
+            items = list(mirror.remote.items())
+        for rel, r in items:
+            k = r.get("key")
+            if not k:
+                fc = mirror.classify(rel)
+                k = fc.key
+            if k and protocol.is_core(rel, mirror.classify(rel)):
+                out.setdefault(k, []).append(rel)
+        self._key_paths_cache = (stamp, out)
         return out
 
     #: How long a manifest view may be reused when the state stamp is unchanged.
