@@ -146,6 +146,34 @@
   /* ---------------------------------------------------------------- status */
   function applyStatus(st) {
     const wasActive = S.active;
+    const prevRev = S.listingRev;
+    const prevRoot = S.root;
+    S.listingRev = st ? st.listing_rev : undefined;
+    S.root = st ? st.root : undefined;
+    // The back end switched the root on its own (the last online project was
+    // reopened at start-up): follow it like an explicit open.
+    if (prevRoot !== undefined && S.root && prevRoot !== S.root && !S.switching
+        && st && st.active && !wasActive
+        && window.CS.app && window.CS.app.applyRootSwitch) {
+      window.CS.app.applyRootSwitch({ root: S.root }).catch(() => {});
+    } else if (st && st.active && prevRev !== undefined && st.listing_rev !== prevRev
+               && window.CS.app && window.CS.app.reloadPapers) {
+      // the project's listing changed (a first sync just listed the share, a
+      // paper appeared): the paper list follows without a manual sync
+      window.CS.app.reloadPapers().catch(() => {});
+    }
+    // the background download finished: the paper summaries can now read the
+    // files that were still missing (coded/uncoded marks, counts)
+    const phase = st && st.download ? st.download.phase : "idle";
+    if (S.dlPhase && S.dlPhase !== "idle" && phase === "idle" && st && st.active
+        && window.CS.app && window.CS.app.reloadPapers) {
+      window.CS.app.reloadPapers().catch(() => {});
+    }
+    S.dlPhase = phase;
+    if (st && !st.active && st.reopen_failed && !S.reopenPrompted) {
+      S.reopenPrompted = true;
+      promptReconnect(st.reopen_failed);
+    }
     S.status = st || null;
     S.active = !!(st && st.active);
     S.mode = (st && st.mode) || (S.active ? "online" : "local");
@@ -218,8 +246,10 @@
     badge.dataset.mode = S.mode;
     const bestEffort = st.backend === "nextcloud";
     let label = bestEffort ? "Nextcloud (best-effort)" : "Online";
-    if (S.mode === "syncing") label = bestEffort ? "Nextcloud — syncing…" : "Syncing…";
-    else if (S.mode === "offline") label = `offline — ${Number(st.pending) || 0} pending`;
+    const dl = downloadInfo(st);
+    if (dl) label = (bestEffort ? "Nextcloud — " : "") + dl.short;
+    else if (S.mode === "syncing") label = bestEffort ? "Nextcloud — syncing…" : "Syncing…";
+    if (S.mode === "offline") label = `offline — ${Number(st.pending) || 0} pending`;
     else if (S.mode === "error") label = bestEffort ? "Nextcloud — sync error" : "Sync error";
     if (text) text.textContent = label;
     if (flag) {
@@ -236,6 +266,7 @@
         : (showPending ? `${pending} change${pending === 1 ? "" : "s"} pending` : "");
     }
     const bits = [];
+    if (dl) bits.push(dl.long);
     if (bestEffort) bits.push("Nextcloud mode: best-effort locks, honour-system roles and blinding");
     if (st.project_name) bits.push(st.project_name);
     if (st.server) bits.push(st.server);
@@ -248,6 +279,159 @@
     document.title = (S.conflictCount || st.pending)
       ? `(${S.conflictCount || st.pending}${S.conflictCount ? "!" : ""}) ${document.title.replace(/^\(\d+\+?!?\) /, "")}`
       : document.title.replace(/^\(\d+\+?!?\) /, "");
+  }
+
+  /* The background download of the project files (the first sync of a large
+     project): files, MB and an ETA for the badge and the sync panel.  Null
+     when nothing is downloading. */
+  function fmtSecs(s) {
+    s = Math.max(0, Math.round(Number(s) || 0));
+    if (s < 60) return `${s} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`;
+  }
+  function downloadInfo(st) {
+    const d = st && st.download;
+    if (!d || !d.files_total || (d.phase !== "downloading" && d.phase !== "paused")) return null;
+    if (d.files_done >= d.files_total) return null;
+    const n = (x) => Number(x || 0).toLocaleString();
+    const mbDone = Math.round((Number(d.bytes_done) || 0) / 1e6);
+    const mbTotal = Math.round((Number(d.bytes_total) || 0) / 1e6);
+    const eta = d.eta_s != null ? ` · about ${fmtSecs(d.eta_s)} left` : "";
+    const pct = Math.floor(100 * (Number(d.files_done) || 0) / Math.max(1, Number(d.files_total)));
+    return {
+      pct,
+      short: `downloading ${pct}%`,
+      long: `Downloading project files: ${n(d.files_done)} of ${n(d.files_total)} files, `
+        + `${mbDone} of ${mbTotal} MB${eta}. Papers open at once - their files are fetched first.`,
+      rows: [
+        ["Files", `${n(d.files_done)} / ${n(d.files_total)}`],
+        ["Data", `${mbDone} / ${mbTotal} MB`],
+        ["Time left", d.eta_s != null ? fmtSecs(d.eta_s) : "—"],
+        ["Rate", d.rate_bps ? `${(Number(d.rate_bps) / 1e6).toFixed(1)} MB/s` : "—"],
+      ],
+    };
+  }
+
+  /* ---------------------------------------------------------------- saved connections */
+  async function loadSaved() {
+    try {
+      const r = await GET("api/online/connections");
+      S.saved = (r && r.connections) || [];
+    } catch { S.saved = []; }
+    return S.saved;
+  }
+
+  /* Reconnect a saved connection silently; a refused secret opens the dialog
+     prefilled (password empty). */
+  async function reopenSaved(id, label) {
+    S.switching = true;
+    try {
+      toast("Opening online project…", "ok", label || "");
+      const r = await POST("api/online/reopen", { id });
+      await refreshStatus();
+      if (window.CS.app && window.CS.app.applyRootSwitch) {
+        await window.CS.app.applyRootSwitch({ root: (r && r.root) || label || "online project" });
+      }
+      toast("Online project opened", "ok", label || "");
+      return true;
+    } catch (err) {
+      const conn = err.data && err.data.connection;
+      if (err.status === 401 || err.status === 503 || conn) {
+        promptReconnect(Object.assign({}, err.data || {}, { connection: conn }));
+      } else {
+        toast("Could not open the online project", "err", String(err.message || err));
+      }
+      return false;
+    } finally {
+      S.switching = false;
+    }
+  }
+
+  function promptReconnect(failed) {
+    const conn = (failed && failed.connection) || {};
+    openConnectDialog(conn);
+    const st = $("#online-connect-status");
+    if (st) {
+      st.textContent = failed && failed.error === "offline"
+        ? `${conn.host || "The server"} cannot be reached right now.`
+        : `Sign in again to ${conn.project_name || conn.host || "the online project"}`
+          + " - the stored password was not accepted or is missing.";
+      st.className = "online-status err";
+    }
+  }
+
+  async function forgetSaved(id) {
+    try {
+      await DELETE("api/online/connections/" + encodeURIComponent(id));
+      toast("Connection forgotten", "ok", "The stored password was removed.");
+    } catch (err) {
+      toast("Could not forget the connection", "err", String(err.message || err));
+    }
+    await loadSaved();
+    renderSavedList();
+  }
+
+  function renderSavedList() {
+    const host = $("#online-saved");
+    if (!host) return;
+    host.innerHTML = "";
+    const list = S.saved || [];
+    host.hidden = !list.length;
+    if (!list.length) return;
+    host.appendChild(h("h4", { text: "Saved connections" }));
+    list.forEach((c) => {
+      const badge = c.backend === "nextcloud" ? "Nextcloud" : "Online";
+      host.appendChild(h("div", { class: "online-project-row" },
+        h("div", { class: "online-project-name" },
+          h("b", { text: c.project_name || c.folder || c.project_id || "Online project" }),
+          h("span", { class: "online-role", text: `${badge} · ${c.host || ""} · ${c.username || ""}` })),
+        h("button", { class: "btn ghost", type: "button", text: "Forget",
+          title: "Remove this connection and its stored password",
+          onclick: () => forgetSaved(c.id) }),
+        h("button", { class: "btn primary", type: "button", text: "Open",
+          onclick: () => { const d = $("#online-connect-dialog"); if (d && d.open) d.close();
+            reopenSaved(c.id, c.project_name || c.host); } })));
+    });
+  }
+
+  /* The project dialog's recent list: the folders and the saved online
+     projects (badge Online / Nextcloud + host).  Filled by app.js / home.js
+     when they open the dialog. */
+  async function fillRecent() {
+    const host = $("#project-recent");
+    if (!host) return;
+    let data = null;
+    try { data = await GET("api/projects"); } catch { host.hidden = true; return; }
+    const rows = (data && data.projects) || [];
+    host.innerHTML = "";
+    host.hidden = !rows.length;
+    if (!rows.length) return;
+    host.appendChild(h("p", { class: "proj-recent-head", text: "Recent projects" }));
+    rows.slice(0, 8).forEach((p) => {
+      const online = p.kind === "online";
+      const btn = h("button", { class: "proj-recent-row", type: "button",
+        title: online ? `${p.host || ""} · ${p.username || ""}` : (p.path || "") });
+      btn.append(h("span", { class: "proj-recent-name", text: p.name || p.path || "" }));
+      if (online) {
+        btn.append(h("span", { class: "proj-recent-badge", "data-kind": p.backend || "server",
+          text: p.backend === "nextcloud" ? "Nextcloud" : "Online" }));
+        btn.append(h("span", { class: "proj-recent-path", text: p.host || "" }));
+      } else {
+        btn.append(h("span", { class: "proj-recent-path", text: p.path || "" }));
+      }
+      btn.addEventListener("click", () => {
+        const pd = $("#project-dialog");
+        if (online) {
+          if (pd && pd.open) pd.close();
+          reopenSaved(p.id, p.name);
+        } else {
+          const input = $("#project-input");
+          if (input) input.value = p.path || "";
+        }
+      });
+      host.appendChild(btn);
+    });
   }
 
   /* ---------------------------------------------------------------- admin entry */
@@ -525,6 +709,8 @@
     const list = h("div", { class: "online-projects", id: "online-projects" });
     form.append(status, list);
     body.appendChild(form);
+    // saved connections: one click reconnects (the password is in the OS keyring)
+    body.appendChild(h("div", { class: "online-projects online-saved", id: "online-saved", hidden: true }));
 
     const foot = h("div", { class: "sheet-foot" });
     const closeBtn = h("button", { class: "btn ghost", id: "online-connect-close", type: "button", text: "Close" });
@@ -571,7 +757,7 @@
       );
       return d;
     }
-    sub.textContent = "Sign in to a studio server, or open a shared Nextcloud folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the password is used for this connection only and is never stored.";
+    sub.textContent = "Sign in to a studio server, or open a shared Nextcloud folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the server's token or the Nextcloud app password is kept in the system's credential store (Windows Credential Manager / Keychain), never in the app's settings; “Forget” or “Log out” removes it.";
     form.hidden = false;
     offBtn.hidden = true;
     if (connectBtn) connectBtn.hidden = false;
@@ -646,6 +832,7 @@
     const d = $("#online-connect-dialog");
     const st = $("#online-connect-status", d);
     if (st) { st.textContent = `Opening ${name || projectId}…`; st.className = "online-status"; }
+    S.switching = true;
     try {
       const r = await POST("api/online/open", { project_id: projectId });
       d.close();
@@ -660,10 +847,32 @@
           : String(err.message || err);
         st.className = "online-status err";
       }
+    } finally {
+      S.switching = false;
+    }
+  }
+
+  async function logout() {
+    S.switching = true;
+    try {
+      const r = await POST("api/online/logout", {});
+      const d = $("#online-sync-dialog");
+      if (d && d.open) d.close();
+      releaseAll();
+      await refreshStatus();
+      if (window.CS.app && window.CS.app.applyRootSwitch) {
+        await window.CS.app.applyRootSwitch({ root: (r && r.root) || "local project" });
+      }
+      toast("Logged out", "ok", "The stored password of this connection was removed.");
+    } catch (err) {
+      toast("Could not log out", "err", String(err.message || err));
+    } finally {
+      S.switching = false;
     }
   }
 
   async function closeOnlineProject() {
+    S.switching = true;
     try {
       const r = await POST("api/online/close", {});
       const d = $("#online-connect-dialog");
@@ -676,15 +885,32 @@
       toast("Back to the local project", "ok", (r && r.root) || "");
     } catch (err) {
       toast("Could not close the online project", "err", String(err.message || err));
+    } finally {
+      S.switching = false;
     }
   }
 
-  function openConnectDialog() {
+  function openConnectDialog(prefill) {
     renderConnectDialog();
     const d = $("#online-connect-dialog");
+    const c = prefill && typeof prefill === "object" && !(prefill instanceof Event) ? prefill : null;
+    if (c && !S.active) {
+      const kind = $("#online-kind", d);
+      if (kind) {
+        kind.value = c.backend === "nextcloud" || c.kind === "nextcloud" ? "nextcloud" : "server";
+        kind.dispatchEvent(new Event("change"));
+      }
+      const set = (id, v) => { const el = $(id, d); if (el && v) el.value = v; };
+      set("#online-server", c.url || c.server);
+      set("#online-username", c.username);
+      set("#online-folder", c.folder);
+      const pw = $("#online-password", d);
+      if (pw) pw.value = "";                       // never prefilled
+    }
     openDialog(d);
-    const s = $("#online-server");
-    if (s) setTimeout(() => s.focus(), 30);
+    if (!S.active) loadSaved().then(renderSavedList);
+    const focus = c ? $("#online-password", d) : $("#online-server", d);
+    if (focus) setTimeout(() => focus.focus(), 30);
   }
 
   /* ---------------------------------------------------------------- sync panel */
@@ -798,6 +1024,13 @@
         ["Next retry", st.next_retry_in != null ? `${Math.round(Number(st.next_retry_in))} s` : ""],
       ]));
     if (!box) return;
+    const dl = downloadInfo(st);
+    if (dl) {
+      box.appendChild(h("p", { class: "online-sub", text: dl.long }));
+      box.appendChild(h("div", { class: "oc-progress" },
+        h("div", { class: "oc-progress-bar", style: `width:${dl.pct}%` })));
+      box.appendChild(kv(dl.rows));
+    }
     if (st.last_error) {
       box.appendChild(h("p", { class: "online-warn", text: String(st.last_error) }));
     }
@@ -805,7 +1038,10 @@
       h("button", { class: "btn", type: "button", text: "Open online project…",
         onclick: () => { const d = $("#online-sync-dialog"); if (d && d.open) d.close(); openConnectDialog(); } }),
       h("button", { class: "btn ghost danger", type: "button", text: "Close online project",
-        onclick: () => { const d = $("#online-sync-dialog"); if (d && d.open) d.close(); closeOnlineProject(); } })));
+        onclick: () => { const d = $("#online-sync-dialog"); if (d && d.open) d.close(); closeOnlineProject(); } }),
+      h("button", { class: "btn ghost danger", type: "button", text: "Log out",
+        title: "Close the project and remove the stored password of this connection",
+        onclick: () => logout() })));
   }
 
   function renderCacheCard() {
@@ -1281,6 +1517,8 @@
     offlineNotice,
     openSyncPanel,
     openConnectDialog,
+    fillRecent,
+    reopenSaved,
     conflicts: () => S.conflicts.slice(),
     presence: () => S.others.slice(),
     /* design/QA hook: paint the badge from a synthetic status object without a

@@ -252,7 +252,29 @@
     if (!el.textContent.trim()) el.textContent = pickTagline();
   }
 
+  /* A saved online project (studio server or Nextcloud folder): a click
+     reconnects silently with the stored password (online.js). */
+  function onlineRow(p) {
+    const isCurrent = !!p.current || samePath(p.path || "", state.current);
+    const badge = p.backend === "nextcloud" ? "Nextcloud" : "Online";
+    const meta = [p.host || ""];
+    if (p.username) meta.push(p.username);
+    if (p.last_opened) meta.push(formatWhen(p.last_opened));
+    return `<button class="home-proj home-proj-online${isCurrent ? " current" : ""}"`
+      + ` data-online="${esc(p.id || "")}" data-name="${esc(p.name || "")}"`
+      + ` title="${esc(badge + " · " + (p.host || ""))}">`
+      + `<span class="home-proj-line">`
+      + `<span class="home-proj-name">${esc(p.name || "Online project")}</span>`
+      + `<span class="home-proj-badge" data-kind="${esc(p.backend || "server")}">${esc(badge)}</span>`
+      + (isCurrent ? `<span class="home-proj-open">open</span>` : "")
+      + `</span>`
+      + `<span class="home-proj-meta">${esc(meta.filter(Boolean).join(" · "))}</span>`
+      + (p.folder ? `<span class="home-proj-path">${esc(p.folder)}</span>` : "")
+      + `</button>`;
+  }
+
   function projectRow(p) {
+    if (p.kind === "online") return onlineRow(p);
     const path = p.path || "";
     const name = p.name || nameOf(path);
     const label = p.label || p.scheme || "";
@@ -512,6 +534,7 @@
       return;                    // already open
     }
     state.dialogIsMine = true;
+    if (window.CSOnline && window.CSOnline.fillRecent) window.CSOnline.fillRecent();
     api("api/root").then((info) => {
       if (!dlg.open || !info) return;
       if (input && !input.value.trim()) input.value = info.root || "";
@@ -594,6 +617,12 @@
       root = (info && info.root) || "";
     } catch { return; }
     if (!root || samePath(root, state.current)) return;
+    // an online project's mirror is not a folder the user chose
+    if (window.CSOnline && window.CSOnline.active && window.CSOnline.active()) {
+      state.fetching = false;
+      loadProjects();
+      return;
+    }
     try {
       const r = await postJson("api/project/recent", { path: root });
       if (r.ok && Array.isArray(r.data.projects)) {
@@ -625,9 +654,24 @@
 
     const list = $("#home-projects");
     if (list) {
-      list.addEventListener("click", (e) => {
+      list.addEventListener("click", async (e) => {
         const row = e.target.closest(".home-proj");
         if (!row || row.disabled) return;
+        const online = row.getAttribute("data-online");
+        if (online) {
+          if (row.classList.contains("current")) return;
+          if (window.CSOnline && window.CSOnline.reopenSaved) {
+            setBusy(true);
+            try {
+              await window.CSOnline.reopenSaved(online, row.getAttribute("data-name") || "");
+            } finally {
+              setBusy(false);
+            }
+            state.fetching = false;
+            loadProjects();
+          }
+          return;
+        }
         openProject(row.getAttribute("data-path") || "");
       });
     }

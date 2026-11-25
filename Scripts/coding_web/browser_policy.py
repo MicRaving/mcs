@@ -184,6 +184,9 @@ CLASSIFICATION: dict[str, str] = {
     "online.api_lock_release": ALLOW,
     "online.api_locks": ALLOW,
     "online.api_logout": DESKTOP_ONLY,                # the gateway owns the session
+    "online.api_connections": DESKTOP_ONLY,           # saved desktop connections (keyring)
+    "online.api_reopen": DESKTOP_ONLY,
+    "online.api_forget_connection": DESKTOP_ONLY,
     "online.api_open": DESKTOP_ONLY,
     "online.api_presence": ALLOW,
     "online.api_status": ALLOW,

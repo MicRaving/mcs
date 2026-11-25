@@ -208,6 +208,10 @@ dialog.online-sheet h5 {
 .online-status.err { color: var(--danger); }
 
 .online-projects { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.online-saved h4 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+/* the background download of a first sync */
+.oc-progress { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 8px; }
+.oc-progress-bar { height: 100%; background: var(--accent, #2a5bd7); transition: width .4s ease; }
 .online-project-row {
   display: flex; align-items: center; gap: 10px;
   border: 1px solid var(--line);

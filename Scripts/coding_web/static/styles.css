@@ -890,6 +890,19 @@ dialog.sheet code { font: 500 11px var(--mono); background: var(--panel-3); bord
 .proj-row { display: flex; gap: 8px; margin-top: 12px; }
 .proj-row .input { flex: 1 1 auto; min-width: 0; }
 .proj-status { margin: 8px 0 0 !important; font-size: 11.5px !important; min-height: 15px; }
+/* the project dialog's recent list: folders + saved online projects */
+.proj-recent { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.proj-recent-head { margin: 0 0 2px !important; font-size: 10.5px !important; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.proj-recent-row { display: flex; align-items: center; gap: 8px; text-align: left; padding: 6px 8px;
+  border: 1px solid var(--line, rgba(0,0,0,.08)); border-radius: 8px; background: transparent;
+  cursor: pointer; min-width: 0; color: inherit; font: inherit; }
+.proj-recent-row:hover { background: var(--hover, rgba(0,0,0,.04)); }
+.proj-recent-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-recent-badge { flex: none; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor; color: var(--accent-ink, #2a5bd7); }
+.proj-recent-path { font: 500 10.5px var(--mono, monospace); color: var(--faint, #888); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; margin-left: auto; }
 .facet-body {
   max-height: 56vh; overflow: auto; margin-top: 12px;
   display: grid; grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); gap: 10px;

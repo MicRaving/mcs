@@ -290,6 +290,27 @@ def run_app(host, port, url, mode="native"):
         pass
 
 
+#: how long the start-up waits for the last online project to reopen before
+#: the window opens anyway (the reopen then finishes in the background and the
+#: page follows the root switch through ``/api/online/status``)
+REOPEN_WAIT_SECS = 8.0
+
+
+def _start_reopen():
+    """Reopen the last project when it was an online one (owner report
+    2026-11-25: the credentials had to be typed again on every start)."""
+    try:
+        from routes_online import reopen_last_on_start
+        from studio_state import last_project
+    except Exception:  # noqa: BLE001
+        return
+    if last_project().get("kind") != "online":
+        return
+    t = threading.Thread(target=reopen_last_on_start, name="online-reopen", daemon=True)
+    t.start()
+    t.join(REOPEN_WAIT_SECS)
+
+
 def main():
     _ensure_std_streams()
     parser = argparse.ArgumentParser(description="Paper-coding desktop app")
@@ -310,6 +331,8 @@ def main():
 
     configure(args.root)
     refresh_keys()
+    if not args.root:
+        _start_reopen()
 
     port = free_port(args.port)
     url = f"http://{args.host}:{port}"

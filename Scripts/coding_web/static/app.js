@@ -4876,6 +4876,19 @@
     const desktop = !!(window.pywebview && window.pywebview.api && window.pywebview.api.choose_folder);
     $("#project-browse").hidden = !(info.can_pick || desktop);
     $("#project-dialog").showModal();
+    // the recent folders and the saved online projects (online.js)
+    if (window.CSOnline && window.CSOnline.fillRecent) window.CSOnline.fillRecent();
+  }
+
+  /* The project's paper list changed under the app (an online project's first
+     listing arrived, a paper appeared): reload it, keep the open paper. */
+  async function reloadPapers() {
+    const fresh = await api("api/papers");
+    if (!fresh || !Array.isArray(fresh.papers)) return;
+    state.papers = fresh.papers;
+    state.byKey = {};
+    state.papers.forEach((p) => { state.byKey[p.key] = p; });
+    renderPaperList();
   }
 
   async function pickProjectFolder() {
@@ -5005,6 +5018,7 @@
     finishPaper,
     goNext,
     applyRootSwitch,
+    reloadPapers,
     renderPaperList,
     refreshDone,
     refreshAssigned,

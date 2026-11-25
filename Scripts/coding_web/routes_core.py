@@ -57,6 +57,13 @@ def api_set_root():
                                               "pick the project root"}), 400
     configure(path)
     save_config({"root": S.ROOT})
+    try:
+        # a local folder chosen by hand: the next start opens it, not the last
+        # online project
+        from studio_state import set_last_project_local
+        set_last_project_local()
+    except Exception:  # noqa: BLE001
+        pass
     refresh_keys()
     # The time-based caches of the corpus-wide views are not keyed by project:
     # without this the summary and agreement tabs answered from the previous

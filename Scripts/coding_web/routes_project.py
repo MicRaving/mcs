@@ -169,9 +169,65 @@ def _recent_paths(current=None):
     return paths
 
 
+def _online_entries():
+    """The saved online projects as list rows (``kind: "online"``)."""
+    try:
+        from studio_state import online_connections
+        from routes_online import _ACTIVE, _public
+    except Exception:  # noqa: BLE001 - a build without the online layer
+        return []
+    active = _ACTIVE.get("id") if getattr(S, "online", False) else None
+    out = []
+    for conn in online_connections():
+        pub = _public(conn) or {}
+        out.append({
+            "kind": "online",
+            "id": pub.get("id"),
+            "path": "online:" + str(pub.get("id") or ""),
+            "name": pub.get("project_name") or pub.get("folder") or pub.get("project_id") or "Online project",
+            "backend": pub.get("backend"),
+            "host": pub.get("host"),
+            "username": pub.get("username"),
+            "folder": pub.get("folder") or "",
+            "last_opened": pub.get("last_opened") or "",
+            "current": pub.get("id") == active,
+            "exists": True,
+            "papers": None,
+            "scheme": "", "scheme_id": "", "label": "",
+        })
+    return out
+
+
 def _project_list(current=None):
-    """The project list: one entry per folder."""
-    return [_project_entry(path) for path in _recent_paths(current)]
+    """The project list: the folders (``kind: "local"``) and the saved online
+    projects (``kind: "online"``), most recently opened first.
+
+    While an online project is open its mirror is the app's root; it is shown
+    as the online row (marked current), never as a folder.
+    """
+    online = _online_entries()
+    locals_ = []
+    for path in _recent_paths(None if getattr(S, "online", False) else current):
+        entry = _project_entry(path)
+        entry["kind"] = "local"
+        locals_.append(entry)
+    if getattr(S, "online", False):
+        cur = [e for e in online if e["current"]]
+        rest = sorted(locals_ + [e for e in online if not e["current"]],
+                      key=lambda e: str(e.get("last_opened") or ""), reverse=True)
+        return cur + rest
+    if not online:
+        return locals_
+    first, rest = locals_[:1], locals_[1:]
+    # interleave by opening time, keeping the folders' own order among themselves
+    merged, i = [], 0
+    for entry in online:
+        stamp = str(entry.get("last_opened") or "")
+        while i < len(rest) and str(rest[i].get("last_opened") or "") >= stamp:
+            merged.append(rest[i])
+            i += 1
+        merged.append(entry)
+    return first + merged + rest[i:]
 
 
 # --------------------------------------------------------------------------- #
@@ -186,6 +242,13 @@ def api_projects():
     app config (``recent_projects``), so it survives a restart.
     """
     current = _current_root()
+    if getattr(S, "online", False):
+        try:
+            from routes_online import _ACTIVE
+            if _ACTIVE.get("id"):
+                current = "online:" + _ACTIVE["id"]
+        except Exception:  # noqa: BLE001
+            pass
     return jsonify({"current": current, "projects": _project_list(current)})
 
 
@@ -203,6 +266,11 @@ def api_project_recent():
     if not path:
         return _fail("a project folder is needed", 400)
     path = os.path.abspath(os.path.expanduser(path))
+    if getattr(S, "online", False) and os.path.normcase(path) == os.path.normcase(S.ROOT or ""):
+        # an online project's mirror is not a folder the user chose: its row
+        # is the saved connection
+        current = _current_root()
+        return jsonify({"ok": True, "projects": _project_list(current)})
     try:
         record_recent_project(path)
     except OSError as exc:

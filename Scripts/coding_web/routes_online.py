@@ -97,7 +97,7 @@ def get_store():
     global _STORE
     with _STORE_LOCK:
         if _STORE is None:
-            _STORE = OnlineStore(app_version=_app_version())
+            _STORE = _hook(OnlineStore(app_version=_app_version()))
         return _STORE
 
 
@@ -105,7 +105,41 @@ def set_store(store):
     """Install *store* (the tests' fake-transport store); returns it."""
     global _STORE
     with _STORE_LOCK:
-        _STORE = store
+        _STORE = _hook(store) if store is not None else None
+    return store
+
+
+#: bumped whenever the project's listing changed (a first sync listed the
+#: share, a paper appeared): ``/api/online/status`` carries it and the page
+#: reloads its paper list when it moves
+_LISTING = {"rev": 0}
+
+
+def _on_listing():
+    """The online project's listing changed: refresh the key list at once.
+
+    Without it the paper list of a first open stayed empty until the user
+    pressed "Sync now" (``S.KEYS`` was only built when the project opened,
+    before the listing existed) - one of the owner's "papers missing" cases.
+    """
+    _LISTING["rev"] += 1
+    if not S.online:
+        return
+    try:
+        S.refresh_keys()
+        with S._lock:
+            S._names_cache.clear()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _hook(store):
+    try:
+        store.on_listing = _on_listing
+        if getattr(store, "syncer", None) is not None:
+            store.syncer.on_listing = _on_listing
+    except Exception:  # noqa: BLE001
+        pass
     return store
 
 
@@ -239,6 +273,28 @@ def guard_coder_tag():
     return None
 
 
+@bp.before_app_request
+def fetch_open_paper():
+    """Make the requested paper's core files local before its route reads them.
+
+    During the first sync of a large project the core tier downloads in the
+    background; a route for one study (``/api/coding/<key>/...``, the paper
+    view, the summary) would otherwise read a file that has not arrived yet.
+    Its files jump the queue and the missing ones are fetched now (a few
+    small files; a no-op when they are local).
+    """
+    if not S.online or _STORE is None:
+        return None
+    key = (request.view_args or {}).get("key") if request.view_args else None
+    if not key or not isinstance(key, str):
+        return None
+    try:
+        _STORE.ensure_key(key)
+    except Exception:  # noqa: BLE001 - the route reports what is missing
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
@@ -266,6 +322,12 @@ def _local_status():
         # served through the browser gateway (browser_worker); static/browser.js keys off it
         "browser": bool(getattr(S, "browser", False)),
         "prefetch": prefetch_progress(),
+        "listing_rev": _LISTING["rev"],
+        "root": S.ROOT,
+        # a saved online project that could not be reopened on start-up (the
+        # page opens the connect dialog prefilled, password empty)
+        "reopen_failed": _REOPEN.get("failed"),
+        "reopening": bool(_REOPEN.get("running")),
     }
 
 
@@ -298,6 +360,9 @@ def _online_status(store):
     # the on-demand batch (the AI route codings an agreement view fetches) is
     # reported while it runs, so a long first visit explains itself
     payload["prefetch"] = prefetch_progress()
+    payload["listing_rev"] = _LISTING["rev"]
+    payload["root"] = S.ROOT
+    payload["connection_id"] = _ACTIVE.get("id")
     return payload
 
 
@@ -390,12 +455,166 @@ def api_open():
     except OnlineError as exc:
         return _err("error", str(exc), 400)
     S.set_online(store, root)
+    conn = _remember(store)
     log(f"online project opened: {project_id} at {root}")
-    return jsonify({"root": S.ROOT, "status": _online_status(store)})
+    return jsonify({"root": S.ROOT, "status": _online_status(store), "connection": conn})
+
+
+# ---------------------------------------------------------------------------
+# saved connections (owner report 2026-11-25: "I need to type in the
+# connection credentials again every time"; "it does not show up on my list
+# of recently opened projects")
+# ---------------------------------------------------------------------------
+
+#: the saved connection of the open online project
+_ACTIVE: dict = {}
+#: start-up reopen: ``{"running": bool, "failed": {connection + error} | None}``
+_REOPEN: dict = {"running": False, "failed": None}
+
+
+def _host(url):
+    from urllib.parse import urlsplit
+
+    raw = str(url or "")
+    return urlsplit(raw if "://" in raw else "https://" + raw).hostname or raw
+
+
+def _public(conn, store=None):
+    """A saved connection as the page sees it (never a secret)."""
+    if not conn:
+        return None
+    out = {k: conn.get(k) for k in ("id", "kind", "url", "server", "username", "folder",
+                                     "project_id", "project_name", "last_opened")}
+    out["host"] = _host(conn.get("url") or conn.get("server"))
+    out["backend"] = "nextcloud" if conn.get("kind") == "nextcloud" else "server"
+    return out
+
+
+def _remember(store):
+    """Save the open project's connection (the secret is in the keyring)."""
+    from studio_state import connection_id, record_online_connection
+
+    try:
+        info = store.connection_info()
+    except Exception:  # noqa: BLE001
+        return None
+    if not info.get("server") or not info.get("project_id"):
+        return None
+    info["id"] = connection_id(info.get("kind"), info.get("server"), info.get("username"),
+                               info.get("project_id"))
+    try:
+        conn = record_online_connection(info)
+    except Exception as exc:  # noqa: BLE001 - a config that cannot be written is not fatal
+        log(f"saved connection not written: {exc!r}")
+        conn = info
+    _ACTIVE.clear()
+    _ACTIVE.update(conn)
+    return _public(conn)
+
+
+def reopen_saved(conn_id, *, source="user"):
+    """Reconnect and open a saved connection without asking.
+
+    Returns ``(ok, payload, status)``; on a refused/missing secret the payload
+    carries ``connection`` (to prefill the dialog, password empty).
+    """
+    from studio_state import online_connection
+
+    conn = online_connection(conn_id)
+    if conn is None:
+        return False, {"error": "not_found", "message": "no such saved connection"}, 404
+    store = get_store()
+    try:
+        store.close()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        store.resume_connection(conn.get("kind") or "server", conn.get("server") or "",
+                                conn.get("username") or "", project_id=conn.get("project_id"),
+                                url=conn.get("url"), folder=conn.get("folder") or "",
+                                webdav_root=conn.get("webdav_root"))
+        root = store.open(conn.get("project_id"), analysis_prefetch=run_analysis_locally())
+    except (AuthError, NotConnectedError) as exc:
+        return False, {"error": "unauthorized", "message": str(exc) or "sign in again",
+                       "connection": _public(conn)}, 401
+    except OfflineError as exc:
+        return False, {"error": "offline", "message": str(exc), "connection": _public(conn)}, 503
+    except (OnlineError, ValueError) as exc:
+        return False, {"error": "error", "message": str(exc), "connection": _public(conn)}, 400
+    S.set_online(store, root)
+    saved = _remember(store)
+    log(f"online project reopened ({source}): {conn.get('project_id')} at {root}")
+    return True, {"root": S.ROOT, "status": _online_status(store), "connection": saved}, 200
+
+
+def reopen_last_on_start():
+    """App start: reopen the last project when it was an online one.
+
+    Never raises; a failure is kept in ``_REOPEN["failed"]`` so the page can
+    open the connect dialog prefilled.
+    """
+    from studio_state import last_project
+
+    last = last_project()
+    if last.get("kind") != "online" or not last.get("id"):
+        return False
+    _REOPEN["running"] = True
+    try:
+        ok, payload, _status = reopen_saved(last["id"], source="start-up")
+    except Exception as exc:  # noqa: BLE001
+        ok, payload = False, {"error": "error", "message": repr(exc)}
+    finally:
+        _REOPEN["running"] = False
+    if not ok:
+        failed = dict(payload)
+        _REOPEN["failed"] = failed
+        log(f"start-up reopen failed: {failed.get('error')}: {failed.get('message')}")
+    return ok
+
+
+@bp.get("/api/online/connections")
+def api_connections():
+    from studio_state import last_project, online_connections
+
+    return jsonify({"connections": [_public(c) for c in online_connections()],
+                    "last": last_project(), "active": _ACTIVE.get("id") if S.online else None})
+
+
+@bp.post("/api/online/reopen")
+def api_reopen():
+    payload = request.get_json(force=True, silent=True) or {}
+    conn_id = str(payload.get("id") or "").strip()
+    if not conn_id:
+        return _err("bad_request", "id is required", 400)
+    _REOPEN["failed"] = None
+    ok, body, status = reopen_saved(conn_id)
+    return jsonify(body), status
+
+
+@bp.delete("/api/online/connections/<conn_id>")
+def api_forget_connection(conn_id):
+    """Forget a saved connection: its stored secret and its entry."""
+    from studio_state import forget_online_connection, online_connection
+
+    conn = online_connection(conn_id)
+    if conn is None:
+        return _err("not_found", "no such saved connection", 404)
+    store = get_store()
+    try:
+        store.forget_secret(conn.get("server") or "", conn.get("username") or "",
+                            conn.get("project_id"))
+    except Exception:  # noqa: BLE001
+        pass
+    forget_online_connection(conn_id)
+    if _REOPEN.get("failed") and (_REOPEN["failed"].get("connection") or {}).get("id") == conn_id:
+        _REOPEN["failed"] = None
+    return jsonify({"ok": True})
 
 
 @bp.post("/api/online/close")
 def api_close():
+    from studio_state import set_last_project_local
+
     store = _STORE
     if store is not None:
         try:
@@ -403,19 +622,43 @@ def api_close():
         except Exception:  # noqa: BLE001 - closing must not fail the request
             pass
     root = S.clear_online()
+    _ACTIVE.clear()
+    try:
+        set_last_project_local()            # the user went back: no reopen on start
+    except Exception:  # noqa: BLE001
+        pass
     log(f"online project closed -> {root}")
     return jsonify({"root": root, "status": _local_status()})
 
 
 @bp.post("/api/online/logout")
 def api_logout():
+    """Log out: close the project and remove the stored token/app password."""
+    from studio_state import set_last_project_local
+
     store = _STORE
     if store is not None:
+        pid = None
+        try:
+            pid = (store.connection_info() or {}).get("project_id")
+        except Exception:  # noqa: BLE001
+            pass
+        server, username = store.server, store.username
         try:
             store.logout()
         except Exception:  # noqa: BLE001
             pass
+        try:
+            if server and username:
+                store.forget_secret(server, username, pid)    # the keyring and the file fallback
+        except Exception:  # noqa: BLE001
+            pass
     root = S.clear_online() if S.online else S.ROOT
+    _ACTIVE.clear()
+    try:
+        set_last_project_local()
+    except Exception:  # noqa: BLE001
+        pass
     return jsonify({"ok": True, "root": root, "status": _local_status()})
 
 

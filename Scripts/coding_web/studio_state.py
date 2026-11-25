@@ -144,8 +144,12 @@ def config_path():
 
     A copy installed under Program Files cannot write beside its exe; picking
     that path anyway made every save fail silently (no recent projects, no
-    remembered folder).
+    remembered folder).  ``CODINGSTUDIO_CONFIG`` names the file outright (a
+    test run, a portable checkout).
     """
+    override = (os.environ.get("CODINGSTUDIO_CONFIG") or "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
     candidates = _config_candidates()
     for c in candidates:
         if os.path.exists(c):
@@ -290,6 +294,91 @@ def record_recent_project(path):
     stamps[path] = datetime.now().isoformat(timespec="seconds")
     save_config({RECENT_PROJECTS_KEY: paths, RECENT_OPENED_KEY: stamps})
     return paths
+
+
+#: The app config key that holds the saved online connections (no secrets).
+ONLINE_CONNECTIONS_KEY = "online_connections"
+#: The app config key that says what the app had open last:
+#: ``{"kind": "online", "id": <connection id>}`` or ``{"kind": "local"}``.
+LAST_PROJECT_KEY = "last_project"
+#: The fields a saved connection keeps (never a password, token or app password:
+#: those live in the OS keyring, see ``online/keyring_store.py``).
+ONLINE_CONNECTION_FIELDS = ("id", "kind", "url", "server", "username", "folder", "webdav_root",
+                            "project_id", "project_name", "last_opened")
+_SECRET_WORDS = ("password", "token", "secret")
+
+
+def connection_id(kind, server, username, project_id):
+    """A stable id of one saved connection (kind + server + user + project)."""
+    import hashlib
+
+    raw = "|".join(str(x or "") for x in (kind, (server or "").rstrip("/").lower(),
+                                          username, project_id))
+    return "c-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def online_connections():
+    """The saved online connections, most recently opened first."""
+    raw = load_config().get(ONLINE_CONNECTIONS_KEY)
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for entry in raw:
+        if not isinstance(entry, dict) or not entry.get("id"):
+            continue
+        out.append({k: entry.get(k) for k in ONLINE_CONNECTION_FIELDS if k in entry})
+    out.sort(key=lambda e: str(e.get("last_opened") or ""), reverse=True)
+    return out
+
+
+def online_connection(conn_id):
+    for entry in online_connections():
+        if entry.get("id") == conn_id:
+            return entry
+    return None
+
+
+def record_online_connection(conn):
+    """Remember *conn* (moves it to the front, marks it the last project).
+
+    Only the fields of :data:`ONLINE_CONNECTION_FIELDS` are kept; a key that
+    looks like a secret is refused outright, so a caller can never put a
+    password into the plain-text config by mistake.
+    """
+    if any(any(w in str(k).lower() for w in _SECRET_WORDS) for k in conn):
+        raise ValueError("a saved connection never holds a secret")
+    entry = {k: conn.get(k) for k in ONLINE_CONNECTION_FIELDS if conn.get(k) is not None}
+    if not entry.get("id"):
+        entry["id"] = connection_id(entry.get("kind"), entry.get("server"), entry.get("username"),
+                                    entry.get("project_id"))
+    entry["last_opened"] = datetime.now().isoformat(timespec="seconds")
+    rest = [e for e in online_connections() if e.get("id") != entry["id"]]
+    conns = ([entry] + rest)[:RECENT_PROJECTS_LIMIT]
+    save_config({ONLINE_CONNECTIONS_KEY: conns,
+                 LAST_PROJECT_KEY: {"kind": "online", "id": entry["id"]}})
+    return entry
+
+
+def forget_online_connection(conn_id):
+    """Drop one saved connection; returns it (or None)."""
+    conns = online_connections()
+    gone = next((e for e in conns if e.get("id") == conn_id), None)
+    updates = {ONLINE_CONNECTIONS_KEY: [e for e in conns if e.get("id") != conn_id]}
+    last = load_config().get(LAST_PROJECT_KEY)
+    if isinstance(last, dict) and last.get("id") == conn_id:
+        updates[LAST_PROJECT_KEY] = {"kind": "local"}
+    save_config(updates)
+    return gone
+
+
+def last_project():
+    """``{"kind": "online", "id": ...}`` / ``{"kind": "local"}`` (default local)."""
+    last = load_config().get(LAST_PROJECT_KEY)
+    return dict(last) if isinstance(last, dict) and last.get("kind") else {"kind": "local"}
+
+
+def set_last_project_local():
+    save_config({LAST_PROJECT_KEY: {"kind": "local"}})
 
 
 def default_root():
@@ -551,8 +640,21 @@ class State:
         if not self.online or self.store is None or not self.ROOT:
             return raw
         rel = self.relpath(raw)
-        if rel is None or rel.startswith("../") or not rel.startswith(ONLINE_FETCH_PREFIXES):
+        if rel is None or rel.startswith("../"):
             return raw
+        if not rel.startswith(ONLINE_FETCH_PREFIXES):
+            # A core file (Extraction/, Reproduction/, Screening/ ...) is local
+            # once the first sync finished; until then it may not be here yet,
+            # so a read of a missing one fetches it at once instead of failing
+            # (the background download reaches it later anyway).
+            if os.path.exists(self.abspath(rel)):
+                return raw
+            knows = getattr(self.store, "knows_file", None)
+            try:
+                if knows is None or not knows(rel):
+                    return raw
+            except Exception:  # noqa: BLE001
+                return raw
         try:
             return self.store.ensure_local(rel) or raw
         except Exception:  # noqa: BLE001 - OfflineError/FileNotFoundError: keep the old behaviour
@@ -704,9 +806,15 @@ class State:
         try:
             result = batch(rels, progress=_report)
         except Exception as exc:  # noqa: BLE001 - offline / server refusal
-            log(f"prefetch {label or 'files'} failed: {exc!r}")
-            result = {"total": total, "needed": total, "fetched": 0,
-                      "missing": list(rels), "offline": True, "bytes": 0}
+            if type(exc).__name__ == "NotConnectedError" or not self.online:
+                # the project was closed meanwhile (the window was closed while
+                # a view prefetched): nothing to fetch and nothing to report
+                result = {"total": total, "needed": 0, "fetched": 0, "missing": [],
+                          "offline": False, "bytes": 0, "closed": True}
+            else:
+                log(f"prefetch {label or 'files'} failed: {exc!r}")
+                result = {"total": total, "needed": total, "fetched": 0,
+                          "missing": list(rels), "offline": True, "bytes": 0}
         finally:
             _PREFETCH.update(running=False, phase="done",
                              done=min(done["n"], total), total=total,
