@@ -401,6 +401,9 @@ class NextcloudClient:
             for rel, entry in self._index["files"].items():
                 if entry.get("hash"):
                     self._by_hash[entry["hash"]] = rel
+                    if entry.get("token"):
+                        # a token resolved by a download before the last exit
+                        self._resolved[entry["token"]] = entry["hash"]
 
     def _replay_journal(self) -> None:
         path = self._journal_path
@@ -587,9 +590,10 @@ class NextcloudClient:
         streams and records the result, so the engine installs the file under
         its real hash (the base of a later three-way merge).
         """
-        if not digest:
+        if not digest or not str(digest).startswith(TOKEN_PREFIX):
             return digest
         with self._guard:
+            self._load_index()
             return self._resolved.get(digest, digest)
 
     # -- auth / identity --------------------------------------------------------------
@@ -1018,6 +1022,7 @@ class NextcloudClient:
                     new = dict(entry)
                     new["hash"] = real
                     new["size"] = size
+                    new["token"] = digest       # survives a restart: resolve_hash after a crash
                     got = resp.etag
                     if got and got != entry.get("etag"):
                         new["etag"] = got           # changed since the listing: what we hold now

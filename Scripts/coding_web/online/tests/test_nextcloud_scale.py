@@ -205,6 +205,46 @@ def test_a_killed_first_sync_resumes_without_downloading_again(share, monkeypatc
     st2.close()
 
 
+def test_a_crash_in_a_continuation_round_adopts_the_files_on_disk(share, monkeypatch):
+    """The first round listed and parked the rest (seq advanced, ``stale``);
+    the process dies in the next round after some downloads and before the
+    next state save.  The restart must adopt those files - no GET, no push."""
+    base = share["tmp"] / "c1"
+    st, _pid = _open(share, base)
+    st.syncer.round_budget = 0.0                 # round 1: list, park everything
+    st.sync_now()
+    assert st.mirror.state["seq"] > 0 and st.mirror.state["stale"]
+    st.syncer.round_budget = 60
+    monkeypatch.setattr(st.mirror, "save", lambda: None)     # no save from here on
+
+    class Crash(BaseException):
+        pass
+
+    n = {"gets": 0}
+
+    def hook(method, path, phase, resp=None):
+        if method == "GET" and phase == "after" and not path.startswith(".studio"):
+            n["gets"] += 1
+            if n["gets"] > 30:
+                raise Crash()
+
+    st.client.dav.hook = hook
+    st.syncer.parallel = 1
+    with pytest.raises(Crash):
+        st.sync_now()
+    core = sorted(_core_paths(_listed(share)))
+    on_disk = {p for p in core if os.path.exists(st.mirror.abspath(p))}
+    assert len(on_disk) >= 25
+    share["fake"].resets()
+    st2, _ = _open(share, base)
+    st2.sync_now()
+    again = sorted(set(_project_gets(share["fake"])) & on_disk)
+    assert again == [], again[:5]
+    assert len(st2.syncer.outbox) == 0
+    assert set(core) <= set(st2.mirror.heads)
+    st2.close()
+
+
 def test_closing_mid_download_keeps_what_arrived(share):
     """A closed window (``store.close`` -> ``syncer.stop``) saves and parks the rest."""
     fake = share["fake"]

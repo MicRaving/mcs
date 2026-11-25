@@ -141,6 +141,7 @@ class Syncer:
         #: study keys whose files jump the download queue (the open paper)
         self.priority_keys: list[str] = []
         self._more_pending = False
+        self._tokens_refreshed = False
         self._progress_lock = threading.Lock()
         self.progress = self._idle_progress()
         self._recover()
@@ -165,6 +166,26 @@ class Syncer:
             return fn(digest) or digest
         except Exception:                     # a resolver may never break a round
             return digest
+
+    def _refresh_tokens(self) -> None:
+        """Replace version tokens in ``remote`` that a download already resolved.
+
+        After a crash the state can still hold ``nc1-<etag>`` for a file that
+        arrived after the last state save; the client's journal knows its
+        content hash.  With the real hash the first scan adopts the file on
+        disk instead of taking it for a local creation (which would have cost
+        a push and a GET per file).
+        """
+        self._tokens_refreshed = True
+        if getattr(self.client, "resolve_hash", None) is None:
+            return
+        with self.mirror.lock:
+            for r in self.mirror.remote.values():
+                h = r.get("hash")
+                if h and not protocol_is_hash(h):
+                    real = self._resolve(h)
+                    if real != h:
+                        r["hash"] = real
 
     def _notify_listing(self) -> None:
         cb = self.on_listing
@@ -402,6 +423,8 @@ class Syncer:
         right); auth/protocol errors switch it to ``error``.
         """
         with self.sync_lock:
+            if not self._tokens_refreshed:
+                self._refresh_tokens()
             try:
                 self.scan()
             except OSError as exc:                 # disk trouble: report, keep going
@@ -410,16 +433,20 @@ class Syncer:
             self.mode = "syncing"
             self.last_round = {"ok": False, "pushed": 0, "pulled": 0, "done_sent": 0}
             try:
+                pulled = None
                 if not self._initial_pull_done or self.outbox.unconfirmed():
                     # start-up, or an earlier push whose outcome is unknown:
                     # learn what the server already has before pushing again
-                    self.pull(budget=self._budget())
+                    pulled = self.pull(budget=self._budget())
                     self._initial_pull_done = True
                 # queued "Finish paper" marks go first: they change the caller's
                 # visibility_epoch, which the pull below then sees
                 self.last_round["done_sent"] = len(self.flush_done())
                 self.last_round["pushed"] = len(self.push(force=force) or [])
-                pulled = self.pull(budget=self._budget())
+                if pulled is None or self.last_round["pushed"] or self.last_round["done_sent"]:
+                    # (a round that just pulled and sent nothing needs no second
+                    # listing - on a 25k-file share that is a whole PROPFIND)
+                    pulled = self.pull(budget=self._budget())
                 self.last_round["pulled"] = len((pulled or {}).get("written") or [])
             except OfflineError as exc:
                 self.mode = "offline"
