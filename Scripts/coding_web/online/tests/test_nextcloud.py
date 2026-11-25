@@ -628,12 +628,13 @@ def test_rate_limit_is_retried(tmp_path):
         server.stop()
 
 
-def test_at_most_four_parallel_requests(tmp_path):
-    from online.webdav import WebDAV
+def test_parallel_requests_start_at_four_and_stay_bounded(tmp_path):
+    from online.webdav import DEFAULT_PARALLEL, MAX_PARALLEL_REQUESTS, WebDAV
     server = WebDAVFake(str(tmp_path / "share"))
     url = server.start()
     try:
         dav = WebDAV(url, "a", "pw", allow_insecure_http=True)
+        assert dav.parallel_limit == DEFAULT_PARALLEL
         dav.put("f.txt", b"x")
         active = {"now": 0, "max": 0}
         guard = threading.Lock()
@@ -659,13 +660,31 @@ def test_at_most_four_parallel_requests(tmp_path):
             except Exception as exc:            # noqa: BLE001
                 errors.append(exc)
 
-        threads = [threading.Thread(target=call) for _ in range(12)]
+        threads = [threading.Thread(target=call) for _ in range(16)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=30)
         assert not errors, errors
-        assert 1 < active["max"] <= 4, active
+        assert 1 < active["max"] <= MAX_PARALLEL_REQUESTS, active
+        assert dav.parallel_limit <= MAX_PARALLEL_REQUESTS
+    finally:
+        server.stop()
+
+
+def test_a_throttled_share_gets_the_lower_parallelism_back(tmp_path):
+    """429/503 closes the gate again: the owner's share must not see a burst."""
+    from online.webdav import DEFAULT_PARALLEL, WebDAV
+    server = WebDAVFake(str(tmp_path / "share"), rate_limit_every=5)
+    url = server.start()
+    try:
+        dav = WebDAV(url, "a", "pw", allow_insecure_http=True, retries=4,
+                     max_retry_wait=0.01, sleep=lambda _s: None)
+        dav.makedirs("dir")
+        for i in range(10):
+            dav.put(f"dir/f{i}.txt", b"x")
+        assert dav.throttled
+        assert dav.parallel_limit == DEFAULT_PARALLEL
     finally:
         server.stop()
 

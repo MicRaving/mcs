@@ -9,11 +9,16 @@ nothing else:
     propfind(path="", depth="0"|"1"|"infinity") -> [Prop]
     stat(path) -> Prop                 (raises NotFoundError)
     exists(path) -> bool
-    get(path, dest=None, byte_range=None) -> bytes | None
+    get(path, dest=None, byte_range=None, headers=..., query=..., stream_to=...)
     put(path, data|file, if_match=..., if_none_match=True) -> WebDAVResponse
     delete(path, if_match=...)
     mkcol(path) / makedirs(path)
     move(src, dst, overwrite=True)
+
+``GET`` on a *collection* is Nextcloud's folder-archive extension (``Accept:
+application/zip`` / ``application/x-tar``, optional ``files`` filter) - see
+:meth:`get`; :mod:`~.nextcloud` turns that into one request per batch of files
+instead of one request per file.
 
 Behaviour that matters for the backend:
 
@@ -27,10 +32,13 @@ Behaviour that matters for the backend:
   401/403/404/400/429 are themselves, 502/503/504 and connection trouble are
   :class:`OfflineError`, 412 is :class:`PreconditionFailed`, the rest is
   :class:`ServerError`.
-* **Throttling.**  At most ``max_parallel`` requests are in flight per client
-  (a ``BoundedSemaphore``), and 429/503 are retried honouring ``Retry-After``
-  with exponential backoff - a university Nextcloud limits requests and a
-  sync loop must not turn that into an outage.
+* **Throttling.**  Requests in flight are gated (a condition variable) at
+  :attr:`WebDAV.parallel_limit`: the client starts at
+  :data:`DEFAULT_PARALLEL` and widens to :attr:`max_parallel` after
+  :data:`PARALLEL_ADAPT_AFTER` unthrottled responses, and drops back to the
+  start value on any 429/503.  429/503 are retried honouring ``Retry-After``
+  with exponential backoff - a university Nextcloud limits requests and a sync
+  loop must not turn that into an outage.
 * **No plaintext credentials.**  ``http://`` is refused unless the host is a
   loopback address (the local test server) or the caller explicitly allows it.
 * **Test seam.**  ``offline`` and ``hook(method, path, phase[, response])``
@@ -67,7 +75,14 @@ from .errors import (
 
 DAV_NS = "{DAV:}"
 DEFAULT_TIMEOUT = 30.0
-MAX_PARALLEL_REQUESTS = 4
+#: Hard cap on requests in flight.  The client *starts* at
+#: :data:`DEFAULT_PARALLEL` and widens to the cap while no 429/503 is seen
+#: (:meth:`WebDAV._note_result`), so a throttling share never sees the burst it
+#: did not ask for.
+DEFAULT_PARALLEL = 4
+MAX_PARALLEL_REQUESTS = 8
+#: consecutive unthrottled requests before one more slot opens
+PARALLEL_ADAPT_AFTER = 16
 MAX_REDIRECTS = 3
 _RETRY_STATUS = (429, 503)
 _LOOPBACK = ("127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1")
@@ -193,7 +208,11 @@ class WebDAV:
             raw = f"{username}:{password}".encode("utf-8")
             self._auth = "Basic " + base64.b64encode(raw).decode("ascii")
         self.max_parallel = max(1, int(max_parallel))
-        self._sem = threading.BoundedSemaphore(self.max_parallel)
+        #: requests in flight right now / the gate that bounds them
+        self._inflight = 0
+        self._gate = threading.Condition()
+        self._limit = max(1, min(DEFAULT_PARALLEL, self.max_parallel))
+        self._ok_streak = 0
         self._lock = threading.Lock()
         self._pool: dict[tuple, list] = {}
         self._pool_max = self.max_parallel + 2
@@ -215,19 +234,31 @@ class WebDAV:
         tail = f"{base}/{rel}" if rel else base
         return f"{self.scheme}://{self.host}:{self.port}{tail or '/'}"
 
-    def _request_target(self, path: str) -> str:
+    def _request_target(self, path: str, query: dict | None = None) -> str:
         rel = _quote_rel(path)
         base = self.base_path or ""
-        return (f"{base}/{rel}" if rel else base) or "/"
+        target = (f"{base}/{rel}" if rel else base) or "/"
+        if query:
+            pairs = {k: v for k, v in query.items() if v is not None}
+            if pairs:
+                # %20 for spaces (``_quote_rel`` quotes the path the same way);
+                # ``files`` carries a JSON array, so no "+" anywhere.
+                target = target + "?" + urllib.parse.urlencode(pairs, quote_via=urllib.parse.quote)
+        return target
 
     # -- one request ------------------------------------------------------------
 
     def request(self, method: str, path: str = "", *, headers: dict | None = None,
-                body=None, stream_to=None, timeout: float | None = None) -> WebDAVResponse:
+                body=None, stream_to=None, timeout: float | None = None,
+                query: dict | None = None) -> WebDAVResponse:
         """Send one request; returns every answer except a failed precondition.
 
         *body* may be ``bytes`` or a binary file object (streamed).  *stream_to*
-        receives the response body instead of buffering it.
+        receives the response body instead of buffering it; when it exposes a
+        ``start(status, headers)`` method that is called **before** the body is
+        read, so a caller can refuse a response it did not ask for (the folder
+        archive check does exactly that).  *query* is URL-encoded into the
+        request target (Nextcloud's ``?accept=tar&files=[...]`` form).
         """
         if self.offline:
             raise OfflineError("nextcloud: the network is switched off")
@@ -240,9 +271,10 @@ class WebDAV:
         while True:
             if self.hook:
                 self.hook(method, path, "before")
-            resp = self._exchange(method, path, hdrs, body, stream_to, timeout)
+            resp = self._exchange(method, path, hdrs, body, stream_to, timeout, query)
             with self._lock:
                 self._counts[method] = self._counts.get(method, 0) + 1
+            self._note_result(resp)
             if resp.status in _RETRY_STATUS and attempt < self.retries:
                 wait = self._retry_after(resp, attempt)
                 with self._lock:
@@ -262,14 +294,17 @@ class WebDAV:
             return resp
 
     def _exchange(self, method: str, path: str, headers: dict, body, stream_to,
-                  timeout: float | None):
+                  timeout: float | None, query: dict | None = None):
         """One HTTP round, following redirects (Nextcloud bounces stale URLs)."""
-        target = self._request_target(path)
+        target = self._request_target(path, query)
         host, port, scheme = self.host, self.port, self.scheme
         for _hop in range(MAX_REDIRECTS + 1):
-            with self._sem:
+            self._enter()
+            try:
                 resp = self._send_once(scheme, host, port, method, target, headers, body,
                                        stream_to, timeout)
+            finally:
+                self._leave()
             if resp.status in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("location")
                 if not loc:
@@ -281,6 +316,45 @@ class WebDAV:
                 continue
             return resp
         raise ServerError(f"too many redirects for {path!r}", 310, "too_many_redirects")
+
+    # -- the parallelism gate ------------------------------------------------------
+    #
+    # A semaphore cannot widen, and the owner's share throttled the 4-at-a-time
+    # client rarely enough that 4 was never the ceiling: while no 429/503 is
+    # seen the gate opens one slot per ``PARALLEL_ADAPT_AFTER`` answers (to
+    # ``max_parallel``); one throttle closes it again immediately.
+
+    @property
+    def parallel_limit(self) -> int:
+        """The number of requests currently allowed in flight."""
+        with self._gate:
+            return self._limit
+
+    def _enter(self) -> None:
+        with self._gate:
+            while self._inflight >= self._limit:
+                self._gate.wait(0.5)
+            self._inflight += 1
+
+    def _leave(self) -> None:
+        with self._gate:
+            self._inflight = max(0, self._inflight - 1)
+            self._gate.notify()
+
+    def _note_result(self, resp: WebDAVResponse) -> None:
+        with self._gate:
+            if resp.status in _RETRY_STATUS:
+                self._limit = max(1, min(self._limit, DEFAULT_PARALLEL))
+                self._ok_streak = 0
+                self._gate.notify_all()
+                return
+            if not (200 <= resp.status < 400):
+                return
+            self._ok_streak += 1
+            if self._ok_streak >= PARALLEL_ADAPT_AFTER and self._limit < self.max_parallel:
+                self._limit += 1
+                self._ok_streak = 0
+                self._gate.notify_all()
 
     # -- keep-alive connections --------------------------------------------------
     #
@@ -346,6 +420,11 @@ class WebDAV:
                 hdrs = {k.lower(): v for k, v in raw.getheaders()}
                 if stream_to is not None and 200 <= raw.status < 300:
                     started = True
+                    start = getattr(stream_to, "start", None)
+                    if start is not None:
+                        # refuse the body before a byte of it is copied (an old
+                        # Nextcloud answers a collection GET with an HTML page)
+                        start(raw.status, hdrs)
                     shutil.copyfileobj(raw, stream_to, _CHUNK)
                     data = b""
                 else:
@@ -514,22 +593,39 @@ class WebDAV:
 
     # -- GET / PUT / DELETE / MKCOL / MOVE --------------------------------------
 
-    def get(self, path: str, dest: str | None = None, byte_range: tuple[int, int] | None = None):
-        """Download *path*; to *dest* when given (returns None), else to memory."""
-        headers = {}
+    def get(self, path: str, dest: str | None = None, byte_range: tuple[int, int] | None = None,
+            *, headers: dict | None = None, query: dict | None = None,
+            stream_to=None, timeout: float | None = None):
+        """Download *path*; to *dest* when given (returns the response), to
+        *stream_to* when given (the caller's sink), else to memory.
+
+        ``GET`` on a collection is Nextcloud's folder-archive extension::
+
+            dav.get("", headers={"Accept": "application/x-tar"},
+                    query={"files": '["Text/A.txt", "Extraction/B.json"]'})
+
+        Backends that do not implement it answer with the WebDAV HTML page,
+        so the caller must look at the response content type (that is why the
+        ``stream_to`` sink may refuse the body in ``start()``).
+        """
+        hdrs = dict(headers or {})
         if byte_range is not None:
-            headers["Range"] = f"bytes={int(byte_range[0])}-{int(byte_range[1])}"
+            hdrs["Range"] = f"bytes={int(byte_range[0])}-{int(byte_range[1])}"
+        if stream_to is not None:
+            return self.request("GET", path, headers=hdrs, query=query,
+                                stream_to=stream_to, timeout=timeout)
         if dest is None:
-            resp = self.request("GET", path, headers=headers)
+            resp = self.request("GET", path, headers=hdrs, query=query, timeout=timeout)
             return resp.body
         d = os.path.dirname(dest)
         if d:
             os.makedirs(d, exist_ok=True)
         with open(dest, "wb") as fh:
-            self.request("GET", path, headers=headers, stream_to=fh)
+            resp = self.request("GET", path, headers=hdrs, query=query,
+                                stream_to=fh, timeout=timeout)
             fh.flush()
             os.fsync(fh.fileno())
-        return None
+        return resp
 
     def put(self, path: str, data, *, if_match: str | None = None,
             if_none_match: bool = False, content_type: str = "application/octet-stream",
