@@ -227,8 +227,10 @@ def test_member_rel_refuses_anything_but_a_wanted_path():
     assert ncarchive.member_rel("Text/A.txt", wanted) == "Text/A.txt"
     # a full-folder archive names its root: that one component may be dropped
     assert ncarchive.member_rel("Text/Text/A.txt", wanted) == "Text/A.txt"
-    for bad in ("../Text/A.txt", "Text/../../A.txt", "/Text/A.txt", "C:/Text/A.txt",
-                "Text/A.txt\x00", "", ".", "Text/B.txt"):
+    # Nextcloud names filtered members "/<path relative to the collection>"
+    assert ncarchive.member_rel("/Text/A.txt", wanted) == "Text/A.txt"
+    for bad in ("../Text/A.txt", "Text/../../A.txt", "/etc/passwd", "//Text/B.txt",
+                "/../Text/A.txt", "C:/Text/A.txt", "Text/A.txt\x00", "", ".", "/", "Text/B.txt"):
         assert ncarchive.member_rel(bad, wanted) is None, bad
 
 

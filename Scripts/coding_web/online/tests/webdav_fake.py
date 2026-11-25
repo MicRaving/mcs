@@ -390,8 +390,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _archive_wanted(self, query: str) -> tuple[set, list | None]:
         params = urllib.parse.parse_qs(query)
-        accept = params.get("accept", [""])[0] or (self.headers.get("Accept") or "")
-        tokens = {t.strip().lower() for t in accept.split(",") if t.strip()}
+        # like Nextcloud's ZipFolderPlugin: the ``accept`` query parameter is
+        # split at commas, the Accept HEADER is not (one entry per header line,
+        # matched exactly) - "application/x-tar, application/zip" matches nothing
+        if params.get("accept", [""])[0]:
+            tokens = {t.strip().lower() for t in params["accept"][0].split(",") if t.strip()}
+        else:
+            tokens = {h.strip().lower() for h in self.headers.get_all("Accept") or [] if h.strip()}
         accepts: set = set()
         if tokens & {"application/x-tar", "tar"}:
             accepts.add("tar")
@@ -475,16 +480,19 @@ class _Handler(BaseHTTPRequestHandler):
                 return b"\x00" * os.path.getsize(path)
             return None
 
+        # Nextcloud names FILTERED members relative to the collection with a
+        # leading slash ("/x.json"); tarfile.add() would strip it, so build the
+        # headers by hand to serve exactly what the real server sends.
+        lead = "/" if names else ""
         if kind == "tar":
             with tarfile.open(fileobj=buf, mode="w") as tf:
                 for arc, path in entries:
                     zeros = file_bytes(arc, path)
-                    if zeros is None:
-                        tf.add(path, arcname=arc, recursive=False)
-                    else:
-                        info = tarfile.TarInfo(arc)
-                        info.size = len(zeros)
-                        tf.addfile(info, io.BytesIO(zeros))
+                    data = zeros if zeros is not None else open(path, "rb").read()
+                    info = tarfile.TarInfo(lead + arc)
+                    info.size = len(data)
+                    info.mtime = int(os.path.getmtime(path))
+                    tf.addfile(info, io.BytesIO(data))
                 for arc, data in self.state.archive_extra:
                     info = tarfile.TarInfo(arc)
                     info.size = len(data)
@@ -499,10 +507,8 @@ class _Handler(BaseHTTPRequestHandler):
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 for arc, path in entries:
                     zeros = file_bytes(arc, path)
-                    if zeros is None:
-                        zf.write(path, arc)
-                    else:
-                        zf.writestr(arc, zeros)
+                    data = zeros if zeros is not None else open(path, "rb").read()
+                    zf.writestr(zipfile.ZipInfo(lead + arc), data)
                 for arc, data in self.state.archive_extra:
                     zf.writestr(arc, data)
                 if missing_doc:

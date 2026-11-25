@@ -43,9 +43,11 @@ import zipfile
 
 TAR = "application/x-tar"
 ZIP = "application/zip"
-#: ask for both; Nextcloud picks tar when both are acceptable (its Streamer
-#: sets ``tarArchive`` when the tar type is present)
-ACCEPT = "application/x-tar, application/zip"
+#: ask for ONE type per request.  Nextcloud's ZipFolderPlugin reads the header
+#: with ``getHeaderAsArray('Accept')`` (one entry per header LINE, not split at
+#: commas) and matches the entries exactly, so "application/x-tar,
+#: application/zip" matches neither and the collection is answered with HTML.
+ACCEPT = TAR
 #: the server appends this member when it could not read a file it was asked to
 #: stream (a storage error): the member's bytes are zero-padded in a tar
 _MISSING_RX = re.compile(r"^missing_files(?: \(\d+\))?\.json$")
@@ -116,7 +118,12 @@ def member_rel(name: str, wanted) -> str | None:
     one component is tried as well (still matched against *wanted*).
     """
     raw = str(name or "").replace("\\", "/")
-    if not raw or raw.startswith("/"):
+    # Nextcloud names filtered members relative to the collection WITH a
+    # leading slash (``str_replace($rootPath, '', $node->getPath())`` ->
+    # "/x.json").  Stripping it is safe: the result must still be one of the
+    # requested paths, and traversal/drive/NUL entries are refused below.
+    raw = raw.lstrip("/")
+    if not raw:
         return None
     if len(raw) > 1 and raw[1] == ":":            # C:/..., also C:x
         return None
