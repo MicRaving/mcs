@@ -149,7 +149,8 @@ def _results_path(name):
              if os.path.exists(p)]
     if cands:
         return max(cands, key=os.path.getmtime)
-    return os.path.join(S.ROOT, "Results", name)
+    # an online project: ``Results/`` is on demand (a no-op for a local folder)
+    return S.ensure_local(os.path.join(S.ROOT, "Results", name))
 
 def _figure_path(name):
     """Resolve a figure file name across the pipeline + transient figure folders."""
@@ -157,7 +158,7 @@ def _figure_path(name):
         p = os.path.join(d, name)
         if os.path.isfile(p):
             return p
-    return os.path.join(_figures_dir(), name)
+    return S.ensure_local(os.path.join(_figures_dir(), name))
 
 
 def _figures_dir():

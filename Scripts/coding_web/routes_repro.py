@@ -628,6 +628,8 @@ def _read_sheet(path, sheet):
 def _sheet(path, sheet):
     """Read + mtime-cache one worksheet.  Falls back to the temp intermediates when
     the root workbook is absent, so the tab still works before a run."""
+    if not os.path.exists(path):
+        path = S.ensure_local(path)          # online: ``Results/`` is fetched on demand
     try:
         mtime = os.path.getmtime(path)
     except OSError:
@@ -940,8 +942,9 @@ def api_repro_overview():
     return jsonify({
         "root": S.ROOT,
         "datasets": ds,
-        "mapping_xlsx": os.path.isfile(os.path.join(S.ROOT, "Results", HARM_XLSX)),
-        "reproduction_xlsx": os.path.isfile(os.path.join(S.ROOT, "Results", REPRO_XLSX)),
+        # manifest-aware: an online project lists the workbook before it is fetched
+        "mapping_xlsx": S.has_file(os.path.join(S.ROOT, "Results", HARM_XLSX)),
+        "reproduction_xlsx": S.has_file(os.path.join(S.ROOT, "Results", REPRO_XLSX)),
         "mapping_available": bool(harm),
         "reproduction_available": bool(repro),
         "generator_available": gen_ok,
