@@ -217,6 +217,9 @@ class WebDAV:
         self._pool: dict[tuple, list] = {}
         self._pool_max = self.max_parallel + 2
         self._closed = False
+        #: the server ignores If-Match / If-None-Match (PowerFolder): check them
+        #: client-side right before the write (see :meth:`_check_precondition`)
+        self.emulate_conditionals = False
         self._counts: dict[str, int] = {}
         self.throttled: list[dict] = []          # [{status, wait, method, path}]
         # test seams (the role FakeTransport plays for the studio server)
@@ -631,6 +634,8 @@ class WebDAV:
             if_none_match: bool = False, content_type: str = "application/octet-stream",
             headers: dict | None = None) -> WebDAVResponse:
         """PUT *data* (bytes or a binary file object); returns 201/204."""
+        if self.emulate_conditionals and (if_match or if_none_match):
+            self._check_precondition(path, if_match, if_none_match)
         hdrs = {"Content-Type": content_type}
         if if_match:
             hdrs["If-Match"] = quote_etag(if_match)
@@ -648,8 +653,35 @@ class WebDAV:
         return self.request("PUT", path, headers=hdrs, body=data)
 
     def delete(self, path: str, if_match: str | None = None) -> WebDAVResponse:
+        if self.emulate_conditionals and if_match:
+            self._check_precondition(path, if_match, False)
         headers = {"If-Match": quote_etag(if_match)} if if_match else None
         return self.request("DELETE", path, headers=headers)
+
+    def _check_precondition(self, path: str, if_match: str | None, if_none_match: bool) -> None:
+        """Client-side ``If-Match`` / ``If-None-Match: *`` for a server that ignores them.
+
+        PowerFolder (LRZ Sync+Share) answers 201 to a conditional PUT whatever
+        the condition says.  A ``PROPFIND Depth: 0`` right before the write
+        turns a stale write into the same :class:`PreconditionFailed` a
+        conforming server would raise.  It is a check-then-act, not atomic: two
+        writers inside the same few milliseconds can both pass (the lock code
+        re-reads its lock file after a settle delay to catch exactly that).
+        The headers are still sent, so a server that does honour them wins.
+        """
+        try:
+            prop = self.stat(path)
+        except NotFoundError:
+            prop = None
+        if if_none_match and prop is not None:
+            raise PreconditionFailed("the file already exists (checked by the client)")
+        if if_match:
+            if prop is None:
+                raise PreconditionFailed("the file is gone (checked by the client)")
+            want = str(if_match).strip().removeprefix("W/").strip('"')
+            have = str(prop.etag or "").strip().removeprefix("W/").strip('"')
+            if have and want != have:          # no ETag listed: nothing to compare
+                raise PreconditionFailed("the file changed (checked by the client)")
 
     def mkcol(self, path: str) -> WebDAVResponse:
         return self.request("MKCOL", path)

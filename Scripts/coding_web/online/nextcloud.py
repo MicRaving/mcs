@@ -70,6 +70,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import uuid
 import zipfile
 
 from online_shared import merge as merge_mod
@@ -327,6 +328,10 @@ class NextcloudClient:
         self.project_id = project_id_for(self.root_url)
         self.app_version = app_version or ""
         self.clock = clock
+        self._sleep = time.sleep
+        #: seconds a lock write waits before reading itself back on a share
+        #: that ignores conditional headers (see :meth:`_lock_settled`)
+        self.lock_settle_s = 1.5
         self.timeout = timeout
         self.dav = dav or WebDAV(self.root_url, self.username, self._password,
                                  timeout=timeout, allow_insecure_http=allow_insecure_http)
@@ -455,11 +460,14 @@ class NextcloudClient:
                                "listed_at": float(data.get("listed_at") or 0.0),
                                "etag_propagates": data.get("etag_propagates"),
                                "archive": data.get("archive"),
+                               "conditional_writes": data.get("conditional_writes"),
                                "files": {str(k): dict(v) for k, v in data["files"].items()
                                          if isinstance(v, dict)}}
             else:
                 self._index = {"version": 2, "seq": 0, "files": {}}
             self._replay_journal()
+            if self._index.get("conditional_writes") is False:
+                self.dav.emulate_conditionals = True
             self._by_hash = {}
             for rel, entry in self._index["files"].items():
                 if entry.get("hash"):
@@ -525,6 +533,7 @@ class NextcloudClient:
                        "listed_at": self._index.get("listed_at") or 0.0,
                        "etag_propagates": self._index.get("etag_propagates"),
                        "archive": self._index.get("archive"),
+                       "conditional_writes": self._index.get("conditional_writes"),
                        "files": self._index.get("files") or {}}
             _atomic_write(path, json.dumps(payload, ensure_ascii=False,
                                            separators=(",", ":")).encode("utf-8"))
@@ -712,6 +721,9 @@ class NextcloudClient:
             "backend": BACKEND,
             "guarantees": GUARANTEES,
             "folder": self.folder or "/",
+            # None: not probed yet; False: the share ignores If-Match (the
+            # client checks before each write and re-reads its lock files)
+            "conditional_writes": self._index.get("conditional_writes"),
         }
         with self._guard:
             self._project_cache = info
@@ -799,6 +811,11 @@ class NextcloudClient:
     #: A full ``PROPFIND Depth: infinity`` is repeated at least this often even
     #: when the folder ETags say nothing changed (a safety net).
     FULL_LIST_EVERY = 600.0
+    #: a share without folder ETags lists fully at most every FACTOR x the
+    #: duration of its last full listing, capped at MAX_GAP seconds
+    NO_PROPAGATION_FACTOR = 10.0
+    NO_PROPAGATION_MAX_GAP = 300.0
+    _last_full_s = 0.0
 
     def list_remote(self, *, allow_cached: bool = True) -> dict[str, object]:
         """``{rel: Prop}`` of every non-excluded file in the folder.
@@ -815,17 +832,36 @@ class NextcloudClient:
         listing still runs every :data:`FULL_LIST_EVERY` seconds.
         """
         now = time.time()
+        # load the index first: a lazy load after the listing would replace the
+        # dict and drop the listed_at / top_etags this round records
+        self._load_index()
         if allow_cached and self._index.get("etag_propagates") is True:
             cached = self._cached_listing()
             listed_at = float(self._index.get("listed_at") or 0.0)
             tops = self._index.get("top_etags")
             if cached is not None and isinstance(tops, dict) and now - listed_at < self.FULL_LIST_EVERY:
                 return self._incremental_listing(cached, tops)
+        if allow_cached and self._index.get("etag_propagates") is False:
+            # No folder ETags (PowerFolder / LRZ Sync+Share): every round would
+            # be a full listing - ~20 s for a 25k-file project, i.e. listing
+            # without pause at a 20 s cadence.  Reuse the in-memory listing
+            # (kept current with our own writes) until it is older than ten
+            # times what the last full listing took; locks and pushes read the
+            # share directly, so this only delays seeing other members' edits.
+            with self._guard:
+                cached = self._listing
+                listed_at = float(self._index.get("listed_at") or 0.0)
+            gap = min(self.NO_PROPAGATION_MAX_GAP, self.NO_PROPAGATION_FACTOR * self._last_full_s)
+            if cached is not None and now - listed_at < gap:
+                self.stats["listing_reused"] += 1
+                return cached
+        started = time.perf_counter()
         try:
             rows = self.dav.propfind("", depth="infinity")
             self.stats["propfind_infinity"] += 1
         except DepthInfinityRefused:
             rows = self._walk_depth1()
+        self._last_full_s = time.perf_counter() - started
         out: dict[str, object] = {}
         tops: dict[str, str | None] = {}
         for prop in rows:
@@ -1539,6 +1575,8 @@ class NextcloudClient:
 
     def push(self, pid: str, client_id: str, entries: list[dict]) -> dict:
         self._use(pid)
+        if entries:
+            self._ensure_conditionals()
         results = [self._push_entry(e, client_id) for e in entries]
         # every index change of the push is in the journal already: no 6.5 MB
         # snapshot per push (the next listing or the journal limit compacts)
@@ -1701,11 +1739,20 @@ class NextcloudClient:
             seq = self._bump_seq()
             self._set_entry(path, {"hash": digest, "size": int(size or 0),
                                    "etag": etag, "lm": None, "seq": seq})
+            if self._listing is not None:
+                # our own write, so a reused listing (a share without folder
+                # ETags lists the whole tree only every few rounds) agrees with
+                # the index instead of reporting the old version as remote
+                from .webdav import Prop
+                self._listing[path] = Prop(path=path, etag=etag, size=int(size or 0),
+                                           last_modified=None)
 
     def _drop_index(self, path: str) -> None:
         with self._guard:
             self._bump_seq()
             self._pop_entry(path)
+            if self._listing is not None:
+                self._listing.pop(path, None)
 
     # -- conflicts (local records only; nothing to list on the share) --------------------
 
@@ -1762,17 +1809,21 @@ class NextcloudClient:
             hours = min(float(offline_hours), float(settings.get("max_offline_lease_h")
                                                    or protocol.DEFAULT_MAX_OFFLINE_LEASE_H))
         path = lock_path(key)
+        self._ensure_conditionals()
         for _attempt in range(4):
             now = self.clock()
+            nonce = uuid.uuid4().hex
             row = {"key": str(key), "user": self.username,
                    "display_name": me.get("display_name") or self.display_name,
                    "client_id": client_id, "acquired": now, "renewed": now,
                    "expires": now + hours * 3600.0, "expires_iso": _iso(now + hours * 3600.0),
-                   "offline": offline}
+                   "offline": offline, "nonce": nonce}
             try:
                 self.dav.makedirs(LOCK_DIR)
                 resp = self.dav.put(path, _json_bytes(row), if_none_match=True,
                                     content_type="application/json")
+                if not self._lock_settled(path, nonce):
+                    continue                              # lost the race: see who holds it
                 row["etag"] = resp.etag
                 return self._lock_row(row)
             except ConflictError:
@@ -1794,12 +1845,70 @@ class NextcloudClient:
                     row["took_over"] = True
                     resp = self.dav.put(path, _json_bytes(row), if_match=etag,
                                         content_type="application/json")
+                    if not self._lock_settled(path, nonce):
+                        continue                          # another takeover won
                     row["etag"] = resp.etag
                     return self._lock_row(row)
                 raise LockedError(f"{key} is locked by {holder}", 409, "locked",
                                   {"holder": self._lock_row(lock)},
                                   holder=self._lock_row(lock))
         raise ServerError("could not acquire the lock on the share", 409, "locked")
+
+    def _ensure_conditionals(self) -> None:
+        """Does this share honour ``If-None-Match: *``?  Probed once, cached in the index.
+
+        PowerFolder (LRZ Sync+Share) answers 201 to every conditional PUT, so
+        locks and stale-write guards would silently not exist.  One scratch
+        file under ``.studio/presence/`` (not ``.json``: never read as a
+        heartbeat) is written twice, the second time with ``If-None-Match: *``;
+        a 2xx means the header is ignored and the client checks conditions
+        itself from then on (:meth:`WebDAV._check_precondition`).  Network
+        trouble caches nothing, so the next write probes again.
+        """
+        with self._guard:
+            if self._index.get("conditional_writes") is not None:
+                return
+        path = f"{PRESENCE_DIR}/condprobe-{uuid.uuid4().hex[:12]}.txt"
+        emulate = self.dav.emulate_conditionals
+        self.dav.emulate_conditionals = False          # probe the server, not ourselves
+        honoured = None
+        try:
+            self.dav.makedirs(PRESENCE_DIR)
+            self.dav.put(path, b"probe\n", content_type="text/plain")
+            try:
+                self.dav.put(path, b"probe again\n", if_none_match=True, content_type="text/plain")
+                honoured = False
+            except PreconditionFailed:
+                honoured = True
+        except OnlineError:
+            honoured = None
+        finally:
+            self.dav.emulate_conditionals = emulate
+            try:
+                self.dav.delete(path)
+            except OnlineError:
+                pass
+        if honoured is None:
+            return
+        with self._guard:
+            self._index["conditional_writes"] = honoured
+            self._save_index()
+        self.dav.emulate_conditionals = not honoured
+
+    def _lock_settled(self, path: str, nonce: str) -> bool:
+        """After a lock write on a share without atomic conditionals: still ours?
+
+        Two clients that both passed the client-side existence check both
+        write; the later write wins on the server.  After a settle delay each
+        reads the file back, and only the client whose nonce is in it keeps
+        the lock - so exactly one wins, as long as the settle delay is longer
+        than the gap between a check and its write (milliseconds).
+        """
+        if not self.dav.emulate_conditionals:
+            return True
+        self._sleep(self.lock_settle_s)
+        current = self._read_lock_file(path)
+        return bool(current) and current[0].get("nonce") == nonce
 
     def _read_lock_file(self, path: str) -> tuple[dict, str | None] | None:
         try:
@@ -1851,6 +1960,7 @@ class NextcloudClient:
                 # our own heartbeat tells whether this share propagates folder
                 # ETags (what makes the cheap freshness check safe)
                 self._probe_propagation(before)
+            self._ensure_conditionals()
         out: list[dict] = []
         try:
             entries = self.dav.propfind(PRESENCE_DIR, depth="1")

@@ -262,6 +262,8 @@ class _Handler(BaseHTTPRequestHandler):
     # -- conditionals -------------------------------------------------------
     def _check(self, full: str) -> None:
         """Evaluate If-Match / If-None-Match; call while holding state.lock."""
+        if getattr(self.state, "ignore_conditionals", False):
+            return                  # like PowerFolder (LRZ Sync+Share): headers ignored
         inm = self.headers.get("If-None-Match")
         im = self.headers.get("If-Match")
         exists = os.path.exists(full)
