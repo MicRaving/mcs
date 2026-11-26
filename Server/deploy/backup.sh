@@ -90,9 +90,9 @@ log "snapshot ok: $(basename "$DEST") ($(du -h "$DEST" | cut -f1))"
 
 # ---- 2. browser mirrors: only the unpushed state ------------------------------
 if [ -d "$WEB_DIR" ]; then
-  if [ -n "$(cd "$SERVER_DIR" && docker compose ps -q web 2>/dev/null || true)" ]; then
+  if [ -n "$(cd "$SERVER_DIR" && docker compose ps -q studio 2>/dev/null || true)" ]; then
     log "draining browser workers (POST /app/admin/drain, loopback inside the container)"
-    if ! (cd "$SERVER_DIR" && docker compose exec -T web python -c '
+    if ! (cd "$SERVER_DIR" && docker compose exec -T studio python -c '
 import json, os, urllib.request
 # the gateway is loopback-only here and requires the site origin on a non-GET
 # request: the container knows its own public origin
@@ -105,7 +105,7 @@ print("drain ok" if out.get("ok") else "drain reported a pending outbox: " + jso
       warn "the gateway did not confirm the drain; the outboxes are backed up as they are"
     fi
   else
-    warn "the web container is not running; the outboxes are backed up as they are"
+    warn "the server container is not running; the outboxes are backed up as they are"
   fi
   if [ -n "$(find "$WEB_DIR" -type d -name .studio -print -quit 2>/dev/null)" ]; then
     log "browser sync state + outboxes -> $WEB_DEST"

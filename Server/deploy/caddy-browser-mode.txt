@@ -24,8 +24,11 @@
 #
 # Rollback: restore the .bak file and reload again.
 #
-# One origin, two backends:
-#   /app, /app/*  -> 192.168.178.12:8780  the browser gateway (web container)
+# One origin, two ports of the SAME server container:
+#   /app, /app/*  -> 192.168.178.12:8780  the browser gateway (or, with
+#                                         STUDIO_BROWSER_MODE=0, the small
+#                                         "browser mode is switched off" page -
+#                                         this configuration is the same either way)
 #   everything else (/api/..., /paper/... on the sync API) -> :8770, unchanged
 #   /             -> 302 /app/           the app's own UI is the browser client now
 #

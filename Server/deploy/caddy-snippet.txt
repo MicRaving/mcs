@@ -8,9 +8,12 @@
 # arrangement so the directive order stays right. Keep the LAN restriction exactly as
 # the other hosts have it.
 #
-# One origin, two backends (PLAN_online_only §8):
-#   /app, /app/*   -> studio-web :8780   the browser gateway (login, project picker,
-#                                        /app/p/<pid>/... -> that user's worker)
+# One origin, two ports of the same container (PLAN_online_only §8):
+#   /app, /app/*   -> studio :8780       the browser gateway (login, project picker,
+#                                        /app/p/<pid>/... -> that user's worker);
+#                                        with STUDIO_BROWSER_MODE=0 the same port
+#                                        answers a "browser mode is switched off"
+#                                        page, so this config never changes
 #   everything else -> studio :8770      the sync API, unchanged for desktop clients
 #   /              -> 302 /app/          the app's UI is the browser client now
 # The precise change to an existing block is in caddy-browser-mode.txt.

@@ -5,10 +5,11 @@
 #   packages -> Docker -> data dirs -> compose up --build -> health wait
 #   -> first admin (once) -> nightly backup cron (02:30)
 #
-# The stack is two services (Server/docker-compose.yml): `studio` (the sync server,
-# 8770, desktop clients) and `web` (the browser gateway + per-user workers, 8780;
-# PLAN_online_only §8).  Both are waited for; a broken browser side does not take
-# the sync server down, but the install fails loudly and names it.
+# One service (Server/docker-compose.yml): `studio` runs the sync server (8770,
+# desktop clients) and, when STUDIO_BROWSER_MODE=1, the browser gateway and its
+# per-user workers on 8780 (PLAN_online_only §8).  Both ports are waited for; a
+# broken browser side does not take the sync server down, but the install fails
+# loudly and names it.
 #
 # Optional settings come from /root/.studio-install.env (written by meta-lxc.sh with mode 600;
 # removed after it is read): ADMIN_USER, ADMIN_PASSWORD, DATA_DIR, WEB_DIR, BACKUP_DIR,
@@ -44,6 +45,8 @@ WEB_PORT=8780
 CONTAINER_UID=10001
 ADMIN_USER="${ADMIN_USER:-admin}"
 STUDIO_CADDY="${STUDIO_CADDY:-0}"
+STUDIO_BROWSER_MODE="${STUDIO_BROWSER_MODE:-1}"
+export STUDIO_BROWSER_MODE
 export STUDIO_DOMAIN="${STUDIO_DOMAIN:-meta.home.mfendt.de}"
 
 # ---- 1. packages ------------------------------------------------------------
@@ -103,7 +106,9 @@ if [ "$healthy" != "1" ]; then
 fi
 log "studio is healthy"
 
-log "waiting for http://127.0.0.1:$WEB_PORT/app/health (browser gateway)"
+# the browser port answers in both modes: the gateway when on, the "switched
+# off" page from the sync process when off
+log "waiting for http://127.0.0.1:$WEB_PORT/app/health (browser port)"
 web_healthy=0
 for _ in $(seq 1 90); do
   if curl -fsS --max-time 4 "http://127.0.0.1:$WEB_PORT/app/health" >/dev/null 2>&1; then
@@ -113,10 +118,14 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 if [ "$web_healthy" != "1" ]; then
-  docker compose logs --tail 80 web || true
-  die "studio-web did not become healthy within 180 s (the sync server on $STUDIO_PORT is up and keeps serving desktop clients)"
+  docker compose logs --tail 80 studio || true
+  die "the browser port did not become healthy within 180 s (the sync server on $STUDIO_PORT is up and keeps serving desktop clients)"
 fi
-log "studio-web is healthy"
+if [ "$STUDIO_BROWSER_MODE" = "0" ]; then
+  log "browser mode is switched off (STUDIO_BROWSER_MODE=0): /app/ shows the notice page"
+else
+  log "browser mode is healthy"
+fi
 
 # ---- 5. first admin (once) ----------------------------------------------------
 ADMIN_MARK="$STATE_DIR/admin-created"
@@ -173,6 +182,7 @@ cat <<EOF
  LAN:           http://${IP:-?}:$STUDIO_PORT  (firewall 8770 to the proxy host only)
                 http://${IP:-?}:$WEB_PORT   (firewall 8780 to the proxy host only)
  browser mode:  https://$STUDIO_DOMAIN/app/  (same accounts as the desktop)
+                switch: STUDIO_BROWSER_MODE=1 on, 0 off (this install: $STUDIO_BROWSER_MODE)
  mirrors:       $WEB_DIR (rebuildable; excluded from backups except unpushed outboxes)
  proxy:         $PROXY
  status:        bash $DEPLOY_DIR/health-check.sh

@@ -5,11 +5,11 @@
 #   bash /opt/studio/Server/deploy/health-check.sh
 #   STUDIO_URL=http://127.0.0.1:8770 WEB_URL=http://127.0.0.1:8780 DISK_WARN_PCT=85 bash health-check.sh
 #
-# Two services (Server/docker-compose.yml): `studio` (the sync server, desktop
-# clients) and `web` (the browser gateway and its per-user workers, PLAN_online_only
-# §8).  The browser side is checked for: the gateway answers, the container is
-# healthy, how many workers run and how much memory they hold (the gateway's own
-# PSS sum), and the mirror volume's free space.
+# One container (Server/docker-compose.yml): `studio` runs the sync server and,
+# with STUDIO_BROWSER_MODE=1, the browser gateway and its per-user workers
+# (PLAN_online_only §8).  When browser mode is on, the browser side is checked
+# for: the gateway answers, how many workers run and how much memory they hold
+# (the gateway's own PSS sum); the mirror volume is always checked.
 #
 # No `set -e`: every check runs and is reported.
 set -uo pipefail
@@ -62,49 +62,59 @@ container_check() {
 }
 container_check studio yes
 
-# 3. browser gateway
+# 3. browser port: the gateway when the switch is on, the sync process's
+# "switched off" page when it is off (same reverse-proxy configuration)
+BROWSER_MODE="$(curl -sS --max-time 5 "$STUDIO_URL/api/health" 2>/dev/null \
+  | sed -n 's/.*"browser_mode": *"\([a-z]*\)".*/\1/p')"
 code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$WEB_URL/app/health" 2>/dev/null)"
 code="${code:-000}"
-if [ "$code" = "200" ]; then ok "gateway /app/health -> 200"; else fail "gateway /app/health -> $code"; fi
-container_check web yes
+if [ "$code" = "200" ]; then ok "browser port /app/health -> 200"; else fail "browser port /app/health -> $code"; fi
 
-# the gateway's own view: worker count, summed PSS, heavy lane, launcher and the
-# last lifecycle events.  /app/health hides the detail from non-loopback clients, so
-# ask it from inside the container (a published port would look remote), and format
-# there too: the CT host has no python of its own.
-detail="$(docker compose exec -T web python - "$WEB_PRESSURE_MB" <<'PY' 2>/dev/null
+if [ "$BROWSER_MODE" = "on" ]; then
+  # the gateway's own view: worker count, summed PSS, heavy lane, launcher and the
+  # last lifecycle events.  /app/health hides the detail from non-loopback clients,
+  # so ask it from inside the container (a published port would look remote), and
+  # format there too: the CT host has no python of its own.
+  detail="$(docker compose exec -T studio python - "$WEB_PRESSURE_MB" <<'PY' 2>/dev/null
 import json, sys, urllib.request
 
 pressure = float(sys.argv[1])
 d = json.loads(urllib.request.urlopen("http://127.0.0.1:8780/app/health", timeout=5).read() or b"{}")
 rss = float(d.get("rss_mb") or 0)
 lane = d.get("lane") or {}
-print(f"[health] OK   gateway workers: {d.get('workers')} running, {rss:.0f} MB PSS "
-      f"(launcher {d.get('launcher')}, heavy lane {lane.get('waiting', 0)} waiting)")
+limits = d.get("limits") or {}
+print(f"[health] OK   browser mode: on, {d.get('workers')} worker(s), {rss:.0f} MB PSS "
+      f"(max {limits.get('max_workers', '?')} workers, launcher {d.get('launcher')}, "
+      f"heavy lane {lane.get('waiting', 0)} waiting)")
 if rss >= pressure:
-    print(f"[health] WARN gateway workers at {rss:.0f} MB, pressure ceiling is {pressure:.0f} MB")
+    print(f"[health] WARN browser workers at {rss:.0f} MB, pressure ceiling is {pressure:.0f} MB")
 for ev in (d.get("events") or [])[-5:]:
     print(f"[health]      last event: {ev.get('event')} user={ev.get('user')} "
           f"reason={ev.get('reason', '')} rss_mb={ev.get('rss_mb', '')}")
 PY
 )"
-if [ -z "$detail" ]; then
-  warn "gateway detail: not readable from inside the web container"
+  if [ -z "$detail" ]; then
+    warn "browser detail: not readable from inside the container"
+  else
+    printf '%s\n' "$detail"
+  fi
+elif [ "$BROWSER_MODE" = "off" ]; then
+  ok "browser mode: off (STUDIO_BROWSER_MODE=0; /app/ shows the notice page)"
 else
-  printf '%s\n' "$detail"
+  warn "browser mode: not reported by /api/health"
 fi
 
 # 3b. the workers read the blob store through symlinks: uid 10001 must be able to
 # open a blob, or every paper, dataset and coding file fails (a blob store written
 # by a root server is the classic case; install.sh fixes ownership)
-WEB_BLOB_MOUNT="${WEB_BLOB_MOUNT:-/blobs}"
+WEB_BLOB_MOUNT="${WEB_BLOB_MOUNT:-/data/blobs}"
 if mountpoint -q "$BLOB_DIR"; then
   sample="$(find "$BLOB_DIR" -maxdepth 2 -type f -print -quit 2>/dev/null)"
   if [ -z "$sample" ]; then
     warn "blobs: no file under $BLOB_DIR to test readability"
   else
     rel="${sample#"$BLOB_DIR"/}"
-    if docker compose exec -T web python -c 'import sys; open(sys.argv[1], "rb").read(1)' \
+    if docker compose exec -T studio python -c 'import sys; open(sys.argv[1], "rb").read(1)' \
          "$WEB_BLOB_MOUNT/$rel" >/dev/null 2>&1; then
       ok "blobs: readable by the browser worker ($rel)"
     else

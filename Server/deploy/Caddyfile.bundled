@@ -5,9 +5,11 @@
 # STUDIO_DOMAIN: public name for a Let's Encrypt certificate. The default
 # "localhost" makes Caddy use its internal CA.
 #
-# One origin, two backends (PLAN_online_only §8): /app/... is the browser gateway
-# (the "web" service: login, project picker, /app/p/<pid>/... -> that user's
+# One origin, two ports of the SAME container (PLAN_online_only §8): /app/... is
+# the browser gateway (login, project picker, /app/p/<pid>/... -> that user's
 # worker), everything else is the sync server, unchanged for desktop clients.
+# With STUDIO_BROWSER_MODE=0 the same port answers /app/ with the "switched off"
+# page, so this proxy configuration never changes.
 {$STUDIO_DOMAIN:localhost} {
 	encode zstd gzip
 
@@ -26,7 +28,7 @@
 	# the browser app
 	@browser path /app /app/*
 	handle @browser {
-		reverse_proxy web:8780
+		reverse_proxy studio:8780
 	}
 
 	# everything else: the sync server

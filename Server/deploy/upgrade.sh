@@ -55,8 +55,8 @@ if [ ! -f "$WORK/new/Server/deploy/install.sh" ]; then
 else
   mv "$WORK/new" "$WORK/root"
 fi
-for f in Server/docker-compose.yml Server/Dockerfile.web Server/studio_web/__init__.py \
-         Scripts/coding_web/browser_worker.py; do
+for f in Server/docker-compose.yml Server/Dockerfile Server/studio_web/__init__.py \
+         Server/studio_server/run.py Scripts/coding_web/browser_worker.py; do
   [ -f "$WORK/root/$f" ] || die "the tarball is not a CodingStudio checkout: $f is missing"
 done
 
@@ -116,10 +116,10 @@ if ! wait_health "http://127.0.0.1:$STUDIO_PORT/api/health" "sync server"; then
 EOF
   exit 1
 fi
-if ! wait_health "http://127.0.0.1:$WEB_PORT/app/health" "browser gateway"; then
-  docker compose logs --tail 80 web || true
-  log "WARN the browser gateway is not healthy; the sync server is up and desktop clients keep working"
-  log "     logs: cd $APP_DIR/Server && docker compose logs web"
+if ! wait_health "http://127.0.0.1:$WEB_PORT/app/health" "browser port"; then
+  docker compose logs --tail 80 studio || true
+  log "WARN the browser port is not healthy; the sync server is up and desktop clients keep working"
+  log "     logs: cd $APP_DIR/Server && docker compose logs studio"
 fi
 
 # docker's own healthcheck needs a few intervals before it reports "healthy";
