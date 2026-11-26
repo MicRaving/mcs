@@ -271,6 +271,10 @@ jobs:
           file: Server/Dockerfile
           platforms: linux/amd64
           push: true
+          # no attestation manifests: Proxmox' OCI import rejects an index that
+          # carries them ("Unsupported CPU architecture", seen 2026-11-26)
+          provenance: false
+          sbom: false
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.ref_name }}
             ${{ steps.image.outputs.name }}:latest
