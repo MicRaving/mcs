@@ -266,6 +266,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        env:
+          # no "<repo>.dockerbuild" build-record artifact: the release job
+          # downloads every artifact and failed to extract this one (v0.4.4)
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+          DOCKER_BUILD_SUMMARY: "false"
         with:
           context: .
           file: Server/Dockerfile
