@@ -1,4 +1,9 @@
-"""CLI: ``python -m studio_server serve|create-admin|reset-password`` (§3.1).
+"""CLI: ``python -m studio_server run|serve|create-admin|reset-password`` (§3.1).
+
+``run`` is the product's entrypoint: the sync server always, plus the browser
+gateway when ``STUDIO_BROWSER_MODE=1`` (see :mod:`studio_server.run`).
+``serve`` remains the plain sync server without the browser child (tests and a
+manual sync-only start).
 
 Adapted from QCnext ``cli.py`` (https://github.com/MicRaving/qcnext), reduced to
 the commands the foundation needs.
@@ -129,11 +134,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    serve = sub.add_parser("serve", help="run the HTTP server (one worker)")
+    serve = sub.add_parser("serve", help="run the HTTP server (one worker, no browser child)")
     serve.add_argument("--host", default=DEFAULT_HOST)
     serve.add_argument("--port", type=int, default=DEFAULT_PORT)
     serve.add_argument("--data", default=None, help="data dir (default $STUDIO_DATA_DIR or ./data)")
     serve.set_defaults(func=_cmd_serve)
+
+    from .run import build_parser as build_run_parser
+
+    run = sub.add_parser(
+        "run",
+        help="the product: sync server + browser mode when STUDIO_BROWSER_MODE=1",
+    )
+    build_run_parser(run)
 
     create = sub.add_parser("create-admin", help="create or promote a server admin")
     create.add_argument("--username", default=None)

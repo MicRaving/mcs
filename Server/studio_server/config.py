@@ -5,6 +5,8 @@ Environment (adapted from QCnext ``core/server_config.py``):
 * ``STUDIO_DATA_DIR``  — data root, default ``./data``
 * ``STUDIO_PUBLIC_URL`` — advertised base URL (unused by the foundation API)
 * ``STUDIO_TRUST_PROXY`` — ``1`` ⇒ rate-limit by the first ``X-Forwarded-For``
+* ``STUDIO_BROWSER_MODE`` — ``1`` ⇒ also run the browser gateway (default ``0``)
+* ``STUDIO_BROWSER_PORT`` — the port ``/app/`` is served on (default ``8780``)
 
 The data dir layout is ``studio.db`` (SQLite, WAL), ``blobs/`` (content
 addressed files) and ``logs/``.
@@ -46,6 +48,10 @@ class Config:
     token_ttl_secs: int = TOKEN_TTL_SECS
     rate_limit_failures: int = 10
     rate_limit_window_secs: int = 10 * 60
+    #: browser mode (one product, one image): off = the sync server alone
+    browser_mode: bool = False
+    #: the port the browser gateway (or the "switched off" page) answers on
+    browser_port: int = 8780
 
     #: Sub-directories of the data root (kept as a field so tests can inspect
     #: them without importing the module-level constants).
@@ -79,4 +85,6 @@ def load_config(data_dir: str | os.PathLike[str] | None = None) -> Config:
         token_ttl_secs=_env_int("STUDIO_TOKEN_TTL_SECS", TOKEN_TTL_SECS),
         rate_limit_failures=_env_int("STUDIO_RATE_LIMIT_FAILURES", 10),
         rate_limit_window_secs=_env_int("STUDIO_RATE_LIMIT_WINDOW_SECS", 10 * 60),
+        browser_mode=_env_bool("STUDIO_BROWSER_MODE"),
+        browser_port=_env_int("STUDIO_BROWSER_PORT", 8780),
     )

@@ -13,10 +13,11 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION
+from . import browser
 from .auth import APIError, CODE_MESSAGES, _STATUS_CODES
 from .config import Config, load_config
 from .db import init_db
@@ -96,7 +97,41 @@ def create_app(config: Config | None = None) -> FastAPI:
     # ── health (no auth) ───────────────────────────────────────────────
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"ok": True, "version": SERVER_VERSION, "protocol": PROTOCOL_VERSION}
+        """Liveness plus the browser-mode switch (§3.1).
+
+        ``browser_mode`` is ``on`` only when the browser gateway is started
+        (``STUDIO_BROWSER_MODE=1``); then ``workers``/``rss_mb`` come from the
+        gateway's own ``/app/health`` (cached, one short loopback probe).
+        """
+        return {
+            "ok": True,
+            "version": SERVER_VERSION,
+            "protocol": PROTOCOL_VERSION,
+            **browser.health_summary(cfg.browser_port, cfg.browser_mode),
+        }
+
+    @app.get("/app/health")
+    def app_health() -> dict[str, Any]:
+        """The browser side's health, on the sync port, whatever the switch says."""
+        return {"ok": True, "version": SERVER_VERSION,
+                **browser.health_summary(cfg.browser_port, cfg.browser_mode)}
+
+    # ── /app/ when browser mode is off ─────────────────────────────────
+    # The reverse proxy sends /app and /app/* to the browser port either way,
+    # so with the gateway switched off this process itself answers there (the
+    # port is bound as a second uvicorn socket, see studio_server.run).  The
+    # health route above is registered first so the catch-all cannot shadow it.
+    if not cfg.browser_mode:
+
+        @app.get("/app")
+        @app.get("/app/")
+        @app.get("/app/{rest:path}")
+        def browser_off(rest: str = "") -> HTMLResponse:
+            return HTMLResponse(
+                browser.switched_off_page(),
+                status_code=200,
+                headers=browser.page_headers(),
+            )
 
     # ── foundation routers ─────────────────────────────────────────────
     from . import api_admin, api_auth, api_projects

@@ -1,11 +1,15 @@
-# Runtime dependencies of the browser mode image (Server/Dockerfile.web).
+# Browser-mode runtime dependencies of the ONE server image (Server/Dockerfile).
 #
-# Two things share this image: the gateway (Server/studio_web: FastAPI + uvicorn +
-# httpx) and the per-user workers (Scripts/coding_web/browser_worker.py: the
-# desktop app, headless).  This is requirements.txt WITHOUT the desktop window
-# stack (pywebview / pythonnet / pyobjc) and without the optional readers whose
-# routes already degrade when the module is missing (matplotlib, pyreadstat,
-# pyreadr) - PLAN_online_only §8.
+# The gateway (Server/studio_web: FastAPI + uvicorn + httpx) and the per-user
+# workers (Scripts/coding_web/browser_worker.py: the desktop app, headless) share
+# the image with the sync server, whose own deps are requirements-prod.txt.
+# This is requirements.txt WITHOUT the desktop window stack (pywebview /
+# pythonnet / pyobjc) and without the optional readers whose routes already
+# degrade when the module is missing (matplotlib, pyreadstat, pyreadr) -
+# PLAN_online_only §8.
+#
+# scipy, python-pptx, python-docx and openpyxl are installed but imported lazily
+# by the routes that need them, so an idle worker does not pay for them.
 Flask>=3.0,<4
 PyMuPDF>=1.24,<2   # 2.x ships no macOS x86_64 wheel (sdist build fails in CI)
 numpy>=1.26,<3

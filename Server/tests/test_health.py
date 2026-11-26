@@ -9,7 +9,11 @@ def test_health_needs_no_auth(client):
     response = client.get("/api/health")
     assert response.status_code == 200
     body = response.json()
-    assert body == {"ok": True, "version": SERVER_VERSION, "protocol": PROTOCOL_VERSION}
+    assert body["ok"] is True
+    assert body["version"] == SERVER_VERSION
+    assert body["protocol"] == PROTOCOL_VERSION
+    # the browser-mode toggle is part of the contract (off by default in tests)
+    assert body["browser_mode"] == "off"
 
 
 def test_health_accepts_matching_protocol(client):

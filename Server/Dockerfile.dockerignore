@@ -4,13 +4,20 @@
 
 *
 
-!Scripts/online_shared
-!Scripts/online_shared/**
+!Scripts
+!Scripts/**
 !Server
 !Server/**
 
 # re-exclude what must not reach the image
 Server/tests
+Server/studio_web/tests
+Server/deploy
+Server/*.md
+Scripts/tests
+Scripts/coding_web/dist
+Scripts/coding_web/tests_static
+Scripts/coding_web/online/tests
 Scripts/online_shared/tests
 **/__pycache__
 **/*.pyc
