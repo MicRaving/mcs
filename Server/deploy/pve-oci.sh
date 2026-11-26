@@ -63,7 +63,7 @@ record_file() { echo "$STORE_DIR/$1.conf"; }
 env_file() { echo "$STORE_DIR/$1.env"; }
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,/^set -euo pipefail$/p' "$0" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
