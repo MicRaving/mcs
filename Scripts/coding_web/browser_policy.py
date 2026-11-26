@@ -180,6 +180,19 @@ CLASSIFICATION: dict[str, str] = {
     "online.api_connect": DESKTOP_ONLY,               # local login/session
     "online.api_done_list": ALLOW,
     "online.api_done_mark": ALLOW,
+    # share-link projects (D11): a link invitation and the link's password are
+    # desktop things (the local mirror, the OS keyring, the OCS call from the
+    # owner's own Nextcloud connection); a browser worker has neither
+    "online.api_invite_describe": DESKTOP_ONLY,
+    "online.api_join": DESKTOP_ONLY,
+    "online.api_link_get": DESKTOP_ONLY,
+    "online.api_link_post": DESKTOP_ONLY,
+    "online.api_link_renew": DESKTOP_ONLY,
+    "online.api_link_delete": DESKTOP_ONLY,
+    "online.api_link_invite": DESKTOP_ONLY,
+    "online.api_link_invite_show": DESKTOP_ONLY,
+    "online.api_link_invite_reissue": DESKTOP_ONLY,
+    "online.api_link_invite_withdraw": DESKTOP_ONLY,
     "online.api_lock_acquire": ALLOW,
     "online.api_lock_release": ALLOW,
     "online.api_locks": ALLOW,

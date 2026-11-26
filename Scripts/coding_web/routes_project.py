@@ -186,6 +186,7 @@ def _online_entries():
             "path": "online:" + str(pub.get("id") or ""),
             "name": pub.get("project_name") or pub.get("folder") or pub.get("project_id") or "Online project",
             "backend": pub.get("backend"),
+            "login": pub.get("login") or "account",
             "host": pub.get("host"),
             "username": pub.get("username"),
             "folder": pub.get("folder") or "",

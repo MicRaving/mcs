@@ -230,6 +230,9 @@ def _member(store):
 
 def _owner_denied(store):
     me = _member(store)
+    if me.get("login") == "link":
+        return _err("forbidden", "a share-link invitation cannot open the project admin; "
+                                 "only the project owner, signed in with their own account, can", 403)
     if me.get("role") != "owner":
         return _err("forbidden", "only the project owner may do this", 403)
     return None
@@ -319,6 +322,11 @@ def _local_status():
         "me": {"role": "owner", "tags": [], "tasks": list(protocol.TASKS)},
         "settings": {},
         "run_analysis_locally": run_analysis_locally(),
+        "login": None,
+        "readonly": False,
+        "readonly_reason": None,
+        "readonly_message": None,
+        "link_error": None,
         # served through the browser gateway (browser_worker); static/browser.js keys off it
         "browser": bool(getattr(S, "browser", False)),
         "prefetch": prefetch_progress(),
@@ -343,11 +351,14 @@ def _online_status(store):
         with mirror.lock:
             state = dict(mirror.state)
     payload = dict(status)
+    me = dict(state.get("me") or {})
+    me.setdefault("login", payload.get("login"))
+    me["readonly"] = bool(payload.get("readonly"))
     payload.update({
         "active": True,
         "project_name": payload.get("project_name") or state.get("project_name"),
         "seq": payload.get("seq", state.get("seq")),
-        "me": state.get("me") or {},
+        "me": me,
         "settings": state.get("settings") or {},
         "run_analysis_locally": run_analysis_locally(),
         "browser": bool(getattr(S, "browser", False)),
@@ -357,6 +368,11 @@ def _online_status(store):
     payload.setdefault("next_retry_in", None)
     payload.setdefault("backend", "server")
     payload.setdefault("guarantees", "strong")
+    payload.setdefault("login", None)
+    payload.setdefault("readonly", False)
+    payload.setdefault("readonly_reason", None)
+    payload.setdefault("readonly_message", None)
+    payload.setdefault("link_error", None)
     # the on-demand batch (the AI route codings an agreement view fetches) is
     # reported while it runs, so a long first visit explains itself
     payload["prefetch"] = prefetch_progress()
@@ -436,6 +452,511 @@ def _connect_nextcloud(store, payload, username):
     return jsonify({"projects": projects, "backend": "nextcloud", "guarantees": "best-effort"})
 
 
+# ---------------------------------------------------------------------------
+# share-link projects (D11)
+#
+# A Nextcloud public share link (/s/<token>, password + edit rights) is scoped
+# to one folder.  The coder joins with an invitation (link mode: Basic auth as
+# "anonymous" + the link password, project identity from the invitation); the
+# owner creates / renews / deletes the link and invites coders from the project
+# admin panel.  The link password never enters a config file, a log or a
+# response: it lives in the OS keyring (or the mirror's file fallback) and, for
+# the coder, inside the invitation.
+# ---------------------------------------------------------------------------
+
+def _nc_client(store):
+    """The open project's Nextcloud client, or None for another backend."""
+    client = getattr(store, "client", None)
+    return client if getattr(client, "backend", None) == "nextcloud" else None
+
+
+def _link_fallback(store) -> str | None:
+    """Where the link password's file fallback may live (never ``.studio/token``)."""
+    from online import sharelink
+
+    return sharelink.link_keyring_dir(getattr(store, "mirror", None))
+
+
+def _share_folder(client) -> str:
+    """The folder inside the owner's Nextcloud files that the project folder is."""
+    folder = (getattr(client, "folder", "") or "").strip("/")
+    if folder:
+        return folder
+    root = getattr(client, "root_url", "") or ""
+    marker = "/remote.php/dav/files/"
+    if marker in root:
+        rest = root.split(marker, 1)[1]
+        parts = rest.split("/", 1)
+        if len(parts) > 1 and parts[1]:
+            return parts[1]
+    return ""
+
+
+def _ocs_for(client, store):
+    from online import sharelink
+    from online.webdav import is_loopback
+
+    return sharelink.OcsClient(client.server_url, client.username, client.token or "",
+                               timeout=client.timeout,
+                               allow_insecure_http=is_loopback(client.server_url))
+
+
+def _link_members(client, pid) -> list[dict]:
+    return [m for m in client.members(pid) if m.get("login") == "link"]
+
+
+def _invitation_for(store, client, doc, member, passphrase: str | None = None) -> dict:
+    """The invitation text + the plain-language e-mail text for one member."""
+    from online import invite as invite_mod
+    from online import sharelink
+
+    password = sharelink.link_password(doc["public_root"], _link_fallback(store),
+                                       use_keyring=store.use_keyring)
+    if not password:
+        raise sharelink.ShareLinkError(
+            "no_password",
+            "The link password is not stored on this computer. Paste it once "
+            "(\u201cUse an existing link\u201d) and the invitations can be generated again.")
+    project = ""
+    try:
+        project = str(client.project(client.project_id).get("name") or "")
+    except Exception:                           # noqa: BLE001 - a name is cosmetic
+        project = ""
+    text = invite_mod.build_invite(root=doc["public_root"], project=project,
+                                   member={"username": member.get("username"),
+                                           "display_name": member.get("display_name"),
+                                           "invite_id": member.get("invite_id"),
+                                           "tags": member.get("tags") or []},
+                                   password=password, passphrase=passphrase)
+    return {
+        "member": {k: member.get(k) for k in ("username", "display_name", "tags", "tasks",
+                                              "invite_id", "revoked", "invited_at")},
+        "invitation": text,
+        "filename": invite_mod.invitation_filename(project, member.get("display_name")),
+        "url": sharelink.share_url_for(doc["public_root"]),
+        "instructions": invite_mod.instructions(project, member.get("display_name") or "",
+                                                doc["public_root"], passphrase=passphrase),
+    }
+
+
+@bp.post("/api/online/invite")
+def api_invite_describe():
+    """What the connect dialog shows before a passphrase is typed (no secret)."""
+    from online import invite as invite_mod
+
+    payload = request.get_json(force=True, silent=True) or {}
+    text = str(payload.get("text") or payload.get("invitation") or "")
+    try:
+        info = invite_mod.describe(text)
+    except invite_mod.InviteError as exc:
+        return _err(exc.code, str(exc), 400)
+    return jsonify({"ok": True, **info})
+
+
+@bp.post("/api/online/join")
+def api_join():
+    """Join a share-link project with an invitation (coder side).
+
+    The coder never types a server URL, a username or a folder: the invitation
+    carries the link root, the project identity, tags and (in its secret) the
+    link password.  Re-importing the same invitation reuses the same mirror.
+    """
+    from online import invite as invite_mod
+
+    payload = request.get_json(force=True, silent=True) or {}
+    text = str(payload.get("text") or payload.get("invitation") or "")
+    passphrase = str(payload.get("passphrase") or "") or None
+    try:
+        inv = invite_mod.parse_invite(text, passphrase)
+    except invite_mod.InviteError as exc:
+        return _err(exc.code, str(exc), 400)
+    store = get_store()
+    try:
+        store.close()
+    except Exception:                           # noqa: BLE001
+        pass
+    member = inv["member"]
+    try:
+        projects = store.connect_nextcloud(inv["root"], member["username"], inv["password"],
+                                           folder="", webdav_root=inv["root"],
+                                           auth_user="anonymous", login="link",
+                                           invite_id=member.get("invite_id") or None)
+    except AuthError as exc:
+        return _err("unauthorized", str(exc) or "the share link was refused", 401)
+    except ValueError as exc:
+        return _err("bad_request", str(exc), 400)
+    except OfflineError as exc:
+        return _err("offline", str(exc), 503)
+    except OnlineError as exc:
+        return _err(getattr(exc, "code", "") or "error", str(exc), 400)
+    project_id = (projects[0]["id"] if projects else store.client.project_id)
+    try:
+        root = store.open(project_id, analysis_prefetch=run_analysis_locally())
+    except AuthError as exc:
+        return _err("unauthorized", str(exc), 401)
+    except OfflineError as exc:
+        return _err("offline", str(exc), 503)
+    except OnlineError as exc:
+        return _err(getattr(exc, "code", "") or "error", str(exc), 400)
+    S.set_online(store, root)
+    conn = _remember(store)
+    status = _online_status(store)
+    log(f"share-link project joined: {member['username']} at {root}")
+    return jsonify({"ok": True, "root": S.ROOT, "status": status, "connection": conn,
+                    "project": {"name": status.get("project_name") or inv["project"],
+                                "username": member["username"],
+                                "display_name": member.get("display_name"),
+                                "tags": member.get("tags") or []}})
+
+
+def _link_state(store, client, *, probe: bool = True) -> dict:
+    from online import sharelink
+
+    pid = getattr(store.mirror, "state", {}).get("project_id") if store.mirror else client.project_id
+    pid = pid or client.project_id
+    doc = client.link(pid)
+    out = {"available": None, "reason": None, "link": None, "password_stored": False,
+           "members": _link_members(client, pid), "share_url": None,
+           "folder": _share_folder(client)}
+    if doc:
+        out["link"] = doc
+        out["share_url"] = sharelink.share_url_for(doc["public_root"])
+        out["password_stored"] = bool(
+            sharelink.link_password(doc["public_root"], _link_fallback(store),
+                                    use_keyring=store.use_keyring))
+    if probe:
+        ocs = None
+        try:
+            ocs = _ocs_for(client, store)
+            out["available"] = bool(ocs.available())
+        except Exception:                       # noqa: BLE001 - the panel still lists members
+            out["available"] = False
+        finally:
+            if ocs is not None:
+                ocs.close()
+        if not out["available"]:
+            out["reason"] = ("This server has no Nextcloud sharing API (a plain WebDAV share or "
+                             "LRZ Sync+Share). Create the link in Nextcloud and paste it here.")
+    return out
+
+
+@bp.get("/api/online/link")
+@online_route
+def api_link_get(store):
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    return jsonify(_link_state(store, client))
+
+
+@bp.post("/api/online/link")
+@online_route
+def api_link_post(store):
+    """Create the share link, or attach one the owner made in Nextcloud."""
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    payload = request.get_json(force=True, silent=True) or {}
+    action = str(payload.get("action") or ("create" if payload.get("create") else
+                                           "attach" if payload.get("url") else "save_password"))
+    password = str(payload.get("password") or "")
+    try:
+        if action == "create":
+            ocs = _ocs_for(client, store)
+            try:
+                if not ocs.available():
+                    return _err("ocs_unavailable",
+                                "This server has no Nextcloud sharing API, so the link cannot be "
+                                "created from here. Create it in Nextcloud (Files → Share) and "
+                                "paste it below.", 400)
+                password = password or sharelink.random_password(24)
+                share = ocs.create_share(_share_folder(client), password)
+            finally:
+                ocs.close()
+            doc = {"share_id": share["share_id"], "token": share["token"],
+                   "public_root": sharelink.public_root_for(client.server_url, share["token"]),
+                   "created_at": _now_iso()}
+            sharelink.save_link_password(doc["public_root"], password, _link_fallback(store),
+                                         use_keyring=store.use_keyring)
+            client.put_link(client.project_id, doc)
+        elif action == "attach":
+            share = sharelink.parse_share_url(str(payload.get("url") or ""), client.server_url)
+            password = password or sharelink.link_password(
+                share["public_root"], _link_fallback(store), use_keyring=store.use_keyring) or ""
+            if not password:
+                return _err("password_required",
+                            "That link is password protected. Type the link password once; "
+                            "it is kept in your credential store, never in the project.", 400)
+            _check_link_password(share["public_root"], password)
+            _check_link_is_this_project(share["public_root"], password, client)
+            share_id = ""
+            ocs = _ocs_for(client, store)
+            try:
+                for row in ocs.list_shares(_share_folder(client)):
+                    if str(row.get("token") or "") == share["token"]:
+                        share_id = str(row.get("id") or "")
+                        break
+            except sharelink.ShareLinkError:
+                share_id = ""
+            finally:
+                ocs.close()
+            doc = {"share_id": share_id, "token": share["token"],
+                   "public_root": share["public_root"], "created_at": _now_iso()}
+            sharelink.save_link_password(doc["public_root"], password, _link_fallback(store),
+                                         use_keyring=store.use_keyring)
+            client.put_link(client.project_id, doc)
+        else:                                   # save_password: the existing link's password
+            doc = client.link(client.project_id)
+            if not doc:
+                return _err("not_found", "this project has no share link yet", 404)
+            if not password:
+                return _err("bad_request", "the link password is required", 400)
+            _check_link_password(doc["public_root"], password)
+            sharelink.save_link_password(doc["public_root"], password, _link_fallback(store),
+                                         use_keyring=store.use_keyring)
+    except sharelink.ShareLinkUnavailable as exc:
+        return _err("ocs_unavailable", str(exc), 400)
+    except sharelink.ShareLinkError as exc:
+        return _err(exc.code, str(exc), 400)
+    return jsonify(_link_state(store, client))
+
+
+def _check_link_password(public_root: str, password: str) -> None:
+    """Open the public root once: the password must be the link's."""
+    from online.errors import AuthError as _AuthError
+    from online.nextcloud import LINK_GONE_MESSAGE
+    from online.webdav import WebDAV, is_loopback
+
+    dav = WebDAV(public_root, "anonymous", password,
+                 allow_insecure_http=is_loopback(public_root), timeout=30.0)
+    try:
+        dav.stat("")
+    except _AuthError as exc:
+        raise ValueError("That password is not accepted by the link. Check it in "
+                         "Nextcloud (Share → password).") from exc
+    except NotFoundError as exc:
+        raise ValueError("The link does not exist any more (or it is not a public "
+                         "share link). " + LINK_GONE_MESSAGE) from exc
+    except OnlineError as exc:
+        raise ValueError(f"That link cannot be reached right now ({exc}). Check the "
+                         "address and your connection.") from exc
+    finally:
+        dav.close()
+
+
+def _check_link_is_this_project(public_root: str, password: str, client) -> None:
+    """Refuse a link that opens a *different* folder (a wrong paste).
+
+    ``Project/project.json`` is the project's own marker and tiny; when the
+    owner's folder has one, the link must serve exactly the same bytes.
+    """
+    from online.webdav import WebDAV, is_loopback
+
+    try:
+        ours = client.dav.get("Project/project.json")
+    except (NotFoundError, OnlineError):
+        return                                  # nothing to compare against
+    dav = WebDAV(public_root, "anonymous", password,
+                 allow_insecure_http=is_loopback(public_root), timeout=30.0)
+    try:
+        theirs = dav.get("Project/project.json")
+    except (NotFoundError, OnlineError) as exc:
+        raise ValueError("That link does not open this project (its Project/ folder "
+                         "is different). Create the share for this project's folder.") from exc
+    finally:
+        dav.close()
+    if theirs != ours:
+        raise ValueError("That link opens a different folder. Create the share for this "
+                         "project's folder (the one with Project/, Codings/, Text/ …).")
+
+
+@bp.post("/api/online/link/renew")
+@online_route
+def api_link_renew(store):
+    """New link password (OCS PUT): every invitation has to be re-issued."""
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    doc = client.link(client.project_id)
+    if not doc:
+        return _err("not_found", "this project has no share link yet", 404)
+    password = str((request.get_json(force=True, silent=True) or {}).get("password") or "")
+    password = password or sharelink.random_password(24)
+    if not doc.get("share_id"):
+        return _err("no_share_id",
+                    "This link was attached by URL, so its password can only be changed in "
+                    "Nextcloud. Change it there, then paste the new password here.", 400)
+    try:
+        ocs = _ocs_for(client, store)
+        try:
+            ocs.update_password(doc["share_id"], password)
+        finally:
+            ocs.close()
+    except sharelink.ShareLinkError as exc:
+        return _err(exc.code, str(exc), 400)
+    sharelink.save_link_password(doc["public_root"], password, _link_fallback(store),
+                                 use_keyring=store.use_keyring)
+    invitations = []
+    for member in _link_members(client, client.project_id):
+        if member.get("revoked"):
+            continue
+        fresh = client.reissue_invite(client.project_id, member["username"])
+        try:
+            invitations.append(_invitation_for(store, client, doc, fresh))
+        except sharelink.ShareLinkError as exc:
+            return _err(exc.code, str(exc), 400)
+    return jsonify({"ok": True, "invitations": invitations,
+                    "members": _link_members(client, client.project_id),
+                    "share_url": sharelink.share_url_for(doc["public_root"])})
+
+
+@bp.delete("/api/online/link")
+@online_route
+def api_link_delete(store):
+    """Delete the share link: every coder who joined with it loses access."""
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    doc = client.link(client.project_id)
+    if not doc:
+        return _err("not_found", "this project has no share link", 404)
+    if doc.get("share_id"):
+        try:
+            ocs = _ocs_for(client, store)
+            try:
+                ocs.delete_share(doc["share_id"])
+            finally:
+                ocs.close()
+        except sharelink.ShareLinkError as exc:
+            return _err(exc.code, str(exc), 400)
+    for member in _link_members(client, client.project_id):
+        if not member.get("revoked"):
+            client.withdraw_invite(client.project_id, member["username"])
+    sharelink.forget_link_password(doc["public_root"], _link_fallback(store),
+                                   use_keyring=store.use_keyring)
+    client.delete_link(client.project_id)
+    return jsonify({"ok": True, "deleted": True,
+                    "members": _link_members(client, client.project_id)})
+
+
+@bp.post("/api/online/link/invite")
+@online_route
+def api_link_invite(store):
+    """Add a link coder and return the invitation to send."""
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    doc = client.link(client.project_id)
+    if not doc:
+        return _err("not_found", "create or attach the share link first", 404)
+    payload = request.get_json(force=True, silent=True) or {}
+    passphrase = str(payload.get("passphrase") or "") or None
+    if passphrase and len(passphrase) < 6:
+        return _err("bad_request", "Use at least 6 characters for the passphrase.", 400)
+    try:
+        member = client.invite_member(client.project_id, payload)
+    except (BadRequestError, ForbiddenError) as exc:
+        return _err(getattr(exc, "code", "") or "bad_request", str(exc),
+                    403 if isinstance(exc, ForbiddenError) else 400)
+    try:
+        out = _invitation_for(store, client, doc, member, passphrase)
+    except sharelink.ShareLinkError as exc:
+        return _err(exc.code, str(exc), 400)
+    out["ok"] = True
+    out["protected"] = bool(passphrase)
+    out["instructs_passphrase"] = bool(passphrase)
+    return jsonify(out)
+
+
+@bp.get("/api/online/link/invite/<username>")
+@online_route
+def api_link_invite_show(store, username):
+    """The member's *current* invitation (no rotation) - to send it again."""
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    doc = client.link(client.project_id)
+    if not doc:
+        return _err("not_found", "create or attach the share link first", 404)
+    member = next((m for m in _link_members(client, client.project_id)
+                   if str(m.get("username") or "").lower() == str(username).lower()), None)
+    if member is None:
+        return _err("not_found", f"no coder with an invitation named {username!r}", 404)
+    try:
+        out = _invitation_for(store, client, doc, member)
+    except sharelink.ShareLinkError as exc:
+        return _err(exc.code, str(exc), 400)
+    out["ok"] = True
+    return jsonify(out)
+
+
+@bp.post("/api/online/link/invite/<username>/reissue")
+@online_route
+def api_link_invite_reissue(store, username):
+    from online import sharelink
+
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    doc = client.link(client.project_id)
+    if not doc:
+        return _err("not_found", "create or attach the share link first", 404)
+    payload = request.get_json(force=True, silent=True) or {}
+    passphrase = str(payload.get("passphrase") or "") or None
+    try:
+        member = client.reissue_invite(client.project_id, username)
+        out = _invitation_for(store, client, doc, member, passphrase)
+    except sharelink.ShareLinkError as exc:
+        return _err(exc.code, str(exc), 400)
+    out["ok"] = True
+    return jsonify(out)
+
+
+@bp.delete("/api/online/link/invite/<username>")
+@online_route
+def api_link_invite_withdraw(store, username):
+    denied = _owner_denied(store)
+    if denied:
+        return denied
+    client = _nc_client(store)
+    if client is None:
+        return _err("unsupported", "share links exist only on a Nextcloud project", 400)
+    member = client.withdraw_invite(client.project_id, username)
+    return jsonify({"ok": True, "member": member,
+                    "members": _link_members(client, client.project_id)})
+
+
 @bp.post("/api/online/open")
 def api_open():
     payload = request.get_json(force=True, silent=True) or {}
@@ -484,9 +1005,11 @@ def _public(conn, store=None):
     if not conn:
         return None
     out = {k: conn.get(k) for k in ("id", "kind", "url", "server", "username", "folder",
-                                     "project_id", "project_name", "last_opened")}
+                                     "project_id", "project_name", "last_opened",
+                                     "login", "invite_id")}
     out["host"] = _host(conn.get("url") or conn.get("server"))
     out["backend"] = "nextcloud" if conn.get("kind") == "nextcloud" else "server"
+    out["login"] = out.get("login") or "account"
     return out
 
 
@@ -532,10 +1055,17 @@ def reopen_saved(conn_id, *, source="user"):
         store.resume_connection(conn.get("kind") or "server", conn.get("server") or "",
                                 conn.get("username") or "", project_id=conn.get("project_id"),
                                 url=conn.get("url"), folder=conn.get("folder") or "",
-                                webdav_root=conn.get("webdav_root"))
+                                webdav_root=conn.get("webdav_root"),
+                                login=conn.get("login"), invite_id=conn.get("invite_id"))
         root = store.open(conn.get("project_id"), analysis_prefetch=run_analysis_locally())
     except (AuthError, NotConnectedError) as exc:
-        return False, {"error": "unauthorized", "message": str(exc) or "sign in again",
+        message = str(exc) or "sign in again"
+        if isinstance(exc, AuthError) and conn.get("login") == "link":
+            # the owner deleted the link or renewed its password: the saved
+            # connection can never work again without a new invitation
+            from online.nextcloud import LINK_GONE_MESSAGE
+            message = LINK_GONE_MESSAGE
+        return False, {"error": "unauthorized", "message": message,
                        "connection": _public(conn)}, 401
     except OfflineError as exc:
         return False, {"error": "offline", "message": str(exc), "connection": _public(conn)}, 503
