@@ -142,6 +142,28 @@ textarea.oa-input { height: auto; padding: 6px 8px; font-family: var(--mono); re
 .oa-badge[data-tone="danger"] { background: var(--danger-soft); color: var(--danger); }
 
 .oa-muted { margin: 4px 0; color: var(--muted); }
+
+/* ---------------------------------------------------- share-link invitations */
+.oa-note {
+  margin: 6px 0; padding: 7px 9px; font-size: 12px; line-height: 1.45;
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--warn, #b7791f) 40%, var(--line));
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--warn, #b7791f) 9%, transparent);
+}
+.oa-invites { margin: 6px 0 10px; }
+.oa-invite {
+  margin: 8px 0; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+.oa-invite h4 { margin: 0 0 4px; font-size: 12.5px; }
+.oa-invite-text {
+  font-family: var(--mono);
+  font-size: 11.5px; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .oa-error { margin: 4px 0; color: var(--danger); font-weight: 600; }
 .oa-keys { font-family: var(--mono); }
 

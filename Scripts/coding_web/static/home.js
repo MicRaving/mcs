@@ -256,7 +256,8 @@
      reconnects silently with the stored password (online.js). */
   function onlineRow(p) {
     const isCurrent = !!p.current || samePath(p.path || "", state.current);
-    const badge = p.backend === "nextcloud" ? "Nextcloud" : "Online";
+    const badge = String(p.login || "account") === "link" ? "Nextcloud link"
+      : (p.backend === "nextcloud" ? "Nextcloud" : "Online");
     const meta = [p.host || ""];
     if (p.username) meta.push(p.username);
     if (p.last_opened) meta.push(formatWhen(p.last_opened));

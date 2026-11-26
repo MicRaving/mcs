@@ -381,15 +381,281 @@
   /* ------------------------------------------------------------ Members tab */
 
   VIEWS.members = async function () {
-    const [mem, usr] = await Promise.all([api(`${API}/members`), api(`${API}/users`)]);
+    const [mem, usr, status] = await Promise.all([
+      api(`${API}/members`),
+      api(`${API}/users`),
+      api("api/online/status").catch(() => null),
+    ]);
     const members = listOf(mem, "members");
     const users = listOf(usr, "users");
     const memberIds = new Set(members.map((m) => String(uidOf(m))));
+    // Share links exist only on a Nextcloud project (D11): an account member
+    // list plus invitation-based coders.  LRZ Sync+Share is the same WebDAV
+    // backend but has no public share links, so its panel keeps accounts only.
+    const sas = /(^|[\/.])syncandshare\.lrz\.de/i.test(String((status && status.server) || ""));
+    const shareLink = status && status.backend === "nextcloud" && !sas
+      ? await shareLinkPanel() : null;
     return el("div", null,
+      shareLink || null,
       section("Members", memberTable(members)),
       section("Add member", addMemberForm(users, memberIds)),
       section("Server users", createUserForm(), usersTable(users)));
   };
+
+  /* ------------------------------------------------------------ Share link (D11)
+
+     A Nextcloud public share link (password + edit rights) is scoped to this
+     one folder, so co-authors join without a Nextcloud account and the owner
+     never hands out his own app password.  The password lives in the owner's
+     credential store, never in the project; the invitation text carries it to
+     the coder (plain by default, or protected with a passphrase). */
+
+  function copyText(text) {
+    const done = () => notify("Copied to the clipboard");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallback());
+    } else {
+      fallback();
+    }
+    function fallback() {
+      const ta = el("textarea", { style: "position:fixed;left:-9999px" });
+      ta.value = text;
+      document.body.append(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); } catch (_) { notify("Copy failed — select the text", "err"); }
+      ta.remove();
+    }
+  }
+
+  function saveInviteFile(name, text) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: name || "invitation.csinvite" });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function invitationNode(data, outlet) {
+    const who = (data.member && (data.member.display_name || data.member.username)) || "the coder";
+    const inv = el("textarea", { class: "oa-input oa-invite-text", rows: 5, readonly: true,
+      spellcheck: "false", "aria-label": `Invitation for ${who}` });
+    inv.value = data.invitation || "";
+    const mail = el("textarea", { class: "oa-input oa-invite-text", rows: 5, readonly: true,
+      "aria-label": `E-mail text for ${who}` });
+    mail.value = data.instructions || "";
+    const box = el("div", { class: "oa-invite" },
+      el("h4", { text: `Invitation for ${who}` }),
+      el("p", { class: "oa-muted", text:
+        "Send this as it is — the coder pastes it into CodingStudio (“Join with an invitation”). "
+        + "The invitation is personal and can be withdrawn at any time." }),
+      field("Invitation text (the coder pastes this)", inv),
+      field("E-mail text you can paste", mail),
+      el("div", { class: "oa-actions-row" },
+        el("button", { class: "btn primary", type: "button", text: "Copy invitation",
+          onclick: () => copyText(inv.value) }),
+        el("button", { class: "btn", type: "button", text: "Copy e-mail text",
+          onclick: () => copyText(mail.value) }),
+        el("button", { class: "btn", type: "button", text: "Save as file…",
+          onclick: () => saveInviteFile(data.filename, inv.value) }),
+        el("button", { class: "btn ghost", type: "button", text: "Close",
+          onclick: () => box.remove() })));
+    if (outlet) outlet.prepend(box);
+    return box;
+  }
+
+  function inviteForm(outlet, onDone) {
+    const name = el("input", { class: "oa-input", type: "text", autocomplete: "off",
+      placeholder: "the coder's name, e.g. Anna Berger" });
+    const tags = chipInput([], "Coder tag(s) for the new coder");
+    const tasks = taskBoxes(["coding"]);
+    const protect = el("input", { type: "checkbox" });
+    const phrase = el("input", { class: "oa-input", type: "password", autocomplete: "new-password",
+      placeholder: "at least 6 characters" });
+    phrase.disabled = true;
+    protect.addEventListener("change", () => { phrase.disabled = !protect.checked; });
+    const btn = el("button", { class: "btn primary", type: "button", text: "Invite coder" });
+    btn.addEventListener("click", action(btn, async () => {
+      const body = { display_name: name.value.trim(), tags: tags.get(), tasks: tasks.get() };
+      if (!body.display_name) throw new AdminError("bad_request", "A display name is required.");
+      if (!body.tags.length) throw new AdminError("bad_request", "At least one coder tag is required — the tag names the coder's coding files.");
+      if (protect.checked) {
+        if (phrase.value.length < 6) throw new AdminError("bad_request", "Use at least 6 characters for the passphrase.");
+        body.passphrase = phrase.value;
+      }
+      const data = await api("api/online/link/invite", { method: "POST", body });
+      invitationNode(data, outlet);
+      if (onDone) await onDone();
+    }, "Coder invited — copy the invitation below"));
+    return el("div", null,
+      el("div", { class: "oa-form-row" }, field("Display name", name), field("Tags", tags.node)),
+      el("div", { class: "oa-form-row" }, field("Tasks", tasks.node)),
+      el("div", { class: "oa-form-row" },
+        el("label", { class: "oa-check" }, protect, "Protect the invitation with a passphrase"),
+        field("Passphrase", phrase)),
+      el("p", { class: "oa-muted", text:
+        "Without a passphrase the invitation can be used by anyone who receives it — that is the "
+        + "usual choice, because the link reaches this one folder only and can be withdrawn. With a "
+        + "passphrase, send it separately (for example by chat)." }),
+      el("div", { class: "oa-actions-row" }, btn));
+  }
+
+  function linkMembersTable(members, outlet, refresh) {
+    const rows = members.map((m) => {
+      const who = m.display_name || m.username;
+      const stateTag = m.revoked
+        ? badge("withdrawn", "warn")
+        : badge("active", "ok");
+      const show = el("button", { class: "btn", type: "button", text: "Invitation" });
+      show.addEventListener("click", action(show, async () => {
+        const data = await api(`api/online/link/invite/${enc(m.username)}`);
+        invitationNode(data, outlet);
+      }));
+      const again = el("button", { class: "btn", type: "button", text: "Re-issue" });
+      again.addEventListener("click", () => {
+        if (!window.confirm(`Re-issue the invitation for ${who}? The invitation they already have stops working.`)) return;
+        action(again, async () => {
+          const data = await api(`api/online/link/invite/${enc(m.username)}/reissue`, { method: "POST", body: {} });
+          invitationNode(data, outlet);
+          await refresh();
+        }, `New invitation for ${who} — send it now`)();
+      });
+      const withdraw = el("button", { class: "btn danger", type: "button", text: "Withdraw" });
+      withdraw.addEventListener("click", () => {
+        if (!window.confirm(`Withdraw ${who}'s invitation? Their app becomes read-only; nothing they coded is deleted.`)) return;
+        action(withdraw, async () => {
+          await api(`api/online/link/invite/${enc(m.username)}`, { method: "DELETE" });
+          await refresh();
+        }, `Withdrawn: ${who}`)();
+      });
+      return el("tr", null,
+        td(who), td(m.username || ""), td((m.tags || []).join(", ")),
+        td((m.tasks || []).join(", ")), td(fmtTime(m.invited_at)),
+        el("td", null, stateTag),
+        el("td", { class: "oa-actions" }, show, again, withdraw));
+    });
+    return table(["Name", "App identity", "Tags", "Tasks", "Invited", "Status", ""],
+      rows, "No coder joined with an invitation yet.");
+  }
+
+  async function shareLinkPanel() {
+    let data;
+    try {
+      data = await api("api/online/link");
+    } catch (e) {
+      return section("Share link", el("p", { class: "oa-muted",
+        text: `The share link could not be read: ${explain(e)}` }));
+    }
+    const body = el("div", { class: "oa-link" });
+    const outlet = el("div", { class: "oa-invites" });
+    const refresh = async () => {
+      const fresh = await api("api/online/link").catch(() => data);
+      data = fresh;
+      render();
+    };
+
+    function render() {
+      body.replaceChildren();
+      const out = outlet;
+      if (!data.link) {
+        // no link yet: create one (OCS) or attach one made in Nextcloud
+        const what = el("p", { class: "oa-muted", text:
+          "A share link lets co-authors join this project without a Nextcloud account: the link "
+          + "reaches this folder only and can be withdrawn at any time." });
+        const create = el("button", { class: "btn primary", type: "button",
+          text: "Create a share link", disabled: data.available === false });
+        create.addEventListener("click", action(create, async () => {
+          const made = await api("api/online/link", { method: "POST", body: { action: "create" } });
+          data = made;
+          render();
+        }, "Share link created — now invite a coder"));
+        const url = el("input", { class: "oa-input", type: "text", spellcheck: "false",
+          placeholder: "https://cloud.example.org/s/…" });
+        const password = el("input", { class: "oa-input", type: "password", autocomplete: "off",
+          placeholder: "the link password" });
+        const attach = el("button", { class: "btn", type: "button", text: "Use this link" });
+        attach.addEventListener("click", action(attach, async () => {
+          const made = await api("api/online/link", { method: "POST",
+            body: { action: "attach", url: url.value.trim(), password: password.value } });
+          data = made;
+          render();
+        }, "Link saved — now invite a coder"));
+        body.append(what, el("div", { class: "oa-actions-row" }, create));
+        if (data.available === false) {
+          body.append(el("p", { class: "oa-note", text: String(data.reason || "") }));
+        }
+        body.append(el("h4", { text: "Or use a link you made in Nextcloud" }),
+          el("p", { class: "oa-muted", text:
+            "In Nextcloud open the project folder → Share → “Share link”, set a password, allow "
+            + "editing, and paste the link here." }),
+          el("div", { class: "oa-form-row" }, field("Share link", url), field("Link password", password)),
+          el("div", { class: "oa-actions-row" }, attach));
+        body.append(out);
+        return;
+      }
+      // a link exists
+      const link = data.link;
+      const shareUrl = el("input", { class: "oa-input", type: "text", readonly: true });
+      shareUrl.value = data.share_url || link.public_root || "";
+      const copy = el("button", { class: "btn", type: "button", text: "Copy link",
+        onclick: () => copyText(shareUrl.value) });
+      body.append(
+        el("h4", { text: "The share link" }),
+        el("div", { class: "oa-form-row" }, field("Link (share it only if you want)", shareUrl)),
+        el("div", { class: "oa-actions-row" }, copy),
+        el("p", { class: "oa-muted", text:
+          "The link's password stays in your credential store on this computer; the invitations "
+          + "below already contain it, so you do not have to type it again." }));
+      if (!data.password_stored) {
+        const pw = el("input", { class: "oa-input", type: "password", autocomplete: "off" });
+        const save = el("button", { class: "btn primary", type: "button", text: "Save the link password" });
+        save.addEventListener("click", action(save, async () => {
+          const made = await api("api/online/link", { method: "POST",
+            body: { action: "save_password", password: pw.value } });
+          data = made;
+          render();
+        }, "Link password saved — invitations can be generated again"));
+        body.append(el("p", { class: "oa-note", text:
+          "The link password is not stored on this computer, so invitations cannot be generated. "
+          + "Type it once (Nextcloud → the share → password)." }),
+          el("div", { class: "oa-form-row" }, field("Link password", pw)),
+          el("div", { class: "oa-actions-row" }, save));
+      }
+      const renew = el("button", { class: "btn danger", type: "button", text: "Renew link password" });
+      renew.addEventListener("click", () => {
+        if (!window.confirm("Renew the link password? Every coder has to accept a new invitation; "
+          + "their app keeps the papers and edits it already has.")) return;
+        action(renew, async () => {
+          const made = await api("api/online/link/renew", { method: "POST", body: {} });
+          data = await api("api/online/link");
+          render();
+          (made.invitations || []).forEach((row) => invitationNode(row, out));
+          notify("New link password — send every coder a fresh invitation", "ok");
+        }, null)();
+      });
+      const del = el("button", { class: "btn danger", type: "button", text: "Delete link" });
+      del.addEventListener("click", () => {
+        if (!window.confirm("Delete the share link? Everyone who joined with it loses access "
+          + "immediately (their own files stay on their computer).")) return;
+        action(del, async () => {
+          await api("api/online/link", { method: "DELETE" });
+          data = await api("api/online/link");
+          render();
+        }, "Share link deleted")();
+      });
+      body.append(el("div", { class: "oa-actions-row" }, renew, del));
+      body.append(el("h4", { text: "Invite a coder" }), inviteForm(out, refresh));
+      body.append(el("h4", { text: "Coders with an invitation" }),
+        linkMembersTable(data.members || [], out, refresh));
+      body.append(out);
+    }
+
+    render();
+    return section(data.available === false && !data.link
+      ? "Share link (this server cannot create one)"
+      : "Share link", body);
+  }
 
   function memberTable(members) {
     const rows = members.map((m) => {

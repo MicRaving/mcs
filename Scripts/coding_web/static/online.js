@@ -58,6 +58,14 @@
   function isSyncAndShare(url) { return /(^|[/.])syncandshare\.lrz\.de/i.test(String(url || "")); }
   function davLabel(url) { return isSyncAndShare(url) ? "Sync+Share" : "Nextcloud"; }
 
+  // Share-link projects (D11): the coder joined with an invitation, so the
+  // sign-in is a folder-scoped link instead of a Nextcloud account.
+  function isLinkMode() {
+    return String((S.status && S.status.login) || (me() && me().login) || "") === "link";
+  }
+  function isReadonly() { return !!(S.status && S.status.readonly); }
+  const READONLY_FALLBACK = "Your invitation was withdrawn or replaced by the project owner. Ask them for a new one.";
+
   function h(tag, attrs, ...kids) {
     const node = document.createElement(tag);
     Object.entries(attrs || {}).forEach(([k, v]) => {
@@ -184,6 +192,7 @@
     S.mode = (st && st.mode) || (S.active ? "online" : "local");
     S.conflictCount = Number(st && st.conflicts) || 0;
     renderBadge();
+    renderReadonlyBanner();
     renderCoderField();
     renderAdminEntry();
     if (S.active && !wasActive) {
@@ -252,7 +261,8 @@
     const bestEffort = st.backend === "nextcloud";
     let label = bestEffort ? `${davLabel(st.server)} (best-effort)` : "Online";
     const dl = downloadInfo(st);
-    if (dl) label = (bestEffort ? "Nextcloud — " : "") + dl.short;
+    if (isReadonly()) label = "read-only — ask the owner";
+    else if (dl) label = (bestEffort ? "Nextcloud — " : "") + dl.short;
     else if (S.mode === "syncing") label = bestEffort ? "Nextcloud — syncing…" : "Syncing…";
     if (S.mode === "offline") label = `offline — ${Number(st.pending) || 0} pending`;
     else if (S.mode === "error") label = bestEffort ? "Nextcloud — sync error" : "Sync error";
@@ -271,6 +281,9 @@
         : (showPending ? `${pending} change${pending === 1 ? "" : "s"} pending` : "");
     }
     const bits = [];
+    if (isReadonly()) bits.push(READONLY_FALLBACK);
+    if (isLinkMode()) bits.push("Signed in with a share-link invitation (one folder only)");
+    if (st.link_error) bits.push(st.link_error);
     if (dl) bits.push(dl.long);
     if (bestEffort) bits.push("Nextcloud mode: best-effort locks, honour-system roles and blinding");
     if (st.project_name) bits.push(st.project_name);
@@ -284,6 +297,34 @@
     document.title = (S.conflictCount || st.pending)
       ? `(${S.conflictCount || st.pending}${S.conflictCount ? "!" : ""}) ${document.title.replace(/^\(\d+\+?!?\) /, "")}`
       : document.title.replace(/^\(\d+\+?!?\) /, "");
+  }
+
+  /* A withdrawn / replaced invitation, or a share link that no longer works:
+     the project is read-only (local edits stay queued) and the reason must be
+     impossible to miss - it is not a network problem and waiting will not fix
+     it.  The banner never blocks the app; it explains what to do. */
+  function renderReadonlyBanner() {
+    let banner = document.getElementById("online-banner");
+    if (!banner) {
+      banner = h("div", { id: "online-banner", class: "cs-online-banner", role: "status" });
+      document.body.appendChild(banner);
+    }
+    const st = S.status || {};
+    const message = st.readonly
+      ? (st.readonly_message || READONLY_FALLBACK)
+      : (st.link_error || "");
+    const show = !!(S.active && message);
+    banner.hidden = !show;
+    if (!show) return;
+    banner.dataset.kind = st.readonly ? "readonly" : "link";
+    banner.innerHTML = "";
+    banner.append(
+      h("b", { text: st.readonly ? "Read-only: " : "The share link no longer works: " }),
+      h("span", { text: message }),
+      h("span", { class: "cs-online-banner-note",
+        text: st.readonly
+          ? " Your edits and papers are kept on this computer and will sync once a new invitation is accepted."
+          : " Your files stay on this computer." }));
   }
 
   /* The background download of the project files (the first sync of a large
@@ -358,10 +399,12 @@
     openConnectDialog(conn);
     const st = $("#online-connect-status");
     if (st) {
-      st.textContent = failed && failed.error === "offline"
+      const offline = failed && failed.error === "offline";
+      st.textContent = offline
         ? `${conn.host || "The server"} cannot be reached right now.`
-        : `Sign in again to ${conn.project_name || conn.host || "the online project"}`
-          + " - the stored password was not accepted or is missing.";
+        : ((failed && failed.message)
+          || (`Sign in again to ${conn.project_name || conn.host || "the online project"}`
+            + " - the stored password was not accepted or is missing."));
       st.className = "online-status err";
     }
   }
@@ -386,7 +429,9 @@
     if (!list.length) return;
     host.appendChild(h("h4", { text: "Saved connections" }));
     list.forEach((c) => {
-      const badge = c.backend === "nextcloud" ? davLabel(c.url || c.server) : "Online";
+      const link = String(c.login || "account") === "link";
+      const badge = link ? "Nextcloud link"
+        : (c.backend === "nextcloud" ? davLabel(c.url || c.server) : "Online");
       host.appendChild(h("div", { class: "online-project-row" },
         h("div", { class: "online-project-name" },
           h("b", { text: c.project_name || c.folder || c.project_id || "Online project" }),
@@ -419,8 +464,9 @@
         title: online ? `${p.host || ""} · ${p.username || ""}` : (p.path || "") });
       btn.append(h("span", { class: "proj-recent-name", text: p.name || p.path || "" }));
       if (online) {
+        const link = String(p.login || "account") === "link";
         btn.append(h("span", { class: "proj-recent-badge", "data-kind": p.backend || "server",
-          text: p.backend === "nextcloud" ? davLabel(p.host) : "Online" }));
+          text: link ? "Nextcloud link" : (p.backend === "nextcloud" ? davLabel(p.host) : "Online") }));
         btn.append(h("span", { class: "proj-recent-path", text: p.host || "" }));
       } else {
         btn.append(h("span", { class: "proj-recent-path", text: p.path || "" }));
@@ -443,7 +489,8 @@
   function renderAdminEntry() {
     const btn = $("#online-admin-btn");
     if (!btn) return;
-    btn.hidden = !(S.active && isOwner());
+    // a share-link invitation is never a project admin (D11)
+    btn.hidden = !(S.active && isOwner() && !isLinkMode());
   }
 
   /* ---------------------------------------------------------------- coder tags */
@@ -726,6 +773,9 @@
     body.appendChild(form);
     // saved connections: one click reconnects (the password is in the OS keyring)
     body.appendChild(h("div", { class: "online-projects online-saved", id: "online-saved", hidden: true }));
+    // share-link projects: a coder with no Nextcloud account joins with the
+    // invitation the owner sent (paste it, open the .csinvite file, or drop it)
+    body.appendChild(buildJoinBlock());
 
     const foot = h("div", { class: "sheet-foot" });
     const closeBtn = h("button", { class: "btn ghost", id: "online-connect-close", type: "button", text: "Close" });
@@ -749,11 +799,13 @@
     const form = $("#online-form", d);
     const offBtn = $("#online-close-project", d);
     const connectBtn = $("#online-connect-btn", d);
+    const joinBlock = $("#online-join", d);
     const sub = d.querySelector(".online-sub");
     const st = S.status || {};
     if (S.active) {
       sub.textContent = "You are in an online project. Opening another one or closing this one switches the app's root.";
       form.hidden = true;
+      if (joinBlock) joinBlock.hidden = true;
       offBtn.hidden = false;
       if (connectBtn) connectBtn.hidden = true;
       cur.hidden = false;
@@ -774,6 +826,7 @@
     }
     sub.textContent = "Sign in to a studio server, or open a shared Nextcloud or LRZ Sync+Share folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the server's token or the Nextcloud app password is kept in the system's credential store (Windows Credential Manager / Keychain), never in the app's settings; “Forget” or “Log out” removes it.";
     form.hidden = false;
+    if (joinBlock) joinBlock.hidden = false;
     offBtn.hidden = true;
     if (connectBtn) connectBtn.hidden = false;
     cur.hidden = true;
@@ -929,6 +982,167 @@
     if (focus) setTimeout(() => focus.focus(), 30);
   }
 
+  /* ---------------------------------------------------------------- invite / join */
+
+  function buildJoinBlock() {
+    const block = h("div", { class: "online-join", id: "online-join" });
+    const text = h("textarea", {
+      class: "input online-invite-text", id: "online-invite-text", rows: "3",
+      spellcheck: "false", placeholder: "csinvite1.…  (paste the whole invitation)",
+    });
+    const file = h("input", { class: "input", id: "online-invite-file", type: "file",
+      accept: ".csinvite,text/plain" });
+    const pass = h("input", { class: "input", id: "online-invite-passphrase", type: "password",
+      autocomplete: "off", placeholder: "the passphrase you were given" });
+    const passField = h("label", { class: "online-field", id: "online-invite-pass-field", hidden: true },
+      h("span", { text: "Passphrase" }), pass);
+    const status = h("p", { class: "online-status", id: "online-invite-status" });
+    const btn = h("button", { class: "btn primary", id: "online-join-btn", type: "button",
+      text: "Join with this invitation" });
+    const fileBtn = h("button", { class: "btn ghost", id: "online-invite-open", type: "button",
+      text: "Open file…" });
+
+    block.append(
+      h("h4", { text: "Join with an invitation" }),
+      h("p", { class: "online-muted",
+        text: "The project owner sent you an invitation (a text starting with “csinvite1.” or a "
+          + ".csinvite file). Paste it below, open the file, or drop the file on this window. "
+          + "You do not need a Nextcloud account for this." }),
+      text,
+      h("div", { class: "online-row" },
+        h("div", { class: "online-actions" }, fileBtn, h("span", { class: "online-muted",
+          text: " you can also drop the .csinvite file here" }))),
+      passField,
+      status,
+      h("div", { class: "online-actions" }, btn),
+    );
+    file.hidden = true;
+    fileBtn.addEventListener("click", () => file.click());
+    file.addEventListener("change", async () => {
+      const picked = file.files && file.files[0];
+      if (!picked) return;
+      await loadInviteFile(picked);
+    });
+    btn.addEventListener("click", () => joinWithInvitation());
+    // drop a .csinvite straight onto the dialog
+    block.addEventListener("dragover", (e) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files")) {
+        e.preventDefault();
+        block.classList.add("is-drop");
+      }
+    });
+    block.addEventListener("dragleave", () => block.classList.remove("is-drop"));
+    block.addEventListener("drop", async (e) => {
+      if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+      e.preventDefault();
+      block.classList.remove("is-drop");
+      await loadInviteFile(e.dataTransfer.files[0]);
+    });
+    return block;
+  }
+
+  async function loadInviteFile(file) {
+    const text = document.getElementById("online-invite-text");
+    const status = document.getElementById("online-invite-status");
+    try {
+      const raw = await file.text();
+      if (text) text.value = raw;
+      if (status) {
+        status.textContent = `Read ${file.name} — now press “Join with this invitation”.`;
+        status.className = "online-status";
+      }
+      await describeInvite();
+    } catch (err) {
+      if (status) {
+        status.textContent = `Could not read ${file.name}: ${String(err.message || err)}`;
+        status.className = "online-status err";
+      }
+    }
+  }
+
+  /* Ask the app what this invitation needs (only the passphrase field hides or
+     shows); the invitation itself is never decoded in the browser. */
+  async function describeInvite() {
+    const text = (($("#online-invite-text") || {}).value || "").trim();
+    const passField = $("#online-invite-pass-field");
+    if (!text) {
+      if (passField) passField.hidden = true;
+      return null;
+    }
+    try {
+      const info = await POST("api/online/invite", { text });
+      if (passField) passField.hidden = !info.needs_passphrase;
+      return info;
+    } catch {
+      if (passField) passField.hidden = true;
+      return null;
+    }
+  }
+
+  async function joinWithInvitation() {
+    const d = $("#online-connect-dialog");
+    const textEl = $("#online-invite-text", d);
+    const passEl = $("#online-invite-passphrase", d);
+    const st = $("#online-invite-status", d);
+    const btn = $("#online-join-btn", d);
+    const text = (textEl.value || "").trim();
+    const passphrase = (passEl.value || "") || null;
+    const say = (msg, kind) => {
+      if (!st) return;
+      st.textContent = msg;
+      st.className = "online-status" + (kind === "err" ? " err" : "");
+    };
+    if (!text) {
+      say("Paste the invitation the project owner sent you, or open the .csinvite file.", "err");
+      return;
+    }
+    say("Checking the invitation…");
+    const info = await describeInvite();
+    if (!info) {
+      say("This is not a CodingStudio invitation. Paste the whole text you received "
+        + "(it starts with “csinvite1.”).", "err");
+      return;
+    }
+    if (info.needs_passphrase && !passphrase) {
+      say(`${info.display_name || "This invitation"} is protected with a passphrase — type it above.`, "err");
+      const pf = $("#online-invite-pass-field", d);
+      if (pf) pf.hidden = false;
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = "Joining…"; }
+    S.switching = true;
+    try {
+      const r = await POST("api/online/join", { text, passphrase });
+      if (textEl) textEl.value = "";
+      if (passEl) passEl.value = "";
+      d.close();
+      await refreshStatus();
+      if (window.CS.app && window.CS.app.applyRootSwitch) {
+        await window.CS.app.applyRootSwitch({ root: (r && r.root) || "online project" });
+      }
+      const who = (r && r.project && r.project.display_name) || "you";
+      toast("Joined the project", "ok", `${(r && r.project && r.project.name) || ""} · ${who}`);
+    } catch (err) {
+      say(inviteErrorText(err), "err");
+    } finally {
+      S.switching = false;
+      if (btn) { btn.disabled = false; btn.textContent = "Join with this invitation"; }
+    }
+  }
+
+  function inviteErrorText(err) {
+    const code = err && err.code;
+    const msg = String((err && err.message) || err || "");
+    if (code === "needs_passphrase") return "This invitation is protected with a passphrase — type it above.";
+    if (code === "wrong_passphrase") return "Wrong passphrase for this invitation.";
+    if (code === "newer_version") return "This invitation was made by a newer version of CodingStudio. Update the app and try again.";
+    if (code === "not_invitation") return "This is not an invitation. Paste the whole text the owner sent you.";
+    if (code === "damaged") return "This invitation is damaged — it may have been cut off by an e-mail program. Ask for a new one.";
+    if (err && err.status === 401) return msg || "The share link no longer works — ask the owner for a new invitation.";
+    if (err && err.status === 503) return "The project cannot be reached right now. Try again in a moment.";
+    return msg || "The invitation could not be used.";
+  }
+
   /* ---------------------------------------------------------------- sync panel */
   function buildSyncDialog() {
     const d = ensureDialog("online-sync-dialog", "wide online-sync");
@@ -1031,6 +1245,8 @@
         [st.backend === "nextcloud" ? davLabel(st.server) : "Server", st.server],
         ["User", st.user],
         ["Role", me().role],
+        ["Signed in", isLinkMode() ? "share link (invitation)" : "account"],
+        ["Access", isReadonly() ? "read-only" : "read & write"],
         ["Guarantees", st.guarantees || "strong"],
         ["Mode", S.mode + (S.mode === "offline" && st.pending ? ` — ${st.pending} pending` : "")],
         ["Last sync", when(st.last_sync)],
@@ -1185,6 +1401,20 @@
     if (!box || !S.active) return;
     box.innerHTML = "";
     box.appendChild(h("h4", { text: `Who is working on what (${others.length})` }));
+    const copies = others.filter((o) => o && o.same_identity);
+    if (copies.length) {
+      // not a block - a second device of the same person is legitimate - but
+      // the accidental forward is exactly what this sentence is for
+      box.appendChild(h("p", { class: "online-warn", id: "online-presence-warn",
+        text: `Your invitation is also in use on another computer (${when(copies[0].ts)}). `
+          + "If that is not you, ask the owner for your own invitation." }));
+      if (!S.warnedSameIdentity) {
+        S.warnedSameIdentity = true;
+        toast("Your invitation is in use on another computer",
+          "err",
+          "If that is not you, ask the project owner for your own invitation.");
+      }
+    }
     if (!others.length) {
       box.appendChild(h("p", { class: "online-muted", text: "Nobody else is in this project right now." }));
       return;
@@ -1195,6 +1425,7 @@
         h("span", { class: "online-dot-sm" }),
         h("span", { class: "online-grow" },
           h("b", { text: o.display_name || o.user || "?" }),
+          o.same_identity ? h("span", { class: "online-muted", text: " · also your invitation" }) : null,
           h("span", { class: "online-muted", text: o.key ? ` · ${o.key}` : "" }),
           h("span", { class: "online-muted", text: o.tab ? ` · ${o.tab}` : "" })),
         h("span", { class: "online-muted", text: when(o.ts) }),

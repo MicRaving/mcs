@@ -209,6 +209,47 @@ dialog.online-sheet h5 {
 
 .online-projects { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .online-saved h4 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+/* ------------------------------------------------------- share-link projects */
+/* Join with an invitation (the connect dialog) and the read-only banner. */
+.online-join {
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.online-join h4 { margin: 0 0 4px; }
+.online-join.is-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--r-sm);
+}
+.online-invite-text {
+  width: 100%; min-height: 76px; resize: vertical;
+  font-family: var(--mono, ui-monospace, "Consolas", monospace);
+  font-size: 11.5px; line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+#online-invite-pass-field { max-width: 340px; }
+
+.cs-online-banner {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  padding: 9px 16px; font-size: 12.5px; line-height: 1.45;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--warn, #b7791f) 14%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn, #b7791f) 40%, var(--line));
+}
+.cs-online-banner[data-kind="readonly"] { background: color-mix(in srgb, var(--danger, #c53030) 12%, var(--panel)); border-bottom-color: color-mix(in srgb, var(--danger, #c53030) 38%, var(--line)); }
+.cs-online-banner[hidden] { display: none !important; }
+.cs-online-banner b { font-weight: 700; }
+.cs-online-banner-note { color: var(--muted); }
+
+.online-warn {
+  margin: 4px 0 8px; padding: 7px 9px; font-size: 12px; line-height: 1.45;
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--warn, #b7791f) 45%, var(--line));
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--warn, #b7791f) 10%, transparent);
+}
 /* the background download of a first sync */
 .oc-progress { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin: 6px 0 8px; }
 .oc-progress-bar { height: 100%; background: var(--accent, #2a5bd7); transition: width .4s ease; }
