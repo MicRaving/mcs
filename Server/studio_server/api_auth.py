@@ -30,7 +30,7 @@ from .db import (
     revoke_user_tokens,
     update_user,
 )
-from .security import hash_password, token_hash, verify_password
+from .security import hash_password, needs_rehash, token_hash, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -76,6 +76,10 @@ def login(body: LoginBody, request: Request, conn=Depends(get_db)) -> dict[str, 
         raise fail(401, "unauthorized", "This account is disabled.")
 
     limiter.reset(key)
+    if needs_rehash(stored):
+        # a hash from before the OWASP parameters: upgrade it now that we
+        # know the password (keeps later logins at 19 MiB instead of 64)
+        update_user(conn, int(user["id"]), pw_hash=hash_password(body.password))
     prune_expired_tokens(conn)
     raw, expires = issue_token(conn, int(user["id"]), cfg.token_ttl_secs)
     return {"token": raw, "expires_at": expires, "user": public_user(user)}

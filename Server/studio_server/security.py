@@ -17,7 +17,17 @@ from collections import deque
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
-_hasher = PasswordHasher()  # argon2id, library defaults
+#: argon2id with the OWASP minimum (19 MiB, t=2, p=1) instead of the library
+#: defaults (64 MiB, t=3, p=4): three concurrent logins with the defaults took
+#: the server from 52 to 245 MB and were OOM-killed under a 200 MB cap
+#: (Results/LOWMEM_server_assessment_measurements.md).  Hashes made with the
+#: old parameters still verify (argon2 reads them from the hash) and are
+#: re-hashed with these on the next successful login (``needs_rehash``).
+_hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
+
+#: at most two argon2 computations at once (each holds its memory block):
+#: a login burst queues for milliseconds instead of stacking 19 MiB blocks
+_HASH_SLOTS = threading.BoundedSemaphore(2)
 
 TOKEN_BYTES = 32
 
@@ -26,7 +36,8 @@ def hash_password(password: str) -> str:
     """argon2id hash of ``password``; empty passwords are refused."""
     if not password:
         raise ValueError("empty password")
-    return _hasher.hash(password)
+    with _HASH_SLOTS:
+        return _hasher.hash(password)
 
 
 def verify_password(password: str, stored: str) -> bool:
@@ -34,7 +45,8 @@ def verify_password(password: str, stored: str) -> bool:
     if not stored:
         return False
     try:
-        return _hasher.verify(stored, password)
+        with _HASH_SLOTS:
+            return _hasher.verify(stored, password)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
 

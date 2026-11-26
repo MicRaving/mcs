@@ -444,10 +444,13 @@ def may_read_blob(conn, member: dict[str, Any], hash: str) -> bool:
         "SELECT path FROM files WHERE project_id = ? AND hash = ?", (pid, hash)
     ):
         candidates.add(row["path"])
+    # two indexed point lookups (idx_changes_new_hash / _base_hash); an OR in
+    # one WHERE made SQLite scan the whole change log: 40 ms per blob GET at
+    # 25k files, the cause of the OOM in the 200 MB clone test
     for row in conn.execute(
-        "SELECT DISTINCT path FROM changes WHERE project_id = ?"
-        " AND (new_hash = ? OR base_hash = ?)",
-        (pid, hash, hash),
+        "SELECT path FROM changes WHERE project_id = ? AND new_hash = ?"
+        " UNION SELECT path FROM changes WHERE project_id = ? AND base_hash = ?",
+        (pid, hash, pid, hash),
     ):
         candidates.add(row["path"])
 
