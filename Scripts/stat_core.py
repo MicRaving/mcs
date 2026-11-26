@@ -22,14 +22,73 @@ import math
 
 import numpy as np
 
-try:
-    from scipy import stats as _st
-    from scipy.special import ndtri as _ndtri
-except Exception:  # pragma: no cover - scipy present in this environment
-    _st = None
-    _ndtri = None
-
 import contract as CT  # stdlib-only canonical contracts
+
+
+class _LazyScipy:
+    """``scipy.stats``, imported on first use and never at module import.
+
+    scipy is ~50 MB resident when a process is the only one mapping it; the
+    coding app imports this module (through ``suite_common`` ->
+    ``routes_analysis``) in every browser worker, but most workers only code and
+    never run an analysis.  A lazy proxy keeps the analysis numbers unchanged
+    while letting such a worker skip the import (measured: ~14 MB less private
+    memory per browser worker).  Attribute access imports scipy exactly as
+    before.
+    """
+
+    __slots__ = ("_stats", "_failed")
+
+    def __init__(self):
+        self._stats = None
+        self._failed = False
+
+    def _load(self):
+        if self._stats is None and not self._failed:
+            try:  # pragma: no cover - present in every supported environment
+                from scipy import stats as stats_mod
+            except Exception:  # noqa: BLE001 - the call sites handle "absent"
+                self._failed = True
+            else:
+                self._stats = stats_mod
+        return self._stats
+
+    def __getattr__(self, name):
+        mod = self._load()
+        if mod is None:
+            raise AttributeError(name)
+        return getattr(mod, name)
+
+    def __bool__(self):
+        return self._load() is not None
+
+    def __repr__(self):
+        return "<lazy scipy.stats>" if self._stats is None else repr(self._stats)
+
+
+_st = _LazyScipy()
+_NDTRI = {}
+
+
+def has_scipy() -> bool:
+    """True when scipy imports (the call sites' old "scipy is present" test)."""
+    return bool(_st)
+
+
+def _ndtri(arr):
+    """``scipy.special.ndtri`` (imported lazily; NaN when scipy is absent)."""
+    fn = _NDTRI.get("fn")
+    if fn is None and "failed" not in _NDTRI:
+        try:  # pragma: no cover - present in every supported environment
+            from scipy.special import ndtri as fn_mod
+        except Exception:  # noqa: BLE001
+            _NDTRI["failed"] = True
+            fn = None
+        else:
+            _NDTRI["fn"] = fn = fn_mod
+    if fn is None:
+        return np.full(np.shape(arr), np.nan)
+    return fn(arr)
 
 polarity_sign = CT.polarity_sign
 
@@ -63,8 +122,6 @@ def probit(x, n=None):
         nn = np.asarray(n, float)
         arr = (arr * nn + 0.5) / (nn + 1.0)
     arr = np.clip(arr, _PROBIT_EPS, 1.0 - _PROBIT_EPS)
-    if _ndtri is None:
-        return np.full(arr.shape, np.nan)
     # scipy.special.ndtri is the kernel norm.ppf itself calls; on the clipped
     # domain (and NaN) the two are bit-identical, but ndtri skips ppf's
     # per-call argument machinery (~0.2 ms), which dominated the SDT melt
@@ -172,13 +229,13 @@ def wls(y, x, w, groups=None, rho=0.0):
     out = dict(k=k, a=beta[0], b=beta[1], tau2=dl_random(y, 1 / w)["tau2"],
                se_a=se_a_model, t_a=t_a_model,
                p_a=(2 * _st.t.sf(abs(t_a_model), dof_model)
-                    if (_st is not None and np.isfinite(t_a_model)) else np.nan),
+                    if (bool(_st) and np.isfinite(t_a_model)) else np.nan),
                se_b=se_b_model, t_b=t_b_model,
                p_b=(2 * _st.t.sf(abs(t_b_model), dof_model)
-                    if (_st is not None and np.isfinite(t_b_model)) else np.nan),
+                    if (bool(_st) and np.isfinite(t_b_model)) else np.nan),
                se_b_model=se_b_model, t_b_model=t_b_model,
                p_b_model=(2 * _st.t.sf(abs(t_b_model), dof_model)
-                          if (_st is not None and np.isfinite(t_b_model)) else np.nan),
+                          if (bool(_st) and np.isfinite(t_b_model)) else np.nan),
                df=float(dof_model))
     if g is None:
         return out
@@ -216,14 +273,14 @@ def wls(y, x, w, groups=None, rho=0.0):
     se_a = math.sqrt(max(cov[0, 0], 0.0))
     se_b = math.sqrt(max(cov[1, 1], 0.0))
     df = G - 1
-    tc = float(_st.t.ppf(0.975, df)) if _st is not None else 1.96
+    tc = float(_st.t.ppf(0.975, df)) if bool(_st) else 1.96
     out.update({
         "se_a": se_a, "t_a": beta[0] / se_a if se_a > 0 else np.nan,
         "p_a": (2 * _st.t.sf(abs(beta[0] / se_a), df)
-                if (_st is not None and se_a > 0) else np.nan),
+                if (bool(_st) and se_a > 0) else np.nan),
         "se_b": se_b, "t_b": beta[1] / se_b if se_b > 0 else np.nan,
         "p_b": (2 * _st.t.sf(abs(beta[1] / se_b), df)
-                if (_st is not None and se_b > 0) else np.nan),
+                if (bool(_st) and se_b > 0) else np.nan),
         "b_lo": beta[1] - tc * se_b, "b_hi": beta[1] + tc * se_b,
         "n_clusters": G, "df_crve": df,
     })
@@ -384,7 +441,7 @@ def p_curve(pvals):
     klow = int(np.sum(sig < 0.025))
     if n == 0:
         return {"n_sig": 0, "n_below_025": 0, "prop_below_025": np.nan, "p_right_skew": np.nan}
-    if _st is not None:
+    if bool(_st):
         pb = float(_st.binom.sf(klow - 1, n, 0.5))
     else:
         pb = np.nan
@@ -397,7 +454,7 @@ def p_uniform(yi, vi):
     vi = np.asarray(vi, float)
     m = np.isfinite(yi) & np.isfinite(vi) & (vi > 0)
     yi, vi = yi[m], vi[m]
-    if not len(yi) or _st is None:
+    if not len(yi) or not bool(_st):
         return {"delta": np.nan, "n": len(yi)}
     se = np.sqrt(vi)
     p = 2 * _st.norm.sf(np.abs(yi) / se)
@@ -553,7 +610,7 @@ def rve_intercept(yi, vi, cluster, rho=0.5):
     if G > 1:
         var *= G / (G - 1.0)
     se = math.sqrt(max(var, 0.0))
-    if _st is not None and G > 1:
+    if bool(_st) and G > 1:
         tc = float(_st.t.ppf(0.975, G - 1))
     else:
         tc = 1.96

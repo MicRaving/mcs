@@ -41,11 +41,6 @@ import time
 import numpy as np
 import pandas as pd
 
-try:
-    from scipy import stats as _st
-except Exception:  # pragma: no cover - scipy is present in this environment
-    _st = None
-
 B = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMP = os.path.join(B, "temp")
 # Contract (AGENTS.md): analysis-suite outputs live under Results/
@@ -71,7 +66,10 @@ import contract as CT  # noqa: E402
 import stat_core as _sc  # noqa: E402
 import csvio as CSVIO  # noqa: E402  (plain or gzip-compressed dataset products)
 
-_st = _sc._st  # one scipy handle for the whole module
+# one lazy scipy handle for the whole module (imported on first statistical
+# call, never at import: the coding app imports this module in every worker)
+_st = _sc._st
+has_scipy = _sc.has_scipy
 
 META_SPECS = os.path.join(TMP, "meta_specs.csv")
 SDT_SPECS = os.path.join(TMP, "sdt_specs.csv")
@@ -2041,7 +2039,7 @@ def _sdt_effect_row(r, spec, excl, comps, *, metric, source, note,
     vi = num(r.get("vi"))
     se = math.sqrt(vi) if (np.isfinite(vi) and vi > 0) else np.nan
     pv = (float(2 * _st.norm.sf(abs(eff) / se))
-          if (_st is not None and np.isfinite(eff) and np.isfinite(se) and se > 0)
+          if (bool(_st) and np.isfinite(eff) and np.isfinite(se) and se > 0)
           else np.nan)
     if is_level:
         n1 = n2 = np.nan

@@ -108,6 +108,9 @@ class Supervisor:
         self.workers: dict[tuple[int, str], Worker] = {}
         self.lane = asyncio.Semaphore(cfg.heavy_slots)
         self.lane_waiting = 0
+        #: admission for the max_workers cap (the count check and the eviction
+        #: must not interleave between two users starting at the same moment)
+        self._admit = asyncio.Lock()
         self.events: list[dict] = []        # recent lifecycle events (health/metrics)
         self._monitor: asyncio.Task | None = None
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(None, connect=10.0))
@@ -159,6 +162,7 @@ class Supervisor:
                 await asyncio.shield(w.stop_task)
             if w.alive():
                 return w
+            await self._make_room(w)
             w.token = token or w.token
             w.secret = secrets.token_urlsafe(32)
             w.warm = set()
@@ -172,6 +176,32 @@ class Supervisor:
             self._event("started", w, pid=proc.pid, secs=round(time.monotonic() - t0, 2),
                         launcher=getattr(self.launcher, "name", "?"))
         return w
+
+    async def _make_room(self, w: Worker) -> None:
+        """Keep the number of live workers under ``cfg.max_workers``.
+
+        At the cap, the least recently used **idle** worker is stopped (its
+        mirror and outbox make that lossless; the next request restarts it).
+        When every slot is busy the request is refused instead of letting the
+        cgroup OOM-kill a running worker.  ``max_workers <= 0`` disables the cap.
+        """
+        limit = int(getattr(self.cfg, "max_workers", 0) or 0)
+        if limit <= 0:
+            return
+        async with self._admit:
+            others = [o for o in self.workers.values()
+                      if o is not w and (o.alive() or o.stopping or o.spawn_lock.locked())]
+            if len(others) < limit:
+                return
+            idle = sorted((o for o in others
+                           if o.alive() and not o.inflight and not o.stopping),
+                          key=lambda o: o.last_used)
+            if not idle:
+                raise SpawnError(
+                    f"all {limit} browser workers are busy; try again in a moment")
+            victim = idle[0]
+            self._event("max_workers", victim, limit=limit)
+            await self.stop(victim, "max_workers")
 
     def is_starting(self, user_id: int, project_id: str) -> bool:
         w = self.workers.get((int(user_id), str(project_id)))
@@ -295,7 +325,10 @@ class Supervisor:
         out = {"workers": len([w for w in self.workers.values() if w.alive()]),
                "rss_mb": round(total / MB, 1),
                "lane": {"slots": self.cfg.heavy_slots, "waiting": self.lane_waiting},
-               "launcher": getattr(self.launcher, "name", "?")}
+               "launcher": getattr(self.launcher, "name", "?"),
+               "limits": {"max_workers": self.cfg.max_workers,
+                          "mem_limit_mb": self.cfg.mem_limit_mb,
+                          "pressure_mb": self.cfg.pressure_mb}}
         if detail:
             out["detail"] = [{
                 "user": w.user_id, "project": w.project_id, "pid": w.proc.pid if w.proc else None,

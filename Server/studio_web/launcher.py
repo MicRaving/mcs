@@ -3,10 +3,11 @@
 * :class:`SubprocessLauncher` — ``python browser_worker.py`` per worker
   (every platform; each worker imports numpy/pandas/scipy itself).
 * :class:`ForkserverLauncher` — Linux: one forkserver process imports the
-  heavy third-party modules once (then ``gc.freeze()``), every worker is a fork
-  of it, so those pages are shared copy-on-write.  The CodingStudio modules are
-  imported in the child: ``studio_state`` configures a root at import time,
-  which must be the user's.
+  heavy third-party modules **and the Flask app** once (``studio_web._preload``,
+  with ``studio_state`` pointed at an empty scratch root), then ``gc.freeze()``
+  (``studio_web._freeze``), and every worker is a fork of it, so those pages are
+  shared copy-on-write.  The child re-points the app at its own project
+  (``S.set_online``), which is the desktop's normal re-root.
 
 Both return a :class:`WorkerProcess` once the worker printed/sent its port
 (i.e. after its first sync round).  ``spawn`` blocks; the supervisor runs it in
@@ -23,9 +24,16 @@ import threading
 import time
 from dataclasses import dataclass
 
-#: third-party modules every worker imports (preloaded by the forkserver)
-PRELOAD = ["flask", "werkzeug.serving", "numpy", "pandas", "scipy.stats", "openpyxl",
-           "pymupdf", "lxml.etree", "PIL.Image", "studio_web._freeze"]
+#: Modules imported once in the forkserver and shared copy-on-write by every
+#: worker: the Flask app itself (its import graph brings numpy/pandas and the
+#: route modules), PyMuPDF (every paper view), lxml/Pillow (dataset + page
+#: rendering).  scipy and openpyxl are deliberately **not** here: the routes
+#: that need them import them lazily, so a user who never runs an analysis or
+#: exports a workbook never pays for them.
+#: ``studio_web._preload`` must come after the third-party modules and
+#: ``studio_web._freeze`` must be last.
+PRELOAD = ["flask", "werkzeug.serving", "numpy", "pandas", "pymupdf",
+           "lxml.etree", "PIL.Image", "studio_web._preload", "studio_web._freeze"]
 
 
 class SpawnError(RuntimeError):

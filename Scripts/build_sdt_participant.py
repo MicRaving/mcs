@@ -207,7 +207,7 @@ def _row(spec, tag, key, art, dom, tp, metric, n, eff, var, ts, fs, cs, cov, lvl
         dv_domain=dom, veracity="true_vs_false", timepoint=tp, metric=metric,
         effect=eff, effect_raw=eff, var=var, se=math.sqrt(var),
         n1=np.nan, n2=np.nan, n_total=n, r_used=np.nan,
-        p_value=(float(2 * SC._st.norm.sf(abs(eff) / math.sqrt(var))) if SC._st is not None else np.nan),
+        p_value=(float(2 * SC._st.norm.sf(abs(eff) / math.sqrt(var))) if SC.has_scipy() else np.nan),
         p_censored=0, data_available=1, contrast_type="", source="sdt_participant_covariate",
         fallback="", did_basis="", exclusions_embedded=0, cond_ambiguous=0, oriented=1,
         true_score=ts[0], true_var=ts[1], fake_score=fs[0], fake_var=fs[1],

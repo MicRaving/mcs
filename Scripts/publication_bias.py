@@ -59,7 +59,7 @@ DOMAINS_REPORTED = ["credibility", "sharing_intention", "technique_recognition"]
 
 
 def _z_p(est, se):
-    if not (np.isfinite(est) and np.isfinite(se) and se > 0) or SC._st is None:
+    if not (np.isfinite(est) and np.isfinite(se) and se > 0) or not SC.has_scipy():
         return np.nan
     return float(2 * SC._st.norm.sf(abs(est) / se))
 
