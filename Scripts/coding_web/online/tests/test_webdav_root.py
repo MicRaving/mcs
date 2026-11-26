@@ -22,3 +22,18 @@ def test_sync_and_share_webdav_root():
             == "https://syncandshare.lrz.de/webdav/Meta%20analysis")
     assert (webdav_root("https://syncandshare.lrz.de/webdav", "x", "Team/meta")
             == "https://syncandshare.lrz.de/webdav/Team/meta")
+
+
+def test_public_share_link_root_is_used_as_given():
+    """A public share link (D11): /public.php/dav/files/<token> is the WebDAV root.
+
+    Basic auth there is ``anonymous`` + the link password, so the owner's user
+    name must never end up in the URL - the root stands on its own.
+    """
+    u = "https://cloud.example.org/public.php/dav/files/AbC123token"
+    assert webdav_root(u, "anonymous") == u
+    assert webdav_root(u + "/", "anonymous") == u
+    assert webdav_root(u, "anonymous", "sub") == u + "/sub"
+    # a plain host still becomes the owner's dav path
+    assert (webdav_root("https://cloud.example.org", "anna", "Coding")
+            == "https://cloud.example.org/remote.php/dav/files/anna/Coding")

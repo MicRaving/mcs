@@ -50,6 +50,7 @@ import os
 import shutil
 import tarfile
 import threading
+import time
 import urllib.parse
 import xml.sax.saxutils as saxutils
 import zipfile
@@ -98,7 +99,8 @@ class FakeState:
                  rate_limit_every: int = 0, username_required: bool = False,
                  latency: tuple | None = None, fast_etags: bool = False,
                  bandwidth: float | None = None, archive: str | bool = "tar",
-                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None):
+                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None,
+                 ocs: bool = True):
         self.root = os.path.abspath(root)
         #: bytes/s per GET response (None: unlimited)
         self.bandwidth = float(bandwidth) if bandwidth else None
@@ -129,7 +131,35 @@ class FakeState:
         self.archive_requests: list[dict] = []
         self.requests: list[tuple[str, str, str]] = []      # (user, method, path)
         self.throttled = 0
+        # -- public share links + the OCS sharing API (share-link projects) -----
+        #: ``ocs``: does /ocs/v2.php exist?  False = a plain WebDAV share.
+        self.ocs = bool(ocs)
+        #: token -> {id, token, password, path, permissions}
+        self.shares: dict[str, dict] = {}
+        self.share_seq = 0
+        #: account Basic-auth credentials, checked only for /remote.php/... when
+        #: non-empty (a link password must never open the owner's dav path)
+        self.users: dict[str, str] = {}
         os.makedirs(self.root, exist_ok=True)
+
+    # -- share links --------------------------------------------------------
+    def add_share(self, path: str = "/", password: str = "", token: str | None = None,
+                  permissions: int = 15) -> dict:
+        """Register a public share (the OCS endpoint calls this too)."""
+        with self.lock:
+            self.share_seq += 1
+            token = token or hashlib.md5(
+                f"share-{self.share_seq}-{time.time_ns()}".encode()).hexdigest()[:15]
+            row = {"id": str(self.share_seq), "token": token, "password": password,
+                   "path": "/" + str(path or "").strip("/"), "permissions": permissions}
+            self.shares[token] = row
+            return dict(row)
+
+    def share_by_id(self, share_id: str) -> dict | None:
+        for row in self.shares.values():
+            if str(row["id"]) == str(share_id):
+                return row
+        return None
 
     # -- helpers ----------------------------------------------------------
     def full(self, rel: str) -> str:
@@ -202,19 +232,28 @@ class _Handler(BaseHTTPRequestHandler):
         return self.server.state                        # type: ignore[attr-defined]
 
     def _user(self) -> str:
+        return self._credentials()[0]
+
+    def _credentials(self) -> tuple[str, str]:
+        """``(user, password)`` of the Basic-auth header (either may be "")."""
         raw = self.headers.get("Authorization") or ""
         if raw.lower().startswith("basic "):
             import base64
             try:
-                return base64.b64decode(raw[6:]).decode("utf-8").split(":", 1)[0]
+                decoded = base64.b64decode(raw[6:]).decode("utf-8")
             except Exception:                            # noqa: BLE001
-                return ""
-        return ""
+                return "", ""
+            user, _sep, password = decoded.partition(":")
+            return user, password
+        return "", ""
 
     def _begin(self) -> str | None:
         """Record the request; returns an early response code when throttling."""
         # read the body first, always: on a kept-alive connection an unread
         # PROPFIND body would be parsed as the next request line
+        self._stripped = None
+        self._public_token = None
+        self._dav_prefix = ""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except (TypeError, ValueError):
@@ -225,8 +264,9 @@ class _Handler(BaseHTTPRequestHandler):
             import random
             import time as _time
             _time.sleep(random.uniform(*latency))
-        user = self._user()
-        path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        user, password = self._credentials()
+        split = urllib.parse.urlsplit(self.path)
+        path = urllib.parse.unquote(split.path)
         target = path.strip("/")
         with self.state.lock:
             self.state.count += 1
@@ -238,13 +278,106 @@ class _Handler(BaseHTTPRequestHandler):
                         and self.state.count % self.state.rate_limit_every == 0)
             if throttle:
                 self.state.throttled += 1
-        if self.state.username_required and not user:
-            self._send(401, b"", {"WWW-Authenticate": 'Basic realm="fake"'})
-            return None
         if throttle:
             self._send(429, b"slow down", {"Retry-After": "0"})
             return None
+        # the owner's own dav path: a real Nextcloud refuses a link password here
+        if path.startswith("/remote.php/dav/") and self.state.users:
+            account = path.split("/remote.php/dav/files/", 1)
+            name = account[1].split("/", 1)[0] if len(account) == 2 else ""
+            if not name or self.state.users.get(name) != password:
+                self._send(401, b"unauthorized", {"WWW-Authenticate": 'Basic realm="fake"'})
+                return None
+        if path.startswith("/remote.php/dav/files/"):
+            rest = path[len("/remote.php/dav/files/"):]
+            name, _sep, inner = rest.partition("/")
+            if self.state.users and self.state.users.get(name) != password:
+                self._send(401, b"unauthorized", {"WWW-Authenticate": 'Basic realm="fake"'})
+                return None
+            self._dav_prefix = f"/remote.php/dav/files/{name}"
+            self._stripped = "/" + inner
+        # the public share mount: /public.php/dav/files/<token>/...
+        marker = "/public.php/dav/files/"
+        if marker in path:
+            rest = path.split(marker, 1)[1]
+            token, _sep, inner = rest.partition("/")
+            share = self.state.shares.get(token)
+            if share is None:
+                self._send(404, b"no such share")
+                return None
+            if user != "anonymous" or password != (share.get("password") or ""):
+                self._send(401, b"unauthorized", {"WWW-Authenticate": 'Basic realm="share"'})
+                return None
+            self._public_token = token
+            self._stripped = "/" + inner
+        # the OCS sharing API (share-link projects)
+        if path.startswith("/ocs/"):
+            self._ocs(path, split.query)
+            return None
+        if self.state.username_required and not user:
+            self._send(401, b"", {"WWW-Authenticate": 'Basic realm="fake"'})
+            return None
         return user
+
+    def _full(self) -> str:
+        """The file on disk behind this request (public mounts strip their prefix)."""
+        path = urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+        if getattr(self, "_stripped", None) is not None:
+            path = self._stripped
+        return self.state.full(path)
+
+    # -- OCS: the sharing API (a minimal but faithful slice) ------------------
+    def _ocs_send(self, data, statuscode: int = 100, message: str | None = None) -> None:
+        meta = {"status": "ok" if statuscode in (100, 200) else "failure",
+                "statuscode": statuscode, "message": message}
+        body = json.dumps({"ocs": {"meta": meta, "data": data}}).encode()
+        self._send(200, body, {"Content-Type": "application/json; charset=utf-8",
+                               "OCS-APIRequest": "true"})
+
+    def _ocs_form(self) -> dict:
+        raw = self._body().decode("utf-8", "replace")
+        return {k: v[0] for k, v in urllib.parse.parse_qs(raw, keep_blank_values=True).items()}
+
+    def _share_payload(self, row: dict) -> dict:
+        host = self.headers.get("Host") or "127.0.0.1"
+        return {"id": row["id"], "share_type": 3, "token": row["token"],
+                "path": row.get("path"), "permissions": row.get("permissions", 15),
+                "url": f"http://{host}/s/{row['token']}"}
+
+    def _ocs(self, path: str, query: str) -> None:
+        if not self.state.ocs:
+            return self._send(404, b"not found")
+        base = "/ocs/v2.php/apps/files_sharing/api/v1/shares"
+        if path.rstrip("/").endswith("/cloud/capabilities"):
+            return self._ocs_send({"version": {"major": 30},
+                                   "capabilities": {"files_sharing": {"api_enabled": True}}})
+        if not path.startswith(base):
+            return self._send(404, b"not found")
+        tail = path[len(base):].strip("/")
+        form = self._ocs_form() if self.command in ("POST", "PUT", "DELETE") else {}
+        if self.command == "POST" and not tail:
+            row = self.state.add_share(form.get("path") or "/",
+                                       form.get("password") or "",
+                                       permissions=int(form.get("permissions") or 15))
+            return self._ocs_send(self._share_payload(row))
+        if self.command == "GET" and not tail:
+            return self._ocs_send([self._share_payload(r) for r in self.state.shares.values()])
+        if not tail:
+            return self._ocs_send(None, 400, "bad request")
+        row = self.state.share_by_id(tail)
+        if row is None:
+            return self._ocs_send(None, 404, "wrong share ID, share does not exist")
+        if self.command == "PUT":
+            if "password" in form:
+                row["password"] = form["password"]
+            if "permissions" in form:
+                row["permissions"] = int(form["permissions"])
+            return self._ocs_send(self._share_payload(row))
+        if self.command == "DELETE":
+            with self.state.lock:
+                self.state.shares.pop(row["token"], None)
+            return self._ocs_send(None)
+        return self._ocs_send(self._share_payload(row))
 
     def _send(self, status: int, body: bytes = b"", headers: dict | None = None) -> None:
         self.send_response(status)
@@ -291,7 +424,7 @@ class _Handler(BaseHTTPRequestHandler):
         depth = (self.headers.get("Depth") or "infinity").lower()
         full = None
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         if not os.path.exists(full):
@@ -321,9 +454,11 @@ class _Handler(BaseHTTPRequestHandler):
                     if is_dir and depth == "infinity":
                         queue.append(e.path)
         parts = []
+        prefix = (f"/public.php/dav/files/{self._public_token}" if self._public_token
+                  else (self._dav_prefix or ""))
         for path, is_dir, st in rows:
             rel = self.state.rel(path)
-            href = "/" + urllib.parse.quote(rel) if rel else "/"
+            href = prefix + ("/" + urllib.parse.quote(rel) if rel else "/")
             if self.state.fast_etags and not is_dir:
                 etag = self.state._file_etag(rel, st)
             else:
@@ -351,7 +486,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         split = urllib.parse.urlsplit(self.path)
         try:
-            full = self.state.full(urllib.parse.unquote(split.path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         if os.path.isdir(full):
@@ -540,11 +675,15 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._send(200, body, headers)
 
+    def do_POST(self):                                      # noqa: N802
+        # only the OCS sharing API uses POST; ``_begin`` answers it in full
+        self._begin()
+
     def do_HEAD(self):                                      # noqa: N802
         if self._begin() is None:
             return
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         if not os.path.exists(full):
@@ -556,7 +695,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
         data = self._body()
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         parent = os.path.dirname(full)
@@ -581,7 +720,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self._begin() is None:
             return
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         with self.state.lock:
@@ -605,7 +744,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self._begin() is None:
             return
         try:
-            full = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+            full = self._full()
         except PermissionError:
             return self._send(403, b"outside the share")
         if os.path.exists(full):
@@ -622,11 +761,17 @@ class _Handler(BaseHTTPRequestHandler):
     def do_MOVE(self):                                      # noqa: N802
         if self._begin() is None:
             return
-        src = self.state.full(urllib.parse.unquote(urllib.parse.urlsplit(self.path).path))
+        src = self._full()
         dest_url = urllib.parse.urlsplit(self.headers.get("Destination") or "")
         if not dest_url.path:
             return self._send(400, b"Destination required")
-        dest = self.state.full(urllib.parse.unquote(dest_url.path))
+        dest_path = urllib.parse.unquote(dest_url.path)
+        for marker in (f"/public.php/dav/files/{self._public_token}" if self._public_token else "",
+                       self._dav_prefix or ""):
+            if marker and dest_path.startswith(marker):
+                dest_path = dest_path[len(marker):] or "/"
+                break
+        dest = self.state.full(dest_path)
         if not os.path.exists(src):
             return self._send(404, b"not found")
         if os.path.exists(dest) and (self.headers.get("Overwrite") or "T").upper() == "F":
@@ -644,13 +789,15 @@ class WebDAVFake:
                  rate_limit_every: int = 0, username_required: bool = False,
                  latency: tuple | None = None, fast_etags: bool = False,
                  bandwidth: float | None = None, archive: str | bool = "tar",
-                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None):
+                 archive_abort_after: int = 0, archive_extra=None, archive_missing=None,
+                 ocs: bool = True):
         self.state = FakeState(root, refuse_infinity=refuse_infinity,
                                rate_limit_every=rate_limit_every,
                                username_required=username_required,
                                latency=latency, fast_etags=fast_etags, bandwidth=bandwidth,
                                archive=archive, archive_abort_after=archive_abort_after,
-                               archive_extra=archive_extra, archive_missing=archive_missing)
+                               archive_extra=archive_extra, archive_missing=archive_missing,
+                               ocs=ocs)
         self._httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self._httpd.daemon_threads = True
         self._httpd.state = self.state                     # type: ignore[attr-defined]
