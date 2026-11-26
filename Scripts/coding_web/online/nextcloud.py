@@ -196,13 +196,18 @@ def _iso(ts: float | None) -> str | None:
 def webdav_root(url: str, username: str, folder: str = "") -> str:
     """``https://host`` + *username* + *folder* -> the WebDAV folder URL.
 
-    A URL that already names a WebDAV location (``…/remote.php/dav/…``) is used
-    as given; the folder is appended unless the URL already ends with it.
+    A URL that already names a WebDAV location is used as given: Nextcloud's
+    ``…/remote.php/dav/…``, a ``…/dav`` root, or a generic ``…/webdav`` root
+    (PowerFolder, e.g. LRZ Sync+Share ``https://syncandshare.lrz.de/webdav``,
+    whose first path segment is the shared folder's name).  The folder is
+    appended unless the URL already ends with it.
     """
     u = (url or "").strip().rstrip("/")
     if not u:
         raise ValueError("a Nextcloud URL is required")
-    if "/remote.php/" in u or u.endswith("/dav"):
+    path = urllib.parse.urlsplit(u if "://" in u else "https://" + u).path
+    segments = [s.lower() for s in path.split("/") if s]
+    if "/remote.php/" in u or u.endswith("/dav") or "webdav" in segments:
         base = u
     else:
         user = urllib.parse.quote(username or "", safe="")

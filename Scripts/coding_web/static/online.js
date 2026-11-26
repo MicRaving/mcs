@@ -53,6 +53,11 @@
   };
 
   /* ---------------------------------------------------------------- helpers */
+  // A WebDAV-folder project lives either on a Nextcloud or on LRZ Sync+Share
+  // (PowerFolder); the backend is the same, only the name shown differs.
+  function isSyncAndShare(url) { return /(^|[/.])syncandshare\.lrz\.de/i.test(String(url || "")); }
+  function davLabel(url) { return isSyncAndShare(url) ? "Sync+Share" : "Nextcloud"; }
+
   function h(tag, attrs, ...kids) {
     const node = document.createElement(tag);
     Object.entries(attrs || {}).forEach(([k, v]) => {
@@ -245,7 +250,7 @@
     badge.hidden = false;
     badge.dataset.mode = S.mode;
     const bestEffort = st.backend === "nextcloud";
-    let label = bestEffort ? "Nextcloud (best-effort)" : "Online";
+    let label = bestEffort ? `${davLabel(st.server)} (best-effort)` : "Online";
     const dl = downloadInfo(st);
     if (dl) label = (bestEffort ? "Nextcloud — " : "") + dl.short;
     else if (S.mode === "syncing") label = bestEffort ? "Nextcloud — syncing…" : "Syncing…";
@@ -381,7 +386,7 @@
     if (!list.length) return;
     host.appendChild(h("h4", { text: "Saved connections" }));
     list.forEach((c) => {
-      const badge = c.backend === "nextcloud" ? "Nextcloud" : "Online";
+      const badge = c.backend === "nextcloud" ? davLabel(c.url || c.server) : "Online";
       host.appendChild(h("div", { class: "online-project-row" },
         h("div", { class: "online-project-name" },
           h("b", { text: c.project_name || c.folder || c.project_id || "Online project" }),
@@ -415,7 +420,7 @@
       btn.append(h("span", { class: "proj-recent-name", text: p.name || p.path || "" }));
       if (online) {
         btn.append(h("span", { class: "proj-recent-badge", "data-kind": p.backend || "server",
-          text: p.backend === "nextcloud" ? "Nextcloud" : "Online" }));
+          text: p.backend === "nextcloud" ? davLabel(p.host) : "Online" }));
         btn.append(h("span", { class: "proj-recent-path", text: p.host || "" }));
       } else {
         btn.append(h("span", { class: "proj-recent-path", text: p.path || "" }));
@@ -682,8 +687,11 @@
     // Two backends, one client (PLAN §13): the studio server (strong
     // guarantees) or a shared Nextcloud folder over WebDAV (best-effort).
     const kind = h("select", { class: "input select", id: "online-kind" });
+    // "LRZ Sync+Share" is the same WebDAV backend (PowerFolder serves plain
+    // WebDAV at /webdav/<folder>); only the defaults and the labels differ.
     kind.innerHTML = '<option value="server">Studio server</option>'
-      + '<option value="nextcloud">Nextcloud folder</option>';
+      + '<option value="nextcloud">Nextcloud folder</option>'
+      + '<option value="syncandshare">LRZ Sync+Share folder (WebDAV)</option>';
     const server = h("input", { class: "input", id: "online-server", placeholder: "https://studio.example.org", spellcheck: "false" });
     const user = h("input", { class: "input", id: "online-username", placeholder: "username", autocomplete: "username", spellcheck: "false" });
     const pass = h("input", { class: "input", id: "online-password", type: "password", placeholder: "password", autocomplete: "current-password" });
@@ -696,12 +704,19 @@
       h("div", { class: "online-row" }, field("Username", user), field("Password", pass)),
       folderField,
     );
+    const SAS_URL = "https://syncandshare.lrz.de/webdav";
     const syncKind = () => {
-      const nc = kind.value === "nextcloud";
+      const sas = kind.value === "syncandshare";
+      const nc = kind.value === "nextcloud" || sas;
       folderField.hidden = !nc;
-      serverField.querySelector("span").textContent = nc ? "Nextcloud URL" : "Server";
-      server.placeholder = nc ? "https://cloud.example.org" : "https://studio.example.org";
-      pass.placeholder = nc ? "app password" : "password";
+      serverField.querySelector("span").textContent = sas ? "WebDAV URL" : nc ? "Nextcloud URL" : "Server";
+      server.placeholder = sas ? SAS_URL : nc ? "https://cloud.example.org" : "https://studio.example.org";
+      if (sas && !server.value.trim()) server.value = SAS_URL;
+      if (!sas && server.value.trim() === SAS_URL) server.value = "";
+      user.placeholder = sas ? "LRZ / campus ID (e.g. ab12cde@campus.lmu.de)" : "username";
+      pass.placeholder = sas ? "WebDAV token" : nc ? "app password" : "password";
+      folder.placeholder = sas ? "name of the shared folder in Sync+Share"
+        : "Coding/meta-analysis (folder in your Nextcloud)";
     };
     kind.addEventListener("change", syncKind);
     syncKind();
@@ -747,7 +762,7 @@
         h("div", { class: "online-card" },
           h("b", { text: st.project_name || "Online project" }),
           h("div", { class: "online-kv" },
-            h("span", { text: st.backend === "nextcloud" ? "Nextcloud" : "Server" }),
+            h("span", { text: st.backend === "nextcloud" ? davLabel(st.server) : "Server" }),
             h("b", { text: st.server || "—" }),
             h("span", { text: "User" }), h("b", { text: st.user || "—" }),
             h("span", { text: "Role" }), h("b", { text: (me().role || "—") }),
@@ -757,7 +772,7 @@
       );
       return d;
     }
-    sub.textContent = "Sign in to a studio server, or open a shared Nextcloud folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the server's token or the Nextcloud app password is kept in the system's credential store (Windows Credential Manager / Keychain), never in the app's settings; “Forget” or “Log out” removes it.";
+    sub.textContent = "Sign in to a studio server, or open a shared Nextcloud or LRZ Sync+Share folder over WebDAV (best-effort: locks, roles and blinding are honour system). The project is mirrored into the app's cache; the server's token or the Nextcloud app password is kept in the system's credential store (Windows Credential Manager / Keychain), never in the app's settings; “Forget” or “Log out” removes it.";
     form.hidden = false;
     offBtn.hidden = true;
     if (connectBtn) connectBtn.hidden = false;
@@ -769,7 +784,7 @@
     const d = $("#online-connect-dialog");
     const st = $("#online-connect-status", d);
     const kindEl = $("#online-kind", d);
-    const nc = !!kindEl && kindEl.value === "nextcloud";
+    const nc = !!kindEl && (kindEl.value === "nextcloud" || kindEl.value === "syncandshare");
     const server = ($("#online-server", d).value || "").trim();
     const username = ($("#online-username", d).value || "").trim();
     const password = $("#online-password", d).value || "";
@@ -777,7 +792,7 @@
     if (!server || !username || !password || (nc && !folder)) {
       if (st) {
         st.textContent = nc
-          ? "Nextcloud URL, username, app password and folder are all needed."
+          ? "URL, username, app password / WebDAV token and folder are all needed."
           : "Server, username and password are all needed.";
         st.className = "online-status err";
       }
@@ -801,7 +816,7 @@
       }
     } catch (err) {
       if (st) {
-        st.textContent = err.status === 401 ? (nc ? "Wrong username or app password." : "Wrong username or password.")
+        st.textContent = err.status === 401 ? (nc ? "Wrong username or app password / WebDAV token." : "Wrong username or password.")
           : err.status === 0 ? "The server cannot be reached."
           : err.status === 404 ? `${String(err.message || err)} — check the folder name.`
           : String(err.message || err);
@@ -897,7 +912,8 @@
     if (c && !S.active) {
       const kind = $("#online-kind", d);
       if (kind) {
-        kind.value = c.backend === "nextcloud" || c.kind === "nextcloud" ? "nextcloud" : "server";
+        kind.value = c.backend === "nextcloud" || c.kind === "nextcloud"
+          ? (isSyncAndShare(c.url || c.server) ? "syncandshare" : "nextcloud") : "server";
         kind.dispatchEvent(new Event("change"));
       }
       const set = (id, v) => { const el = $(id, d); if (el && v) el.value = v; };
@@ -1012,7 +1028,7 @@
     const box = card("online-card-state", "Connection",
       kv([
         ["Project", st.project_name],
-        [st.backend === "nextcloud" ? "Nextcloud" : "Server", st.server],
+        [st.backend === "nextcloud" ? davLabel(st.server) : "Server", st.server],
         ["User", st.user],
         ["Role", me().role],
         ["Guarantees", st.guarantees || "strong"],

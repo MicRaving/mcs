@@ -243,6 +243,28 @@ def run(dav: WebDAV, folder_name: str, *, files: int = FILE_COUNT) -> dict:
                                 "precondition_failed": refused, "codes": results,
                                 "atomic": created == 1}
 
+    # 7: names the project needs: a hidden ``.studio/`` folder (locks, presence)
+    # and study keys with spaces, parentheses, ampersands and non-ASCII letters.
+    # Sync tools (PowerFolder, ...) may ignore dot files or mangle such names.
+    names = {".studio/locks/Bråten et al. (2019).json": b'{"k": 1}\n',
+             "Extraction/Smith & Roe (2020 a).json": b'{"k": 2}\n'}
+    name_check: dict = {}
+    for rel, data in names.items():
+        try:
+            dav.makedirs(os.path.dirname(rel))
+            dav.put(rel, data)
+            listed = {p.path for p in dav.propfind(os.path.dirname(rel), depth="1")}
+            name_check[rel] = {"listed": rel in listed, "read_back": dav.get(rel) == data}
+        except Exception as exc:              # noqa: BLE001 - the refusal is the answer
+            name_check[rel] = {"error": f"{type(exc).__name__}: {exc}"}
+    for top in (".studio", "Extraction"):
+        try:
+            dav.delete(top)
+        except Exception:                     # noqa: BLE001
+            pass
+    out["project_names"] = name_check
+    out["project_names_ok"] = all(v.get("listed") and v.get("read_back") for v in name_check.values())
+
     # verdict ---------------------------------------------------------------------
     strong = (out["if_none_match_star_on_existing_refused"] and out["stale_if_match_refused"]
               and out["concurrent_create"]["atomic"])
@@ -252,6 +274,7 @@ def run(dav: WebDAV, folder_name: str, *, files: int = FILE_COUNT) -> dict:
         "stale_write_guard": out["stale_if_match_refused"],
         "freshness_by_etag": bool(out["etag_on_put"]),
         "depth_infinity": out["depth_infinity"]["supported"],
+        "project_names": out["project_names_ok"],
     }
     return out
 
@@ -374,6 +397,9 @@ def _print_report(result: dict) -> None:
     print(f"6. {race.get('threads')} concurrent conditional creates .................... "
           f"created={race.get('created')} refused(412)={race.get('precondition_failed')} "
           f"atomic={yes(race.get('atomic'))}")
+    if "project_names_ok" in result:
+        print("7. hidden .studio/ folder and study-key file names .......... "
+              f"{yes(result.get('project_names_ok'))}")
     print("")
     print(f"guarantees this share supports: {result.get('guarantees')}")
 
