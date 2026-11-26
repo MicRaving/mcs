@@ -106,8 +106,10 @@ def concrete(rule: str, samples: dict) -> str:
 
 
 def samples_for(w, uid: str) -> dict:
+    # "username" covers the owner's invitation routes (/api/online/link/invite/
+    # <username>); the sweep asks them as a coder, which the policy must refuse
     return {"key": UNFINISHED, "coder": CODER_TAG, "uid": uid, "page": 1, "cid": 1,
-            "name": "notes.pdf", "path": "app.js"}
+            "name": "notes.pdf", "path": "app.js", "username": OWNER[0]}
 
 
 #: query parameters a route needs to reach its per-study code path (without them
