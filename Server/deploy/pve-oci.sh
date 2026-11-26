@@ -213,7 +213,10 @@ cmd_fetch() {
 
 cmd_create() {
   local ctid="${CTID:-}" browser="${BROWSER:-0}" image="$IMAGE"
-  local data="$DATA_BASE/data" blobs="$DATA_BASE/blobs" web="$DATA_BASE/web"
+  # each host directory can be named on its own (e.g. the blob store on an
+  # external disk: BLOBS_DIR=/mnt/extHDD/studio-blobs)
+  local data="${DATA_DIR:-$DATA_BASE/data}" blobs="${BLOBS_DIR:-$DATA_BASE/blobs}"
+  local web="${WEB_DIR:-$DATA_BASE/web}"
   local memory cores
   if [ "$browser" = "1" ]; then memory="$MEMORY_BROWSER"; cores="$CORES_BROWSER"
   else memory="$MEMORY_SYNC"; cores="$CORES_SYNC"; fi
