@@ -59,6 +59,17 @@ are honour system, conflicts merge locally against a base kept in the mirror.
 Identity: the Nextcloud username plus an **app password**; WebDAV root
 ``https://<host>/remote.php/dav/files/<user>/<folder>``; Basic auth over HTTPS
 only (``http://`` is refused except for a loopback test server).
+
+**Link mode (D11).**  A Nextcloud public share link (``/s/<token>``) exposes one
+folder at ``https://<host>/public.php/dav/files/<token>`` and is entered with
+Basic auth user ``anonymous`` plus the link's own password.  So the identity
+that authenticates (``auth_user``) is *not* the identity the project knows
+(``username``, from the owner's invitation and ``members.json``).  In link mode
+``login_mode = "link"``, ``auth_user = "anonymous"``, ``username`` is the app
+identity, and ``invite_id`` names the invitation the coder holds: a revoked
+member or a replaced invitation turns the project **read-only** (local edits
+stay in the outbox), because the honour system must at least not let a
+withdrawn invitation keep writing.
 """
 
 from __future__ import annotations
@@ -66,6 +77,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -78,6 +90,7 @@ from online_shared import protocol
 
 from . import ncarchive
 from .errors import (
+    AuthError,
     BadRequestError,
     ConflictError,
     ForbiddenError,
@@ -95,9 +108,21 @@ DONE_DIR = f"{STUDIO}/done"
 MEMBERS_FILE = f"{STUDIO}/members.json"
 SETTINGS_FILE = f"{STUDIO}/settings.json"
 ASSIGNMENTS_FILE = f"{STUDIO}/assignments.json"
+LINK_FILE = f"{STUDIO}/link.json"
 
 BACKEND = "nextcloud"
 GUARANTEES = "best-effort"
+
+#: The WebDAV user a public share link authenticates as (Nextcloud's constant).
+LINK_AUTH_USER = "anonymous"
+#: Shown verbatim when a link member's invitation no longer exists.
+READONLY_MESSAGE = ("Your invitation was withdrawn or replaced by the project owner. "
+                    "Ask them for a new one.")
+#: Shown when the share link itself is gone or its password changed.
+LINK_GONE_MESSAGE = ("The share link no longer works — ask the owner for a new invitation.")
+#: A member row's ``login`` value (absent / "account" = a Nextcloud account).
+LOGIN_ACCOUNT = "account"
+LOGIN_LINK = "link"
 
 DEFAULT_SETTINGS = {
     "blinding": {stage: "visible" for stage in protocol.STAGES},   # UI-only in this mode
@@ -198,17 +223,20 @@ def webdav_root(url: str, username: str, folder: str = "") -> str:
     """``https://host`` + *username* + *folder* -> the WebDAV folder URL.
 
     A URL that already names a WebDAV location is used as given: Nextcloud's
-    ``…/remote.php/dav/…``, a ``…/dav`` root, or a generic ``…/webdav`` root
-    (PowerFolder, e.g. LRZ Sync+Share ``https://syncandshare.lrz.de/webdav``,
-    whose first path segment is the shared folder's name).  The folder is
-    appended unless the URL already ends with it.
+    ``…/remote.php/dav/…``, a **public share link's**
+    ``…/public.php/dav/files/<token>``, a ``…/dav`` root, or a generic
+    ``…/webdav`` root (PowerFolder, e.g. LRZ Sync+Share
+    ``https://syncandshare.lrz.de/webdav``, whose first path segment is the
+    shared folder's name).  The folder is appended unless the URL already ends
+    with it.
     """
     u = (url or "").strip().rstrip("/")
     if not u:
         raise ValueError("a Nextcloud URL is required")
     path = urllib.parse.urlsplit(u if "://" in u else "https://" + u).path
     segments = [s.lower() for s in path.split("/") if s]
-    if "/remote.php/" in u or u.endswith("/dav") or "webdav" in segments:
+    if ("/remote.php/" in u or "/public.php/" in u or u.endswith("/dav")
+            or "webdav" in segments):
         base = u
     else:
         user = urllib.parse.quote(username or "", safe="")
@@ -232,6 +260,89 @@ def origin_of(url: str) -> str:
 def project_id_for(root_url: str) -> str:
     """A stable, filesystem-safe project id for one shared folder."""
     return "nc-" + hashlib.sha1(root_url.strip().rstrip("/").encode("utf-8")).hexdigest()[:16]
+
+
+def is_link_root(url: str) -> bool:
+    """True for a Nextcloud public share's WebDAV root (``/public.php/dav/…``)."""
+    return "/public.php/" in str(url or "")
+
+
+def new_invite_id() -> str:
+    """A fresh, URL-safe invitation id (the owner re-issues by replacing it)."""
+    return uuid.uuid4().hex[:20]
+
+
+_SLUG_RE = re.compile(r"[^a-z0-9_.-]+")
+
+
+def slug_username(display_name: str, taken=(), limit: int = 24) -> str:
+    """An app identity for a link coder (never equal to an existing username).
+
+    The invitation's ``username`` is what members.json, tags, locks, presence
+    and done marks carry; it is *not* a Nextcloud user.  Two coders called
+    "Anna" therefore get ``anna`` and ``anna2`` instead of colliding.
+    """
+    used = {str(t or "").strip().lower() for t in (taken or ())}
+    base = _SLUG_RE.sub("", str(display_name or "").strip().lower().replace(" ", "."))
+    base = base.strip(".-_")[:limit] or "coder"
+    candidate = base
+    n = 1
+    while candidate.lower() in used:
+        n += 1
+        suffix = str(n)
+        candidate = (base[: max(1, limit - len(suffix))] + suffix)
+    return candidate
+
+
+def _clean_member_row(row: dict) -> dict:
+    """A member row as it goes into ``members.json``.
+
+    An account member keeps exactly the fields it always had: the link-only
+    fields (``login``/``invite_id``/``revoked``/``invited_at``) are written for
+    a link member only, so editing one coder does not restyle everybody's row
+    (and an old file stays byte-comparable).
+    """
+    out = {k: v for k, v in dict(row or {}).items() if v is not None}
+    out.pop("user_id", None)            # a position, not a stored field
+    if str(out.get("login") or LOGIN_ACCOUNT) == LOGIN_ACCOUNT:
+        out.pop("login", None)
+        for key in ("invite_id", "invited_at"):
+            out.pop(key, None)
+        if not out.get("revoked"):
+            out.pop("revoked", None)
+    return out
+
+
+def tags_in_use(rows) -> dict[str, str]:
+    """``{tag.upper(): username}`` of every member (tags identify codings)."""
+    out: dict[str, str] = {}
+    for row in rows or ():
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("username") or row.get("user") or "")
+        for tag in row.get("tags") or ():
+            tag = str(tag or "").strip()
+            if tag:
+                out.setdefault(tag.upper(), name)
+    return out
+
+
+def check_tags_available(tags, rows, username: str | None = None) -> None:
+    """Raise :class:`BadRequestError` for a tag another member already owns."""
+    used = tags_in_use(rows)
+    mine = str(username or "").lower()
+    clashes = []
+    for tag in tags or ():
+        tag = str(tag or "").strip()
+        if not tag:
+            continue
+        owner = used.get(tag.upper())
+        if owner and owner.lower() != mine:
+            clashes.append(f"{tag!r} is already {owner}'s tag")
+    if clashes:
+        raise BadRequestError(
+            "; ".join(clashes) + ". Give this coder a different tag "
+            "(the tag is what their coding files are named after).", 400, "bad_request")
 
 
 _SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._()&',+-")
@@ -315,8 +426,14 @@ class NextcloudClient:
     def __init__(self, url: str, username: str, app_password: str, folder: str = "",
                  *, webdav_root_url: str | None = None, timeout: float = 30.0,
                  allow_insecure_http: bool = False, clock=time.time, dav: WebDAV | None = None,
-                 app_version: str = ""):
+                 app_version: str = "", auth_user: str | None = None,
+                 login_mode: str | None = None, invite_id: str | None = None):
         self.username = username or ""
+        #: the WebDAV Basic-auth user - *not* the project identity in link mode
+        self.login_mode = LOGIN_LINK if str(login_mode or "").lower() == LOGIN_LINK else LOGIN_ACCOUNT
+        self.auth_user = auth_user or (LINK_AUTH_USER if self.login_mode == LOGIN_LINK else self.username)
+        #: the invitation this coder holds (link mode); a replaced id = read-only
+        self.invite_id = invite_id or None
         self.display_name = self.username
         self._password = app_password or ""
         self.token = self._password            # the store saves this in the keyring
@@ -324,7 +441,10 @@ class NextcloudClient:
         #: the Nextcloud URL as the user typed it (a saved connection keeps it)
         self.url = (url or "").strip().rstrip("/")
         self.folder = (folder or "").strip("/")
-        self.root_url = (webdav_root_url or webdav_root(url, self.username, self.folder)).rstrip("/")
+        if self.login_mode == LOGIN_LINK and not webdav_root_url and not is_link_root(url):
+            raise ValueError("a share-link project needs the link's public WebDAV root "
+                             "(https://…/public.php/dav/files/<token>)")
+        self.root_url = (webdav_root_url or webdav_root(url, self.auth_user, self.folder)).rstrip("/")
         self.project_id = project_id_for(self.root_url)
         self.app_version = app_version or ""
         self.clock = clock
@@ -333,7 +453,7 @@ class NextcloudClient:
         #: that ignores conditional headers (see :meth:`_lock_settled`)
         self.lock_settle_s = 1.5
         self.timeout = timeout
-        self.dav = dav or WebDAV(self.root_url, self.username, self._password,
+        self.dav = dav or WebDAV(self.root_url, self.auth_user, self._password,
                                  timeout=timeout, allow_insecure_http=allow_insecure_http)
         self._guard = threading.RLock()
         self._projects: dict[str, dict] = {}
@@ -373,7 +493,8 @@ class NextcloudClient:
             self._projects[self.project_id] = {"root": self.folder, "name": self._folder_name()}
 
     def __repr__(self) -> str:                      # never leak the app password
-        return f"NextcloudClient({self.root_url!r}, user={self.username!r})"
+        extra = f", login={self.login_mode!r}" if self.login_mode != LOGIN_ACCOUNT else ""
+        return f"NextcloudClient({self.root_url!r}, user={self.username!r}{extra})"
 
     def _folder_name(self) -> str:
         return self.folder.rsplit("/", 1)[-1] if self.folder else (self.dav.host or "Nextcloud")
@@ -675,14 +796,50 @@ class NextcloudClient:
         """Verify the credentials and the folder with one PROPFIND."""
         if username and username != self.username:
             raise ValueError("this client is bound to one Nextcloud user")
-        self.dav.stat("")                   # raises AuthError/NotFoundError
+        try:
+            self.dav.stat("")                   # raises AuthError/NotFoundError
+        except (AuthError, NotFoundError) as exc:
+            raise self._link_error(exc) from exc
         return {"token": self._password,
                 "user": {"id": self.username, "username": self.username,
-                         "display_name": self.display_name}}
+                         "display_name": self.display_name,
+                         "login": self.login_mode}}
+
+    def _link_error(self, exc: Exception) -> OnlineError:
+        """Turn a 401/404 on the link root into the sentence a person can act on."""
+        if self.login_mode == LOGIN_LINK and getattr(exc, "status", None) in (401, 403, 404):
+            return AuthError(LINK_GONE_MESSAGE, 401, "link_gone")
+        return exc
+
+    def link_health(self, max_age: float = 60.0) -> dict:
+        """Does the share link still work?  ``{ok: True|False|None, reason, message}``.
+
+        Only link mode asks: after a sync error the difference between "your
+        Wi-Fi is down" and "the owner deleted the link / changed its password"
+        is the difference between waiting and asking for a new invitation.
+        Cached, because the page polls ``status`` every 5 s.
+        """
+        if self.login_mode != LOGIN_LINK:
+            return {"ok": True, "reason": None, "message": None}
+        now = self.clock()
+        cached = getattr(self, "_link_health", None)
+        if cached and now - cached[0] < max_age:
+            return dict(cached[1])
+        try:
+            self.dav.stat("")
+        except (AuthError, ForbiddenError, NotFoundError) as exc:
+            out = {"ok": False, "reason": "link_gone", "message": LINK_GONE_MESSAGE,
+                   "status": getattr(exc, "status", None)}
+        except OnlineError:
+            out = {"ok": None, "reason": "unreachable", "message": None}
+        else:
+            out = {"ok": True, "reason": None, "message": None}
+        self._link_health = (now, dict(out))
+        return dict(out)
 
     def me(self) -> dict:
         user = {"id": self.username, "username": self.username,
-                "display_name": self.display_name}
+                "display_name": self.display_name, "login": self.login_mode}
         return {"user": user, "projects": self.projects()}
 
     def logout(self) -> None:
@@ -712,6 +869,7 @@ class NextcloudClient:
         with self._guard:
             if self._project_cache is not None and now - self._project_cache_at < 5.0:
                 return dict(self._project_cache)
+        access = self._access()
         info = {
             "id": pid,
             "name": self._projects.get(pid, {}).get("name") or self._folder_name(),
@@ -721,6 +879,10 @@ class NextcloudClient:
             "backend": BACKEND,
             "guarantees": GUARANTEES,
             "folder": self.folder or "/",
+            # "account" (a Nextcloud user) or "link" (a share-link invitation)
+            "login": self.login_mode,
+            "readonly": bool(access["readonly"]),
+            "readonly_reason": access["reason"],
             # None: not probed yet; False: the share ignores If-Match (the
             # client checks before each write and re-reads its lock files)
             "conditional_writes": self._index.get("conditional_writes"),
@@ -784,16 +946,53 @@ class NextcloudClient:
                         "tags": [str(t) for t in (row.get("tags") or [])],
                         "tasks": [str(t) for t in (row.get("tasks") or protocol.TASKS)],
                         "display_name": str(row.get("display_name") or self.display_name),
-                        "user": self.username}
+                        "user": self.username,
+                        "login": str(row.get("login") or LOGIN_ACCOUNT),
+                        "invite_id": str(row.get("invite_id") or "") or None,
+                        "revoked": bool(row.get("revoked")),
+                        "invited_at": row.get("invited_at")}
+        if self.login_mode == LOGIN_LINK:
+            # An invitation that is not in members.json is not a member: the
+            # owner withdrew the row (or this link belongs to another project).
+            # **Never** the "unlisted share = owner" fallback here.
+            return {"role": "viewer", "tags": [], "tasks": [], "display_name": self.display_name,
+                    "user": self.username, "login": LOGIN_LINK, "invite_id": None,
+                    "revoked": False, "readonly": True, "reason": "not_listed"}
         # No member list, or this user is not on it: the folder is a shared
         # drive, so the file system decides.  Honour system = full owner rights,
         # flagged so the UI can say "not listed in .studio/members.json".
         return {"role": "owner", "tags": [self.username] if self.username else [],
                 "tasks": list(protocol.TASKS), "display_name": self.display_name,
-                "user": self.username, "unlisted": bool(rows)}
+                "user": self.username, "unlisted": bool(rows), "login": LOGIN_ACCOUNT}
+
+    def _access(self) -> dict:
+        """``{readonly, reason}`` from the invitation's current standing.
+
+        Read-only means: no pushes, no locks, no done marks - the outbox and
+        every local file stay exactly where they are, so nothing is lost while
+        the coder asks the owner for a new invitation.
+        """
+        if self.login_mode != LOGIN_LINK:
+            return {"readonly": False, "reason": None}
+        me = self._member()
+        if me.get("revoked"):
+            return {"readonly": True, "reason": "withdrawn"}
+        if me.get("reason") == "not_listed":
+            return {"readonly": True, "reason": "withdrawn"}
+        if self.invite_id and me.get("invite_id") and me["invite_id"] != self.invite_id:
+            return {"readonly": True, "reason": "replaced"}
+        return {"readonly": False, "reason": None}
+
+    def access(self) -> dict:
+        """The public view of :meth:`_access` (the status/banner reads it)."""
+        out = dict(self._access())
+        out["message"] = READONLY_MESSAGE if out["readonly"] else None
+        return out
 
     def _can_write(self, fc: protocol.FileClass) -> bool:
         if fc.kind == "excluded":
+            return False
+        if self._access()["readonly"]:
             return False
         me = self._member()
         if me.get("role") == "owner":
@@ -1575,6 +1774,14 @@ class NextcloudClient:
 
     def push(self, pid: str, client_id: str, entries: list[dict]) -> dict:
         self._use(pid)
+        if self._access()["readonly"]:
+            # Nothing leaves the app: the syncer keeps these versions queued
+            # (reason "readonly" is retried, never dropped), so a re-issued
+            # invitation can still land every edit.
+            return {"seq": self._now_seq(),
+                    "results": [{"path": e.get("path"), "status": "rejected",
+                                 "reason": "readonly", "hash": None}
+                                for e in entries]}
         if entries:
             self._ensure_conditionals()
         results = [self._push_entry(e, client_id) for e in entries]
@@ -1799,6 +2006,8 @@ class NextcloudClient:
     def acquire_lock(self, pid: str, key: str, client_id: str,
                      offline_hours: float | None = None) -> dict:
         self._use(pid)
+        if self._access()["readonly"]:
+            raise ForbiddenError(READONLY_MESSAGE, 403, "readonly")
         me = self._member()
         if me.get("role") != "owner" and not set(me.get("tasks") or []) & {"settle", "harmonize", "reproduce"}:
             raise ForbiddenError("this member has no task that writes a shared file", 403, "forbidden")
@@ -1945,7 +2154,8 @@ class NextcloudClient:
         path = presence_path(client_id)
         row = {"client_id": client_id, "user": self.username,
                "display_name": self.display_name, "key": key, "tab": tab,
-               "app_version": app_version or self.app_version, "ts": now, "ts_iso": _iso(now)}
+               "app_version": app_version or self.app_version, "ts": now, "ts_iso": _iso(now),
+               "login": self.login_mode}
         probe = self._index.get("etag_propagates") is None
         before = None
         if probe:
@@ -1981,7 +2191,14 @@ class NextcloudClient:
             if now - ts >= protocol.PRESENCE_TTL_SECS:
                 continue
             out.append({"user": other.get("user"), "display_name": other.get("display_name"),
-                        "key": other.get("key"), "tab": other.get("tab"), "ts": ts})
+                        "key": other.get("key"), "tab": other.get("tab"), "ts": ts,
+                        "ts_iso": other.get("ts_iso") or _iso(ts),
+                        # the same invitation on another computer: legitimate (a
+                        # second device) but the accidental copy is what the
+                        # warning in the UI is for
+                        "same_identity": bool(other.get("user"))
+                        and str(other.get("user")).lower() == self.username.lower(),
+                        "login": other.get("login") or LOGIN_ACCOUNT})
         return out
 
     def presence_close(self, pid: str, client_id: str) -> None:
@@ -1994,6 +2211,8 @@ class NextcloudClient:
 
     def mark_done(self, pid: str, key: str, stage: str, tag: str) -> dict:
         self._use(pid)
+        if self._access()["readonly"]:
+            raise ForbiddenError(READONLY_MESSAGE, 403, "readonly")
         if stage not in protocol.STAGES:
             raise BadRequestError(f"stage must be one of {', '.join(protocol.STAGES)}", 400, "bad_request")
         me = self._member()
@@ -2051,8 +2270,7 @@ class NextcloudClient:
 
     def reopen_done(self, pid: str, key: str, stage: str, tag: str) -> None:
         self._use(pid)
-        if self._member().get("role") != "owner":
-            raise ForbiddenError("only the owner may reopen a paper", 403, "forbidden")
+        self._require_admin("reopen a paper")
         path = done_path(tag)
         for _attempt in range(4):
             try:
@@ -2160,21 +2378,40 @@ class NextcloudClient:
 
     # -- members / settings / users (owner, honour system) --------------------------------
 
-    def members(self, pid: str) -> list[dict]:
-        self._use(pid)
+    def _require_admin(self, what: str = "do this") -> None:
+        """Owner of an **account** login only: a link coder can never administrate."""
+        if self.login_mode == LOGIN_LINK:
+            raise ForbiddenError(f"a share-link invitation cannot {what} "
+                                 "(only the project owner, signed in with their own account, can)",
+                                 403, "forbidden")
+        if self._member().get("role") != "owner":
+            raise ForbiddenError(f"only the project owner may {what}", 403, "forbidden")
+
+    def _member_rows(self) -> list[dict]:
         raw = self._read_json(MEMBERS_FILE, None)
         rows = raw.get("members") if isinstance(raw, dict) else raw
         if isinstance(rows, dict):
-            rows = [dict(v, username=k) for k, v in rows.items()]
+            rows = [dict(v, username=k or v.get("username")) for k, v in rows.items()]
+        return [dict(r) for r in (rows or []) if isinstance(r, dict)]
+
+    def members(self, pid: str) -> list[dict]:
+        self._use(pid)
+        rows = self._member_rows()
         out = []
-        for i, row in enumerate(rows or [], start=1):
+        for i, row in enumerate(rows, start=1):
             if not isinstance(row, dict):
                 continue
             out.append({"user_id": i, "username": row.get("username"),
                         "display_name": row.get("display_name") or row.get("username"),
                         "role": row.get("role") or "coder",
                         "tags": list(row.get("tags") or []),
-                        "tasks": list(row.get("tasks") or [])})
+                        "tasks": list(row.get("tasks") or []),
+                        # link members (D11): absent on an account member, so an
+                        # old members.json reads exactly as before
+                        "login": row.get("login") or LOGIN_ACCOUNT,
+                        "invite_id": row.get("invite_id") or None,
+                        "revoked": bool(row.get("revoked")),
+                        "invited_at": row.get("invited_at")})
         return out
 
     def _write_members(self, rows: list[dict]) -> None:
@@ -2184,7 +2421,7 @@ class NextcloudClient:
                 etag = resp.etag or self._etag_of(MEMBERS_FILE)
             except NotFoundError:
                 etag = None
-            body = _json_bytes({"members": rows})
+            body = _json_bytes({"members": [_clean_member_row(row) for row in rows]})
             try:
                 self.dav.makedirs(STUDIO)
                 if etag:
@@ -2197,13 +2434,16 @@ class NextcloudClient:
                 continue
         raise ConflictError("could not write members.json", 409, "conflict")
 
+    _MEMBER_FIELDS = ("role", "tags", "tasks", "display_name", "username",
+                      "login", "invite_id", "revoked", "invited_at")
+
     def put_member(self, pid: str, user_id, payload: dict) -> dict:
         self._use(pid)
+        self._require_admin("change the member list")
         rows = self.members(pid)
         idx = int(user_id) - 1
         row = dict(rows[idx]) if 0 <= idx < len(rows) else {"username": str(payload.get("username") or "")}
-        row.update({k: payload[k] for k in ("role", "tags", "tasks", "display_name", "username")
-                    if k in payload})
+        row.update({k: payload[k] for k in self._MEMBER_FIELDS if k in payload})
         if 0 <= idx < len(rows):
             rows[idx] = row
         else:
@@ -2213,14 +2453,120 @@ class NextcloudClient:
 
     def delete_member(self, pid: str, user_id) -> None:
         self._use(pid)
+        self._require_admin("change the member list")
         rows = self.members(pid)
         idx = int(user_id) - 1
         if 0 <= idx < len(rows):
             rows.pop(idx)
             self._write_members(rows)
 
+    # -- share-link invitations (owner, D11) ---------------------------------------------
+
+    def invite_member(self, pid: str, payload: dict) -> dict:
+        """Add a link coder: a unique app identity, tags and tasks - no account.
+
+        The owner then sends the invitation (the route builds it from the link
+        password in the keyring); nothing secret is written to ``members.json``.
+        """
+        self._use(pid)
+        self._require_admin("invite a coder")
+        display = str(payload.get("display_name") or "").strip()
+        tags = [str(t).strip() for t in (payload.get("tags") or []) if str(t).strip()]
+        tasks = [str(t).strip() for t in (payload.get("tasks") or ["coding"])
+                 if str(t).strip() in protocol.TASKS]
+        if not display:
+            raise BadRequestError("a display name is required (it is what the coder is called "
+                                  "in the app)", 400, "bad_request")
+        rows = self.members(pid)
+        check_tags_available(tags, rows)
+        username = slug_username(display, [r.get("username") for r in rows])
+        row = {"username": username, "display_name": display,
+               "role": str(payload.get("role") or "coder"),
+               "tags": tags, "tasks": tasks or ["coding"],
+               "login": LOGIN_LINK, "invite_id": new_invite_id(),
+               "revoked": False, "invited_at": _iso(self.clock())}
+        rows.append(row)
+        self._write_members(rows)
+        for r in self.members(pid):
+            if str(r.get("username") or "").lower() == username.lower():
+                return r
+        return row
+
+    def reissue_invite(self, pid: str, username: str) -> dict:
+        """New ``invite_id``: the invitation the coder holds stops working."""
+        self._use(pid)
+        self._require_admin("re-issue an invitation")
+        rows = self.members(pid)
+        want = str(username or "").lower()
+        for row in rows:
+            if str(row.get("username") or "").lower() == want:
+                if row.get("login") != LOGIN_LINK:
+                    raise BadRequestError(f"{username!r} signs in with a Nextcloud account, "
+                                          "so there is no invitation to re-issue",
+                                          400, "bad_request")
+                row["invite_id"] = new_invite_id()
+                row["revoked"] = False
+                row["invited_at"] = _iso(self.clock())
+                self._write_members(rows)
+                return row
+        raise NotFoundError(f"no member {username!r}", 404, "not_found")
+
+    def withdraw_invite(self, pid: str, username: str) -> dict:
+        """Revoke access: the member's app turns read-only, nothing is deleted."""
+        self._use(pid)
+        self._require_admin("withdraw an invitation")
+        rows = self.members(pid)
+        want = str(username or "").lower()
+        for row in rows:
+            if str(row.get("username") or "").lower() == want:
+                row["revoked"] = True
+                self._write_members(rows)
+                return row
+        raise NotFoundError(f"no member {username!r}", 404, "not_found")
+
+    def link(self, pid: str) -> dict | None:
+        """``.studio/link.json`` of this project (never the password)."""
+        self._use(pid)
+        doc = self._read_json(LINK_FILE, None)
+        if not isinstance(doc, dict) or not doc.get("public_root"):
+            return None
+        return {k: doc.get(k) for k in ("share_id", "token", "public_root", "created_at")}
+
+    def put_link(self, pid: str, doc: dict) -> dict:
+        self._use(pid)
+        self._require_admin("manage the share link")
+        payload = {k: doc.get(k) for k in ("share_id", "token", "public_root", "created_at")}
+        body = _json_bytes(payload)
+        for _attempt in range(4):
+            try:
+                resp = self.dav.request("GET", LINK_FILE)
+                etag = resp.etag
+            except NotFoundError:
+                etag = None
+            try:
+                self.dav.makedirs(STUDIO)
+                if etag:
+                    self.dav.put(LINK_FILE, body, if_match=etag, content_type="application/json")
+                else:
+                    self.dav.put(LINK_FILE, body, if_none_match=True, content_type="application/json")
+                self._invalidate_project()
+                return payload
+            except (PreconditionFailed, ConflictError):
+                continue
+        raise ConflictError("could not write .studio/link.json", 409, "conflict")
+
+    def delete_link(self, pid: str) -> None:
+        self._use(pid)
+        self._require_admin("delete the share link")
+        try:
+            self.dav.delete(LINK_FILE)
+        except NotFoundError:
+            pass
+        self._invalidate_project()
+
     def update_settings(self, pid: str, patch: dict) -> dict:
         self._use(pid)
+        self._require_admin("change the project settings")
         current = self._settings()
         for key, value in (patch or {}).items():
             if key == "blinding" and isinstance(value, dict):

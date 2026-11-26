@@ -767,6 +767,11 @@ class Syncer:
                 reason = r.get("reason")
                 if status == "rejected" and reason == "missing_blob":
                     continue                               # uploaded again next tick
+                if status == "rejected" and reason == "readonly":
+                    # a share-link invitation was withdrawn / replaced: the
+                    # project is read-only until the owner re-issues it, and
+                    # every queued version must survive that wait
+                    continue
                 if status == "rejected" and reason == "excluded":
                     self.outbox.drop(e["path"])
                     continue

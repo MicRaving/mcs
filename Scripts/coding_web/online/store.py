@@ -75,7 +75,9 @@ class OnlineStore:
 
     def connect_nextcloud(self, url: str, username: str, app_password: str, folder: str = "",
                           *, webdav_root: str | None = None,
-                          allow_insecure_http: bool | None = None) -> list[dict]:
+                          allow_insecure_http: bool | None = None,
+                          auth_user: str | None = None, login: str | None = None,
+                          invite_id: str | None = None) -> list[dict]:
         """Connect to a shared Nextcloud folder over WebDAV (PLAN §13).
 
         The same store and the same sync engine as :meth:`connect`; the client
@@ -83,7 +85,12 @@ class OnlineStore:
         *url* is the Nextcloud base (``https://cloud.example.org``), *folder*
         the path inside the user's files (``Coding/meta``); *webdav_root* skips
         that derivation for a plain WebDAV share (the local test server).
-        Returns ``[{id, name, role}]`` like :meth:`connect`.
+
+        *login* ``"link"`` is a **share-link** project (D11): *username* is then
+        the app identity from the owner's invitation, *auth_user* is
+        ``anonymous`` (Nextcloud's user for ``/public.php/dav/…``), the
+        password is the link's own password and *webdav_root* the link's public
+        root.  Returns ``[{id, name, role}]`` like :meth:`connect`.
         """
         from .nextcloud import NextcloudClient
 
@@ -93,7 +100,8 @@ class OnlineStore:
         client = NextcloudClient(url, username, app_password, folder,
                                  webdav_root_url=webdav_root, timeout=self.timeout,
                                  allow_insecure_http=bool(allow_insecure_http),
-                                 app_version=self.app_version)
+                                 app_version=self.app_version, auth_user=auth_user,
+                                 login_mode=login, invite_id=invite_id)
         data = client.login(username, app_password)
         projects = client.projects()
         with self.lock:
@@ -167,17 +175,21 @@ class OnlineStore:
 
     def resume_connection(self, kind: str, server: str, username: str, *, project_id: str | None = None,
                           url: str | None = None, folder: str = "", webdav_root: str | None = None,
-                          secret: str | None = None) -> dict:
+                          secret: str | None = None, login: str | None = None,
+                          invite_id: str | None = None) -> dict:
         """Reconnect a saved connection with its stored secret (no dialog).
 
         *kind* ``"server"``: the token from the keyring (else the mirror's
-        token file) is reused; ``"nextcloud"``: the app password.  The secret
-        is validated once; an unreachable server is fine (the mirror opens
-        offline), a refused one raises ``AuthError`` - the caller then shows
-        the connect dialog prefilled, password empty.  ``NotConnectedError``
-        when no secret is stored at all.
+        token file) is reused; ``"nextcloud"``: the app password (or, for a
+        share-link project, the link password).  The secret is validated once;
+        an unreachable server is fine (the mirror opens offline), a refused one
+        raises ``AuthError`` - the caller then shows the connect dialog
+        prefilled, password empty.  ``NotConnectedError`` when no secret is
+        stored at all.
 
-        Returns ``{kind, server, username, project_id, offline}``.
+        ``login="link"`` restores a **share-link** coder: Basic auth as
+        ``anonymous`` with the link password, the project identity from the
+        invitation.  Returns ``{kind, server, username, project_id, offline}``.
         """
         kind = "nextcloud" if str(kind or "").lower() in ("nextcloud", "webdav", "nc") else "server"
         server = (server or "").rstrip("/")
@@ -192,15 +204,19 @@ class OnlineStore:
             from .nextcloud import NextcloudClient
             from .webdav import is_loopback
 
+            link = str(login or "").lower() == "link"
             client = NextcloudClient(url or server, username, secret, folder,
                                      webdav_root_url=webdav_root, timeout=self.timeout,
                                      allow_insecure_http=is_loopback(url or server),
-                                     app_version=self.app_version)
+                                     app_version=self.app_version,
+                                     login_mode="link" if link else None,
+                                     invite_id=invite_id)
             try:
                 client.login(username, secret)
             except OfflineError:
                 offline = True
-            user = {"id": username, "username": username, "display_name": username}
+            user = {"id": username, "username": username, "display_name": username,
+                    "login": "link" if link else "account"}
             projects = [{"id": client.project_id, "name": client._folder_name(), "role": ""}]
             server = client.server_url
         else:
@@ -236,13 +252,16 @@ class OnlineStore:
         if info["kind"] == "nextcloud":
             info["folder"] = getattr(client, "folder", "") or ""
             info["url"] = getattr(client, "url", None) or server
+            info["login"] = getattr(client, "login_mode", "account") or "account"
+            info["invite_id"] = getattr(client, "invite_id", None)
             root = getattr(client, "root_url", "")
             default = None
-            try:
-                from .nextcloud import webdav_root as _root
-                default = _root(info["url"], username or "", info["folder"]).rstrip("/")
-            except Exception:
-                pass
+            if info["login"] == "account":
+                try:
+                    from .nextcloud import webdav_root as _root
+                    default = _root(info["url"], username or "", info["folder"]).rstrip("/")
+                except Exception:
+                    pass
             info["webdav_root"] = root if root and root != default else None
         else:
             info["url"] = server
@@ -389,13 +408,40 @@ class OnlineStore:
             client = self.client
         backend = getattr(client, "backend", "server") if client is not None else "local"
         guarantees = getattr(client, "guarantees", "strong") if client is not None else "strong"
+        login = getattr(client, "login_mode", "account") if client is not None else None
         if syncer is None:
             return {"mode": "disconnected", "pending": 0, "conflicts": 0, "last_sync": None,
                     "server": self.server, "user": self.username,
-                    "backend": backend, "guarantees": guarantees}
+                    "backend": backend, "guarantees": guarantees, "login": login,
+                    "readonly": False, "readonly_reason": None, "link_error": None}
         out = syncer.status()
         out["backend"] = backend
         out["guarantees"] = guarantees
+        out["login"] = login
+        out["readonly"] = False
+        out["readonly_reason"] = None
+        out["link_error"] = None
+        access = getattr(client, "access", None)
+        if login == "link" and callable(access):
+            try:
+                state = access()
+            except OnlineError:
+                state = {}
+            out["readonly"] = bool(state.get("readonly"))
+            out["readonly_reason"] = state.get("reason")
+            out["readonly_message"] = state.get("message")
+            health = getattr(client, "link_health", None)
+            if out["mode"] in ("offline", "error") and callable(health):
+                # "your Wi-Fi is down" and "the owner deleted the link" both look
+                # like a failed round; only one of them needs a new invitation
+                try:
+                    link = health()
+                except Exception:               # noqa: BLE001 - status must answer
+                    link = {"ok": None}
+                if link.get("ok") is False:
+                    out["link_error"] = link.get("message")
+                    if out["mode"] == "error":
+                        out["last_error"] = link.get("message")
         return out
 
     def kick(self) -> None:

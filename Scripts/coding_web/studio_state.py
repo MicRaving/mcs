@@ -304,7 +304,7 @@ LAST_PROJECT_KEY = "last_project"
 #: The fields a saved connection keeps (never a password, token or app password:
 #: those live in the OS keyring, see ``online/keyring_store.py``).
 ONLINE_CONNECTION_FIELDS = ("id", "kind", "url", "server", "username", "folder", "webdav_root",
-                            "project_id", "project_name", "last_opened")
+                            "project_id", "project_name", "last_opened", "login", "invite_id")
 _SECRET_WORDS = ("password", "token", "secret")
 
 
