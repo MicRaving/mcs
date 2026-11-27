@@ -36,7 +36,7 @@
   /* ------------------------------------------------------------ sections */
 
   function showSection(id) {
-    state.section = id === "updates" ? "updates" : "project";
+    state.section = ["updates", "admin"].includes(id) ? id : "project";
     $$("#st-nav .st-nav-item").forEach((b) => {
       const on = b.dataset.section === state.section;
       b.classList.toggle("active", on);
@@ -44,9 +44,46 @@
     });
     const project = $("#st-panel-project");
     const updates = $("#st-panel-updates");
+    const admin = $("#st-panel-admin");
     if (project) project.hidden = state.section !== "project";
     if (updates) updates.hidden = state.section !== "updates";
+    if (admin) admin.hidden = state.section !== "admin";
     if (state.section === "updates") loadUpdateState();
+    if (state.section === "admin") loadAdmin();
+    else if (window.csOnlineAdmin) window.csOnlineAdmin.close();
+  }
+
+  /* The project admin is one page inside Settings (not a modal): the module
+     admin_online.js renders its sections into this panel. */
+  async function loadAdmin() {
+    const body = $("#st-admin-body");
+    const nav = $("#st-nav-admin");
+    if (!body) return;
+    let st = null;
+    try { st = await api("api/online/status"); } catch (_) { st = null; }
+    const online = !!(st && st.active);
+    if (nav) nav.hidden = false;
+    if (!online) {
+      body.replaceChildren(h("p", { class: "st-status", text:
+        "Open an online project first — the project admin belongs to it." }));
+      return;
+    }
+    if (!window.csOnlineAdmin) {
+      body.replaceChildren(h("p", { class: "st-status err", text:
+        "The project admin could not be loaded." }));
+      return;
+    }
+    await window.csOnlineAdmin.render(body);
+  }
+
+  function h(tag, attrs = {}, ...kids) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+    }
+    node.append(...kids);
+    return node;
   }
 
   /* ------------------------------------------------------------ the AGENTS.md */
@@ -381,6 +418,12 @@
     // the view may already be the one on screen (a reload that lands here)
     if (window.CS.currentView() === "settings") loadProjectDoc();
   }
+
+  // Other views (the header's "Project admin") land here on one section.
+  window.CS.openSettings = function (section) {
+    if (window.CS.showView) window.CS.showView("settings");
+    showSection(section || "project");
+  };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();

@@ -1,9 +1,35 @@
-/* Project admin panel (admin_online.js).  Owner-only modal for an online
-   project: members, settings, assignments, locks, audit, publish.
-   Colours and radii come from styles.css, so light and dark themes both work. */
+/* Project admin (admin_online.js): one page inside Settings ("Project admin"),
+   sections folded away.  Owner-only.  Colours and radii come from styles.css,
+   so light and dark themes both work. */
 
-#online-admin-root [hidden] { display: none !important; }
-#online-admin-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.oa-jump {
+  display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px;
+  position: sticky; top: 0; z-index: 2; padding: 6px 0;
+  background: var(--bg, transparent);
+}
+.oa-jump-item {
+  padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--muted); font: 600 11.5px var(--font);
+  cursor: pointer;
+}
+.oa-jump-item:hover { color: var(--ink); border-color: var(--accent); }
+
+.oa-folder {
+  margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--r);
+  background: var(--panel-2);
+}
+.oa-folder > summary {
+  display: flex; align-items: baseline; gap: 10px; cursor: pointer;
+  padding: 10px 14px; list-style: none;
+}
+.oa-folder > summary::-webkit-details-marker { display: none; }
+.oa-folder > summary::before { content: "▸"; color: var(--muted); margin-right: 2px; }
+.oa-folder[open] > summary::before { content: "▾"; }
+.oa-folder-title { font-weight: 700; font-size: 13px; }
+.oa-folder > *:not(summary) { margin: 0 14px 12px; }
+.oa-folder .oa-section { margin-bottom: 10px; }
+
+#st-admin-body :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .oa-overlay {
   position: fixed; inset: 0; z-index: 100;

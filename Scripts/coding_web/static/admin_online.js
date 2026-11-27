@@ -16,13 +16,17 @@
   const STAGES = ["abstract", "fulltext", "coding"];
   const TASKS = ["abstract", "fulltext", "coding", "settle", "harmonize", "reproduce"];
   const ROLES = ["owner", "coder", "viewer"];
-  const TABS = [
-    ["members", "Members"],
-    ["settings", "Settings"],
-    ["assignments", "Assignments"],
-    ["locks", "Locks"],
-    ["audit", "Audit"],
-    ["publish", "Publish"],
+  // One page in the app's Settings, not a modal with tabs: the sections are
+  // read top to bottom and each folds away, so the owner always sees the same
+  // order.  "people" is the only place people are managed (D11: owners did not
+  // find two user lists).
+  const SECTIONS = [
+    ["people", "People", "Everyone who can work in this project"],
+    ["share", "Share link", "Co-authors without an account (Nextcloud only)"],
+    ["settings", "Blinding & locks", "What a coder may see, and for how long"],
+    ["assignments", "Assignments", "Which coder codes which paper"],
+    ["publish", "Publishing", "Put the local project folder on the server"],
+    ["audit", "Audit", "Who changed what"],
   ];
   const POLL_MS = 2000;
   // Publish states that mean "finished". Any other state counts as running,
@@ -243,72 +247,15 @@
 
   /* ------------------------------------------------------------ panel shell */
 
-  function open() {
-    if (state) {
-      const cur = state.tabs.querySelector('[aria-selected="true"]');
-      if (cur) cur.focus();
-      return;
-    }
-    let root = document.getElementById(ROOT_ID);
-    if (!root) {
-      root = el("div", { id: ROOT_ID });
-      document.body.appendChild(root);
-    }
+  /* The page is mounted into the Settings view (see settings.js); nothing is
+     a modal any more.  Each section renders on its own: a failing request
+     shows its error inside that section and the rest of the page stays. */
 
-    const titleId = "oa-title";
-    const tabs = el("div", { class: "oa-tabs", role: "tablist", "aria-label": "Project admin sections" },
-      TABS.map(([id, label]) => el("button", {
-        class: "oa-tab", type: "button", role: "tab", id: `oa-tab-${id}`,
-        "aria-controls": "oa-body", "aria-selected": "false", tabindex: "-1", "data-tab": id, text: label,
-      })));
-    const status = el("div", { class: "oa-status", role: "status", "aria-live": "polite", hidden: true });
-    const body = el("div", { class: "oa-body", id: "oa-body", role: "tabpanel", tabindex: "0" });
-    const closeBtn = el("button", { class: "btn ghost icon", type: "button", "aria-label": "Close project admin", text: "×" });
-    const head = el("div", { class: "oa-head" }, el("h2", { id: titleId, text: "Project admin" }), closeBtn);
-    const panel = el("div", { class: "oa-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": titleId },
-      head, tabs, status, body);
-    const overlay = el("div", { class: "oa-overlay" }, panel);
-
-    state = {
-      root, overlay, panel, tabs, status, body,
-      returnFocus: document.activeElement,
-      tab: null, token: 0, pollTimer: null, onFocusIn: null,
-    };
-
-    closeBtn.addEventListener("click", close);
-    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(); });
-    overlay.addEventListener("keydown", onKey);
-    tabs.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-tab]");
-      if (b) selectTab(b.dataset.tab);
-    });
-    tabs.addEventListener("keydown", (e) => {
-      const ids = TABS.map((t) => t[0]);
-      const i = ids.indexOf(state.tab);
-      let j = null;
-      if (e.key === "ArrowRight") j = (i + 1) % ids.length;
-      else if (e.key === "ArrowLeft") j = (i - 1 + ids.length) % ids.length;
-      else if (e.key === "Home") j = 0;
-      else if (e.key === "End") j = ids.length - 1;
-      if (j === null) return;
-      e.preventDefault();
-      selectTab(ids[j]);
-      const next = tabs.querySelector(`#oa-tab-${ids[j]}`);
-      if (next) next.focus();
-    });
-
-    // Focus trap: anything that takes focus outside the dialog is pulled back in.
-    state.onFocusIn = (e) => {
-      if (!state || panel.contains(e.target)) return;
-      const f = focusables(panel);
-      if (f.length) f[0].focus();
-    };
-    document.addEventListener("focusin", state.onFocusIn, true);
-
-    root.replaceChildren(overlay);
-    selectTab("members");
-    const first = tabs.querySelector('[aria-selected="true"]');
-    if (first) first.focus();
+  function renderInline(container) {
+    if (!container) return;
+    container.replaceChildren(el("p", { class: "oa-muted", text: "Loading…" }));
+    state = { container, token: 0, pollTimer: null };
+    renderTab();
   }
 
   function close() {
@@ -316,50 +263,10 @@
     const s = state;
     state = null;
     clearTimeout(s.pollTimer);
-    document.removeEventListener("focusin", s.onFocusIn, true);
-    s.root.replaceChildren();
-    const rf = s.returnFocus;
-    if (rf && typeof rf.focus === "function" && document.contains(rf)) rf.focus();
+    s.container.replaceChildren();
   }
 
-  function onKey(e) {
-    if (!state) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const f = focusables(state.panel);
-    if (!f.length) return;
-    const first = f[0];
-    const last = f[f.length - 1];
-    const cur = document.activeElement;
-    const inside = state.panel.contains(cur);
-    if (e.shiftKey && (cur === first || !inside)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (cur === last || !inside)) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  function selectTab(id) {
-    if (!state) return;
-    state.tab = id;
-    for (const b of state.tabs.querySelectorAll('[role="tab"]')) {
-      const on = b.dataset.tab === id;
-      b.setAttribute("aria-selected", on ? "true" : "false");
-      b.tabIndex = on ? 0 : -1;
-      if (on) state.body.setAttribute("aria-labelledby", b.id);
-    }
-    state.status.hidden = true;
-    state.status.textContent = "";
-    renderTab();
-  }
-
-  // Each render takes a token; a late response from an earlier tab is dropped.
+  // Each render takes a token; a late answer from an earlier render is dropped.
   async function renderTab() {
     if (!state) return;
     const s = state;
@@ -367,41 +274,82 @@
     const token = s.token;
     clearTimeout(s.pollTimer);
     s.pollTimer = null;
-    s.body.replaceChildren(el("p", { class: "oa-muted", text: "Loading…" }));
-    try {
-      const view = await VIEWS[s.tab]();
+    const nav = el("nav", { class: "oa-jump", "aria-label": "Project admin sections" });
+    const page = el("div", { class: "oa-inline" });
+    for (const [id, title, sub] of SECTIONS) {
+      const link = el("button", { class: "oa-jump-item", type: "button",
+        text: title, onclick: () => {
+          const target = page.querySelector(`[data-section="${id}"]`);
+          if (target) {
+            target.open = true;
+            target.scrollIntoView({ block: "start", behavior: "smooth" });
+            const h = target.querySelector("summary");
+            if (h) h.focus();
+          }
+        } });
+      nav.append(link);
+      const folder = el("details", { class: "oa-folder", "data-section": id, open: true },
+        el("summary", null,
+          el("span", { class: "oa-folder-title", text: title }),
+          el("span", { class: "oa-muted", text: sub })));
+      page.append(folder);
+      if (id === "share") {
+        // filled asynchronously below only for a Nextcloud project
+        folder.hidden = true;
+      }
+    }
+    s.container.replaceChildren(nav, page);
+
+    for (const [id, title] of SECTIONS) {
       if (!state || state.token !== token) return;
-      state.body.replaceChildren(view);
-    } catch (e) {
-      if (!state || state.token !== token) return;
-      state.body.replaceChildren(el("p", { class: "oa-error", role: "alert", text: explain(e) }));
+      const folder = page.querySelector(`[data-section="${id}"]`);
+      if (!folder) continue;
+      const view = VIEWS[id];
+      if (!view) { folder.hidden = true; continue; }
+      try {
+        const body = await view();
+        if (!state || state.token !== token) return;
+        if (body === null) { folder.hidden = true; continue; }
+        folder.append(body);
+      } catch (e) {
+        if (!state || state.token !== token) return;
+        folder.append(el("p", { class: "oa-error", role: "alert", text: explain(e) }));
+      }
     }
   }
 
-  /* ------------------------------------------------------------ Members tab */
+  /* ------------------------------------------------------------ People section */
 
-  VIEWS.members = async function () {
+  VIEWS.people = async function () {
     const [mem, usr, status] = await Promise.all([
       api(`${API}/members`),
-      api(`${API}/users`),
+      api(`${API}/users`).catch(() => ({ users: [] })),
       api("api/online/status").catch(() => null),
     ]);
     const members = listOf(mem, "members");
     const users = listOf(usr, "users");
     const memberIds = new Set(members.map((m) => String(uidOf(m))));
-    // Share links exist only on a Nextcloud project (D11): an account member
-    // list plus invitation-based coders.  LRZ Sync+Share is the same WebDAV
-    // backend but has no public share links, so its panel keeps accounts only.
     const sas = /(^|[\/.])syncandshare\.lrz\.de/i.test(String((status && status.server) || ""));
-    const shareLink = status && status.backend === "nextcloud" && !sas
-      ? await shareLinkPanel() : null;
+    const link = status && status.backend === "nextcloud" && !sas;
+
+    const people = memberTable(members, users, link);
+    if (link) {
+      // Nextcloud/Sync+Share: the accounts belong to Nextcloud.  People with
+      // their own account sign in; everyone else joins through an invitation
+      // in the next section, which adds them to this table.
+      return el("div", null,
+        section("People", people,
+          el("p", { class: "oa-muted", text:
+            "Co-authors with their own Nextcloud account sign in with it and appear here "
+            + "once you add them. Co-authors without an account join with an invitation "
+            + "(see “Share link”) — they appear here marked “invitation”." })));
+    }
     return el("div", null,
-      shareLink || null,
-      section("Members", memberTable(members)),
-      section("Add member", addMemberForm(users, memberIds)),
-      section("Server users", createUserForm(), usersTable(users)));
+      section("People", people),
+      section("Add a person", addPersonForm(users, memberIds)));
   };
 
+  /* ------------------------------------------------------------ Share link (D11)
   /* ------------------------------------------------------------ Share link (D11)
 
      A Nextcloud public share link (password + edit rights) is scoped to this
@@ -657,7 +605,18 @@
       : "Share link", body);
   }
 
-  function memberTable(members) {
+  function accountState(member, users, link) {
+    if (link || String(member.login || "") === "link") {
+      return el("span", { class: "oa-muted", text: String(member.login || "") === "link"
+        ? "invitation" : "account" });
+    }
+    const u = users.find((x) => String(x.username) === String(member.username));
+    if (!u) return el("span", { class: "oa-muted", text: "no account" });
+    if (u.disabled) return badge("disabled", "warn");
+    return badge("active", "ok");
+  }
+
+  function memberTable(members, users = [], link = false) {
     const rows = members.map((m) => {
       const who = nameOf(m);
       const uid = enc(uidOf(m));
@@ -678,96 +637,105 @@
           await renderTab();
         }, `Removed ${who}`)();
       });
+      // the server account's on/off switch belongs to the same person row
+      // (it used to be a second table of the same people)
+      const account = el("td", null, accountState(m, users, link));
+      const u = users.find((x) => String(x.username) === String(m.username));
+      if (u && !link && m.role !== "owner") {
+        const toggle = el("button", { class: "btn ghost", type: "button",
+          text: u.disabled ? "Enable account" : "Disable account" });
+        toggle.addEventListener("click", action(toggle, async () => {
+          await api(`${API}/users/${enc(u.id)}`, { method: "PATCH", body: { disabled: !u.disabled } });
+          await renderTab();
+        }, u.disabled ? `Enabled ${u.username}` : `Disabled ${u.username}`));
+        account.append(" ", toggle);
+      }
       return el("tr", null,
-        td(who), td(m.username || ""),
+        td(who), td(m.username || ""), account,
         el("td", null, role),
         el("td", null, tags.node),
         el("td", null, tasks.node),
         el("td", { class: "oa-actions" }, save, rm));
     });
-    return table(["Name", "Username", "Role", "Tags", "Tasks", ""], rows, "No members yet. Add one below.");
+    return table(["Name", "Username", "Account", "Role", "Tags", "Tasks", ""], rows,
+      "Nobody yet — add a person below.");
   }
 
-  function addMemberForm(users, memberIds) {
+  function addPersonForm(users, memberIds) {
     const candidates = users.filter((u) => !memberIds.has(String(u.id)) && !u.disabled);
-    if (!candidates.length) {
-      return el("p", { class: "oa-muted", text: "Every enabled server user is already a member. Create a user below first." });
-    }
-    const pick = el("select", { class: "oa-input", "aria-label": "Server user to add" },
-      candidates.map((u) => el("option", { value: String(u.id), text: `${u.display_name || u.username} (${u.username})` })));
-    const role = el("select", { class: "oa-input", "aria-label": "Role for new member" },
+    const existing = el("input", { type: "radio", name: "oa-add-mode", value: "existing",
+      checked: candidates.length > 0 });
+    const fresh = el("input", { type: "radio", name: "oa-add-mode", value: "new",
+      checked: candidates.length === 0 });
+    const pick = el("select", { class: "oa-input", "aria-label": "Existing account" },
+      candidates.map((u) => el("option", { value: String(u.id),
+        text: `${u.display_name || u.username} (${u.username})` })));
+    const username = el("input", { class: "oa-input", type: "text", autocomplete: "off",
+      placeholder: "e.g. aberger" });
+    const display = el("input", { class: "oa-input", type: "text", autocomplete: "off",
+      placeholder: "e.g. Anna Berger" });
+    const password = el("input", { class: "oa-input", type: "password", autocomplete: "new-password",
+      placeholder: "initial password you hand over" });
+    const role = el("select", { class: "oa-input", "aria-label": "Role" },
       ROLES.map((r) => el("option", { value: r, text: r, selected: r === "coder" })));
-    const tags = chipInput([], "Tags for new member");
+    const tags = chipInput([], "Coder tag(s)");
     const tasks = taskBoxes(["coding"]);
-    const btn = el("button", { class: "btn primary", type: "button", text: "Add member" });
+    const existingRow = el("div", { class: "oa-form-row" }, field("Account", pick));
+    const newRow = el("div", { class: "oa-form-row" },
+      field("Username", username), field("Display name", display), field("Initial password", password));
+    const syncMode = () => {
+      const isNew = fresh.checked;
+      existingRow.hidden = isNew;
+      newRow.hidden = !isNew;
+    };
+    existing.addEventListener("change", syncMode);
+    fresh.addEventListener("change", syncMode);
+    syncMode();
+    const btn = el("button", { class: "btn primary", type: "button", text: "Add person" });
     btn.addEventListener("click", action(btn, async () => {
-      await api(`${API}/members/${enc(pick.value)}`, {
-        method: "PUT",
-        body: { role: role.value, tags: tags.get(), tasks: tasks.get() },
-      });
+      if (fresh.checked) {
+        if (!username.value.trim() || !password.value) {
+          throw new AdminError("bad_request", "A username and an initial password are needed for a new account.");
+        }
+        const made = await api(`${API}/users`, {
+          method: "POST",
+          body: { username: username.value.trim(), display_name: display.value.trim(),
+                  password: password.value },
+        });
+        const id = (made && (made.id || (made.user && made.user.id))) || username.value.trim();
+        await api(`${API}/members/${enc(id)}`, {
+          method: "PUT", body: { role: role.value, tags: tags.get(), tasks: tasks.get() },
+        });
+      } else {
+        if (!pick.value) throw new AdminError("bad_request", "Choose an account.");
+        await api(`${API}/members/${enc(pick.value)}`, {
+          method: "PUT", body: { role: role.value, tags: tags.get(), tasks: tasks.get() },
+        });
+      }
       await renderTab();
-    }, "Member added"));
+    }, "Person added"));
     return el("div", null,
-      el("div", { class: "oa-form-row" }, field("User", pick), field("Role", role), field("Tags", tags.node)),
+      el("div", { class: "oa-radio-group", role: "radiogroup", "aria-label": "New or existing account" },
+        el("label", { class: "oa-check" }, existing, "Existing account"),
+        el("label", { class: "oa-check" }, fresh, "New account")),
+      existingRow, newRow,
+      el("div", { class: "oa-form-row" }, field("Role", role), field("Tags", tags.node)),
       el("div", { class: "oa-form-row" }, field("Tasks", tasks.node)),
       el("div", { class: "oa-actions-row" }, btn));
   }
 
-  function createUserForm() {
-    const username = el("input", { class: "oa-input", type: "text", autocomplete: "off" });
-    const display = el("input", { class: "oa-input", type: "text", autocomplete: "off" });
-    const email = el("input", { class: "oa-input", type: "email", autocomplete: "off" });
-    const password = el("input", { class: "oa-input", type: "password", autocomplete: "new-password" });
-    const admin = el("input", { type: "checkbox" });
-    const submit = el("button", { class: "btn primary", type: "submit", text: "Create user" });
-    const form = el("form", { novalidate: true },
-      el("h4", { text: "Create user" }),
-      el("div", { class: "oa-form-row" },
-        field("Username", username), field("Display name", display), field("Email", email)),
-      el("div", { class: "oa-form-row" },
-        field("Password", password),
-        el("label", { class: "oa-check" }, admin, "Server admin")),
-      el("div", { class: "oa-actions-row" }, submit));
-    form.addEventListener("submit", (ev) => {
-      ev.preventDefault();
-      if (!username.value.trim() || !password.value) {
-        notify("Username and password are required.", "err");
-        return;
-      }
-      action(submit, async () => {
-        await api(`${API}/users`, {
-          method: "POST",
-          body: {
-            username: username.value.trim(),
-            display_name: display.value.trim(),
-            email: email.value.trim(),
-            password: password.value,
-            is_admin: admin.checked,
-          },
-        });
-        await renderTab();
-      }, "User created")();
-    });
-    return form;
-  }
+  /* ------------------------------------------------------------ Share section */
 
-  function usersTable(users) {
-    const rows = users.map((u) => {
-      const toggle = el("button", { class: "btn", type: "button", text: u.disabled ? "Enable" : "Disable" });
-      toggle.addEventListener("click", action(toggle, async () => {
-        await api(`${API}/users/${enc(u.id)}`, { method: "PATCH", body: { disabled: !u.disabled } });
-        await renderTab();
-      }, u.disabled ? `Enabled ${u.username}` : `Disabled ${u.username}`));
-      return el("tr", null,
-        td(u.username || ""), td(u.display_name || ""), td(u.email || ""),
-        td(u.is_admin ? "yes" : "no"),
-        el("td", null, u.disabled ? badge("disabled", "warn") : badge("active", "ok")),
-        el("td", { class: "oa-actions" }, toggle));
-    });
-    return el("div", null, el("h4", { text: "Users" }),
-      table(["Username", "Name", "Email", "Admin", "Status", ""], rows, "No server users."));
-  }
+  VIEWS.share = async function () {
+    const status = await api("api/online/status").catch(() => null);
+    const sas = /(^|[\/.])syncandshare\.lrz\.de/i.test(String((status && status.server) || ""));
+    if (!status || status.backend !== "nextcloud" || sas) {
+      return null;                       // only a Nextcloud project has share links
+    }
+    return el("div", null, await shareLinkPanel());
+  };
 
+  /* ------------------------------------------------------------ Settings tab */
   /* ------------------------------------------------------------ Settings tab */
 
   VIEWS.settings = async function () {
@@ -806,7 +774,8 @@
         el("p", { class: "oa-muted", text: "Blinded: a coder cannot see another tag's work on a paper until they have finished that paper (coding stage). Abstract and fulltext files of other tags stay hidden. Visible: no restriction." })),
       section("Locks and offline leases",
         el("div", { class: "oa-form-row" }, field("Lock TTL (hours)", lock), field("Max offline lease (hours)", lease))),
-      el("div", { class: "oa-actions-row" }, save));
+      el("div", { class: "oa-actions-row" }, save),
+      lockListSection());
   };
 
   /* ------------------------------------------------------------ Assignments tab */
@@ -1038,8 +1007,8 @@
 
   /* ------------------------------------------------------------ Locks tab */
 
-  VIEWS.locks = async function () {
-    const d = await api("api/online/locks");
+  async function lockListSection() {
+    const d = await api("api/online/locks").catch(() => ({ locks: [] }));
     const rows = listOf(d, "locks").map((l) => {
       const key = l.key;
       const force = el("button", { class: "btn danger", type: "button", text: "Force release" });
@@ -1060,12 +1029,10 @@
         el("td", null, l.expired ? badge("expired", "warn") : badge("held", "ok")),
         el("td", { class: "oa-actions" }, force));
     });
-    const refresh = el("button", { class: "btn ghost", type: "button", text: "Refresh" });
-    refresh.addEventListener("click", () => renderTab());
-    return el("div", null,
-      el("div", { class: "oa-actions-row" }, refresh),
-      section("Locks", table(["Key", "Holder", "Client", "Acquired", "Expires", "Mode", "State", ""], rows, "No locks are held.")));
-  };
+    return section("Locks held right now",
+      table(["Key", "Holder", "Client", "Acquired", "Expires", "Mode", "State", ""], rows,
+        "No locks are held."));
+  }
 
   /* ------------------------------------------------------------ Audit tab */
 
@@ -1211,6 +1178,9 @@
 
   /* ------------------------------------------------------------ wiring */
 
-  window.addEventListener("cs:online-admin-open", () => open());
-  window.csOnlineAdmin = { open, close };
+  window.addEventListener("cs:online-admin-open", () => {
+    // the old header entry: show Settings on the admin page
+    if (window.CS.openSettings) window.CS.openSettings("admin");
+  });
+  window.csOnlineAdmin = { render: renderInline, close };
 })();
