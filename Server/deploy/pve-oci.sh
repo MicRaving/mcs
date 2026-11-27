@@ -308,6 +308,11 @@ cmd_upgrade() {
   local memory="$MEMORY" cores="$CORES"
   local new; new="$(next_ctid $((old + 1)))"
   local template; template="$(export_image "$image")"
+  # the old CT's network line verbatim (host-managed, a manual IP, ...): the
+  # record only stores what `create` was told, not what was set later
+  local net0
+  net0="$(pct config "$old" | awk '/^net0:/{sub(/^net0: */,""); print}' | sed -E 's/hwaddr=[^,]*,?//')"
+  [ -n "$net0" ] || net0="name=eth0,bridge=${BRIDGE},ip=${IP}"
 
   ensure_dirs "$data" "$blobs" "$web"
   log "upgrade $old -> $new (same data/mirrors, old CT kept for rollback)"
@@ -316,7 +321,7 @@ cmd_upgrade() {
     --cores "$cores" --memory "$memory" --swap "$SWAP" \
     --rootfs "${STORAGE}:${ROOTFS_SIZE}" \
     --mp0 "$data,mp=/data" --mp1 "$blobs,mp=/data/blobs" --mp2 "$web,mp=/srv/studio/web" \
-    --net0 "name=eth0,bridge=${BRIDGE},ip=${IP}" \
+    --net0 "$net0" \
     --unprivileged 1 --onboot "$ONBOOT" --start 0
   local envs=("STUDIO_BROWSER_MODE=$browser" "STUDIO_MEM_LIMIT_MB=$memory")
   if [ -f "$(env_file "$old")" ]; then
