@@ -62,10 +62,17 @@
     let st = null;
     try { st = await api("api/online/status"); } catch (_) { st = null; }
     const online = !!(st && st.active);
+    const me = (st && st.me) || {};
     if (nav) nav.hidden = false;
     if (!online) {
       body.replaceChildren(h("p", { class: "st-status", text:
         "Open an online project first — the project admin belongs to it." }));
+      return;
+    }
+    if (me.role !== "owner") {
+      body.replaceChildren(h("p", { class: "st-status", text:
+        "Only the project owner can change people, access or assignments. "
+        + "Ask them if something needs adjusting." }));
       return;
     }
     if (!window.csOnlineAdmin) {
