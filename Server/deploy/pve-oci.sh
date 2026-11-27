@@ -100,6 +100,9 @@ docker_ct() {  # run docker inside the Docker-capable CT
 # it ("Unsupported CPU architecture").
 export_image() {
   local image="$1" file remote
+  case "$image" in
+    *:vztmpl/*) log "template given directly: $image"; echo "$image"; return 0 ;;
+  esac
   file="$(template_name "$image")"
   remote="/root/$file"
   local target="/var/lib/vz/template/cache/$file"
@@ -202,11 +205,43 @@ cmd_export() {
 }
 
 cmd_fetch() {
-  # pull a registry image (e.g. the GHCR release build) into the build CT, then
-  # export it; PVE itself has no registry client.
-  local image="$1"
+  # A published image is pulled by PROXMOX itself (PVE 9: an OCI registry pull
+  # into a `dir` storage becomes a vztmpl) - no Docker anywhere.  Only when this
+  # PVE is too old for that does it fall back to pulling in the build CT.
+  local image="$1" ref node storage vol
   [ -n "$image" ] || die "usage: $0 fetch ghcr.io/<owner>/<repo>-server:<version>"
-  log "pulling $image in CT $BUILD_CT"
+  ref="$image"
+  node="$(hostname -s)"
+  # a private GHCR package needs credentials: GHCR_USER / GHCR_TOKEN
+  local auth=()
+  if [ -n "${GHCR_TOKEN:-}" ]; then
+    auth=(--username "${GHCR_USER:-}" --password "$GHCR_TOKEN")
+  fi
+  if [ -z "${FORCE_DOCKER_FETCH:-}" ] && pvesh usage "/nodes/$node/storage/$TEMPLATE_STORAGE/oci-registry-pull" >/dev/null 2>&1; then
+    log "PVE pulls $ref directly into $TEMPLATE_STORAGE (no Docker)"
+    vol="$(pvesh create "/nodes/$node/storage/$TEMPLATE_STORAGE/oci-registry-pull" \
+             --reference "$ref" ${auth[@]+"${auth[@]}"} --output-format json 2>/dev/null \
+           | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d if isinstance(d,str) else d.get("upid",""))')" \
+      || die "the registry pull could not be started"
+    [ -n "$vol" ] || die "the registry pull returned no task"
+    # wait for the task, then read the template name it wrote
+    local status id
+    for _ in $(seq 1 200); do
+      status="$(pvesh get "/nodes/$node/tasks/$vol/status" --output-format json 2>/dev/null || true)"
+      case "$status" in *'"status":"stopped"'*) break ;; esac
+      sleep 3
+    done
+    case "$status" in
+      *'"exitstatus":"OK"'*) ;;
+      *) die "the registry pull failed: ${status:-no status}" ;;
+    esac
+    id="$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')"
+    [ -n "$id" ] || die "the pull finished but named no template"
+    log "template: $TEMPLATE_STORAGE:vztmpl/$id"
+    echo "$TEMPLATE_STORAGE:vztmpl/$id"
+    return 0
+  fi
+  log "this PVE has no OCI registry pull; pulling in CT $BUILD_CT (Docker needed there)"
   docker_ct pull --platform linux/amd64 "$image"
   export_image "$image"
 }

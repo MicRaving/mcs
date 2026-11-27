@@ -999,6 +999,9 @@
     const status = h("p", { class: "online-status", id: "online-invite-status" });
     const btn = h("button", { class: "btn primary", id: "online-join-btn", type: "button",
       text: "Join with this invitation" });
+    const diagBtn = h("button", { class: "btn ghost", id: "online-invite-diagnose", type: "button",
+      text: "Test connection" });
+    diagBtn.addEventListener("click", () => diagnoseInvite());
     const fileBtn = h("button", { class: "btn ghost", id: "online-invite-open", type: "button",
       text: "Open file…" });
 
@@ -1014,7 +1017,7 @@
           text: " you can also drop the .csinvite file here" }))),
       passField,
       status,
-      h("div", { class: "online-actions" }, btn),
+      h("div", { class: "online-actions" }, btn, diagBtn),
     );
     file.hidden = true;
     fileBtn.addEventListener("click", () => file.click());
@@ -1130,6 +1133,48 @@
     }
   }
 
+  function invitationDiagnostics(result) {
+    const box = h("div", { class: "online-diag", id: "online-invite-diag" });
+    box.append(h("h5", { text: result && result.ok ? "The project is reachable" : "Connection test" }));
+    const rows = ((result && result.steps) || []).map((s) => h("div", { class: "online-diag-row" },
+      h("span", { class: "online-diag-step", text: s.step }),
+      h("span", { class: "online-diag-ok" + (s.ok ? "" : " bad"), text: s.ok ? "ok" : "failed" }),
+      h("span", { class: "online-diag-detail", text: s.error || s.detail || s.protocol ||
+        (s.address && s.address.join ? s.address.join(", ") : "") ||
+        (s.ms !== undefined ? `${s.ms} ms` : "") ||
+        (s.entries !== undefined ? `${s.entries} entries` : "") })));
+    if (rows.length) box.append(...rows);
+    if (result && result.hint) box.append(h("p", { class: "online-status err", text: result.hint }));
+    if (result && result.tls) {
+      box.append(h("p", { class: "online-muted", text:
+        `Certificates: ${result.tls.ca_count || 0} trusted (${result.tls.ca_file || "system"})` }));
+    }
+    return box;
+  }
+
+  async function diagnoseInvite() {
+    const st = $("#online-invite-status");
+    const old = $("#online-invite-diag");
+    if (old) old.remove();
+    const text = (($("#online-invite-text") || {}).value || "").trim();
+    const passphrase = (($("#online-invite-passphrase") || {}).value || "");
+    const say = (msg, kind) => {
+      if (!st) return;
+      st.textContent = msg;
+      st.className = "online-status" + (kind === "err" ? " err" : "");
+    };
+    if (!text) { say("Paste the invitation first, then test the connection.", "err"); return; }
+    say("Testing name resolution, encrypted connection and access…");
+    try {
+      const r = await POST("api/online/diagnose", { text, passphrase });
+      say(r && r.ok ? "Reachable." : "See the steps below.", r && r.ok ? "" : "err");
+      const block = $("#online-join");
+      if (block) block.append(invitationDiagnostics(r));
+    } catch (err) {
+      say(String((err && err.message) || err), "err");
+    }
+  }
+
   function inviteErrorText(err) {
     const code = err && err.code;
     const msg = String((err && err.message) || err || "");
@@ -1139,7 +1184,11 @@
     if (code === "not_invitation") return "This is not an invitation. Paste the whole text the owner sent you.";
     if (code === "damaged") return "This invitation is damaged — it may have been cut off by an e-mail program. Ask for a new one.";
     if (err && err.status === 401) return msg || "The share link no longer works — ask the owner for a new invitation.";
-    if (err && err.status === 503) return "The project cannot be reached right now. Try again in a moment.";
+    if (err && err.status === 503) {
+      const detail = msg && msg !== "offline" ? ` (${msg})` : "";
+      return "The project cannot be reached right now" + detail + ". Press “Test connection” "
+        + "below to see which step fails.";
+    }
     return msg || "The invitation could not be used.";
   }
 
@@ -1700,7 +1749,9 @@
     const adminBtn = $("#online-admin-btn");
     if (adminBtn) {
       adminBtn.addEventListener("click", () => {
-        window.dispatchEvent(new CustomEvent("cs:online-admin-open"));
+        // one place: the Settings view's "Project admin" tab
+        if (window.CS.openSettings) window.CS.openSettings("admin");
+        else window.dispatchEvent(new CustomEvent("cs:online-admin-open"));
       });
     }
     const projectOnline = $("#project-online");

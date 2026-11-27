@@ -53,7 +53,9 @@ datas, binaries, hiddenimports = [], [], []
 # Windows, Cocoa on macOS, GTK on Linux.  Only the Windows backend is a pip
 # package of its own (pythonnet); the others come from the system/runtime.
 packages = ("openpyxl", "pptx", "docx", "lxml", "PIL", "webview",
-            "numpy", "scipy", "pandas")
+            "numpy", "scipy", "pandas",
+            # a frozen macOS bundle has no trust store of its own (online.tls)
+            "certifi")
 if IS_WIN:
     packages = packages + ("pythonnet", "clr_loader")
 if not LITE:
@@ -103,7 +105,8 @@ hiddenimports += [
     "routes_online",
     "online", "online.client", "online.store", "online.mirror", "online.outbox",
     "online.syncer", "online.cache", "online.conflicts", "online.keyring_store",
-    "online.errors", "online.webdav", "online.nextcloud",
+    "online.errors", "online.webdav", "online.nextcloud", "online.tls", "online.invite",
+    "online.sharelink",
     # derived master: the compile job and its route
     "routes_master", "master_job", "compile_master",
     "online_shared", "online_shared.protocol", "online_shared.merge",

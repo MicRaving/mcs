@@ -31,6 +31,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
@@ -553,6 +554,41 @@ def api_invite_describe():
     return jsonify({"ok": True, **info})
 
 
+@bp.post("/api/online/diagnose")
+def api_diagnose():
+    """Why can this computer not reach the project?  Step by step, read-only.
+
+    Accepts an invitation (``text`` + optional ``passphrase``) or a raw
+    ``url``.  The password never leaves the server: the checks use it in
+    memory and the answer names only what failed.
+    """
+    from online import invite as invite_mod, netdiag
+
+    payload = request.get_json(force=True, silent=True) or {}
+    text = str(payload.get("text") or payload.get("invitation") or "")
+    passphrase = str(payload.get("passphrase") or "") or None
+    url = str(payload.get("url") or "").strip()
+    user = payload.get("username")
+    secret = payload.get("password")
+    if text:
+        try:
+            inv = invite_mod.parse_invite(text, passphrase)
+        except invite_mod.InviteError as exc:
+            return _err(exc.code, str(exc), 400)
+        url, user, secret = inv["root"], "anonymous", inv["password"]
+    if not url:
+        return _err("bad_request", "An invitation or a URL is needed.", 400)
+    if not url.lower().startswith(("http://", "https://")):
+        url = "https://" + url
+    try:
+        result = netdiag.run(url, user, secret)
+    except Exception as exc:                       # noqa: BLE001 - report, never 500
+        return _err("error", f"{type(exc).__name__}: {exc}", 400)
+    log(f"diagnose {result.get('host')}: " +
+        ", ".join(f"{s['step']}={'ok' if s['ok'] else 'FAIL'}" for s in result["steps"]))
+    return jsonify(result)
+
+
 @bp.post("/api/online/join")
 def api_join():
     """Join a share-link project with an invitation (coder side).
@@ -577,10 +613,7 @@ def api_join():
         pass
     member = inv["member"]
     try:
-        projects = store.connect_nextcloud(inv["root"], member["username"], inv["password"],
-                                           folder="", webdav_root=inv["root"],
-                                           auth_user="anonymous", login="link",
-                                           invite_id=member.get("invite_id") or None)
+        projects = _connect_with_retry(store, inv, member)
     except AuthError as exc:
         return _err("unauthorized", str(exc) or "the share link was refused", 401)
     except ValueError as exc:
@@ -607,6 +640,27 @@ def api_join():
                                 "username": member["username"],
                                 "display_name": member.get("display_name"),
                                 "tags": member.get("tags") or []}})
+
+
+def _connect_with_retry(store, inv, member, attempts: int = 3):
+    """Join with one retry: the first request from a just-started app can lose a
+    race with the system's network stack (VPN not up yet, DNS cache cold), and a
+    "try again in a moment" that works on the second try is not an error.
+    Only a network failure is retried; a refused login is reported at once.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            return store.connect_nextcloud(inv["root"], member["username"], inv["password"],
+                                           folder="", webdav_root=inv["root"],
+                                           auth_user="anonymous", login="link",
+                                           invite_id=member.get("invite_id") or None)
+        except OfflineError as exc:
+            last = exc
+            if attempt + 1 >= attempts:
+                break
+            time.sleep(1.5 * (attempt + 1))
+    raise last
 
 
 def _link_state(store, client, *, probe: bool = True) -> dict:

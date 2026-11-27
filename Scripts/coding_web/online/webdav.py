@@ -75,6 +75,22 @@ from .errors import (
 
 DAV_NS = "{DAV:}"
 DEFAULT_TIMEOUT = 30.0
+#: A ``PROPFIND Depth: infinity`` answers only after the server has walked the
+#: whole tree: the owner's 25k-file share took ~20 s on a good link, and a
+#: laptop on a slow/campus network exceeded the 30 s socket timeout, which the
+#: app reported as "the project cannot be reached right now" (one Mac user,
+#: 2026-11-26).  A listing is not a dead connection, so it gets its own budget.
+PROPFIND_TIMEOUT = 180.0
+
+
+def _default_tls():
+    """The shared HTTPS context (bundled CA file, see :mod:`.tls`)."""
+    try:
+        from . import tls
+
+        return tls.context()
+    except Exception:                       # noqa: BLE001 - never block a client
+        return None
 #: Hard cap on requests in flight.  The client *starts* at
 #: :data:`DEFAULT_PARALLEL` and widens to the cap while no 429/503 is seen
 #: (:meth:`WebDAV._note_result`), so a throttling share never sees the burst it
@@ -202,7 +218,7 @@ class WebDAV:
         self.max_retry_wait = float(max_retry_wait)
         self.clock = clock
         self.sleep = sleep
-        self.ssl_context = ssl_context
+        self.ssl_context = ssl_context if ssl_context is not None else _default_tls()
         self._auth = None
         if username is not None and password is not None:
             raw = f"{username}:{password}".encode("utf-8")
@@ -522,7 +538,9 @@ class WebDAV:
             raise ValueError(f"bad depth {depth!r}")
         headers = {"Depth": depth, "Content-Type": "application/xml; charset=utf-8"}
         try:
-            resp = self.request("PROPFIND", path, headers=headers, body=self._PROPFIND_BODY)
+            resp = self.request("PROPFIND", path, headers=headers, body=self._PROPFIND_BODY,
+                                timeout=max(self.timeout, PROPFIND_TIMEOUT)
+                                if depth == "infinity" else None)
         except (ForbiddenError, BadRequestError, ConflictError, ServerError) as exc:
             if depth == "infinity" and getattr(exc, "status", 0) in (400, 403, 409, 501):
                 raise DepthInfinityRefused(str(exc), getattr(exc, "status", 403),

@@ -50,6 +50,20 @@ MAX_ASSET_BYTES = 600 * 1024 * 1024
 
 _VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:_(\d{1,5}))?$")
 
+
+def _tls_context():
+    """The bundled CA context (see :mod:`online.tls`); None = platform default.
+
+    A frozen macOS bundle has no trust store of its own: without this every
+    HTTPS call (the update check included) failed with a certificate error.
+    """
+    try:
+        from online import tls
+
+        return tls.context()
+    except Exception:                       # noqa: BLE001 - never block an update
+        return None
+
 _STATE = {
     "checked_at": 0.0,
     "result": None,          # the last successful check
@@ -174,7 +188,7 @@ def _get_json(url, timeout=12):
         "Accept": "application/vnd.github+json",
         "User-Agent": f"CodingStudio/{APP_VERSION}",
     })
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_tls_context()) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -367,7 +381,8 @@ def _open_asset(asset):
             headers = {"User-Agent": f"CodingStudio/{APP_VERSION}", **extra}
             try:
                 return urllib.request.urlopen(
-                    urllib.request.Request(url, headers=headers), timeout=30)
+                    urllib.request.Request(url, headers=headers), timeout=30,
+                    context=_tls_context())
             except urllib.error.HTTPError as exc:
                 last = exc
                 if exc.code < 500 and exc.code != 429:
@@ -494,6 +509,9 @@ def apply():
         if "/AppTranslocation/" in target:
             return _fail("macOS runs this copy from a read-only quarantine folder; "
                          "move CodingStudioUni.app to Applications and start it again")
+        if sys.platform == "darwin" and target.startswith("/Volumes/"):
+            return _fail("this copy runs from a mounted disk image; drag CodingStudioUni.app "
+                         "into Applications first, then update from there")
         new_dir = _stage(download["path"], target)
         if isinstance(new_dir, dict):
             return new_dir
@@ -640,6 +658,9 @@ def _write_swap_script(target, new_dir, exe):
             'if mv "$APP" "$OLD"; then',
             '  mv "$NEW" "$APP" || mv "$OLD" "$APP"',
             "fi",
+            # a downloaded bundle keeps the quarantine flag macOS puts on it;
+            # without this the replaced app can be refused on first launch
+            'xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true',
             'if [ -d "$APP" ]; then open "$APP"; else "$APP" & fi',
             'rm -rf "$OLD"',
             "",

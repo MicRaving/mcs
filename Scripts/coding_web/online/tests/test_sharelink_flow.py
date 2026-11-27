@@ -690,3 +690,37 @@ def test_a_broken_invitation_is_a_readable_error_not_a_crash(client):
     assert r.status_code == 400
     assert r.get_json()["error"] == "not_invitation"
     assert "invitation" in r.get_json()["message"].lower()
+
+
+def test_diagnose_explains_an_invitation_that_cannot_be_reached(client, share, keyring):
+    """The join dialog's "Test connection": the route runs the checks with the
+    invitation's own link and password and names the step that failed."""
+    fake, url, _tmp = share
+    _owner_connect(client, url)
+    _create_link(client)
+    alice = _invite(client, "Alice", ["AL"])
+    # a working invitation: every step passes
+    r = client.post("/api/online/diagnose", json={"text": alice["invitation"]})
+    assert r.status_code == 200, r.get_json()
+    ok = r.get_json()
+    assert ok["ok"] is True, ok
+    assert [s["step"] for s in ok["steps"]][:3] == ["address", "dns", "tcp"]
+    # the answer never echoes the link password
+    assert "password" not in json.dumps(ok).lower()
+
+    # deleted link -> the webdav step fails, the transport steps pass
+    r = client.delete("/api/online/link")
+    assert r.status_code == 200
+    r = client.post("/api/online/diagnose", json={"text": alice["invitation"]})
+    bad = r.get_json()
+    steps = {s["step"]: s for s in bad["steps"]}
+    assert bad["ok"] is False
+    assert steps["tcp"]["ok"] is True
+    assert steps["webdav"]["ok"] is False
+    assert "hint" in bad and bad["hint"]
+
+
+def test_diagnose_needs_an_invitation_or_url(client):
+    r = client.post("/api/online/diagnose", json={})
+    assert r.status_code == 400
+    assert r.get_json()["error"] == "bad_request"

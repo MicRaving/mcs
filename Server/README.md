@@ -256,8 +256,11 @@ bash pve-oci.sh create --ctid 196 --image studio-server:local
 bash pve-oci.sh create --ctid 197 --image studio-server:local --browser \
      --public-origin https://meta.home.mfendt.de
 
-# a release image from GHCR (PVE has no registry client; the build CT pulls it)
+# a release image from GHCR: PVE 9 pulls it itself (no Docker anywhere);
+# an older PVE falls back to pulling in the build CT
 bash pve-oci.sh fetch  --image ghcr.io/<owner>/<repo>-server:v1.2.3
+#   then:  bash pve-oci.sh create --ctid 196 --image <the volid that fetch printed>
+# a private GHCR package: GHCR_USER=<github user> GHCR_TOKEN=<token with read:packages>
 
 # new CT on the same data/mirror mounts, old CT kept stopped for rollback
 bash pve-oci.sh upgrade  --ctid 196 --image studio-server:local
@@ -275,6 +278,12 @@ are `--env KEY=VALUE` (repeatable) and are written as `lxc.environment.runtime` 
 because PVE's own `--env` is a NUL-separated list a shell cannot pass.
 `STUDIO_MEM_LIMIT_MB` is set from the CT's memory automatically: inside an LXC the
 container's `memory.max` is not always visible, so the worker cap needs the number.
+
+**Why a registry at all.** The image is not "Docker on the server": it is the one artefact
+the CT is created from. A registry (GHCR) is where the release build puts it, so a host can
+fetch it without compiling the app or having Docker - PVE 9 does the pull itself
+(`oci-registry-pull`). `build`/`export` (Docker in a build CT) remain for a locally built
+image and for PVE versions without that client.
 
 The host directories are created once and owned by `110001` (unprivileged root `100000` +
 the image's uid `10001`); they are shared by the CT and its upgrade CT, so **never start

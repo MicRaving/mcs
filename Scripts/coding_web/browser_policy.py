@@ -184,6 +184,7 @@ CLASSIFICATION: dict[str, str] = {
     # desktop things (the local mirror, the OS keyring, the OCS call from the
     # owner's own Nextcloud connection); a browser worker has neither
     "online.api_invite_describe": DESKTOP_ONLY,
+    "online.api_diagnose": DESKTOP_ONLY,     # outbound probes from this computer
     "online.api_join": DESKTOP_ONLY,
     "online.api_link_get": DESKTOP_ONLY,
     "online.api_link_post": DESKTOP_ONLY,

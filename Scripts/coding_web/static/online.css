@@ -207,6 +207,17 @@ dialog.online-sheet h5 {
 .online-status { min-height: 16px; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 .online-status.err { color: var(--danger); }
 
+/* the invitation connection test: one row per step */
+.online-diag { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface-2, transparent); }
+.online-diag h5 { margin: 0 0 6px; font-size: 12px; }
+.online-diag-row { display: grid; grid-template-columns: 70px 52px 1fr; gap: 8px;
+  font-size: 12px; padding: 2px 0; }
+.online-diag-step { font-weight: 600; }
+.online-diag-ok { color: var(--ok, var(--success, #2e7d32)); }
+.online-diag-ok.bad { color: var(--danger); }
+.online-diag-detail { color: var(--muted); overflow-wrap: anywhere; }
+
 .online-projects { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .online-saved h4 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 
